@@ -71,6 +71,17 @@ export function HomeFeatureIcon({ destination }: { destination: string }) {
             </g>
           </>
         );
+      case '/reader':
+        return (
+          <>
+            <path d="M3 22v-3a13 13 0 0 1 26 0v3" />
+            <rect x="3" y="20" width="5" height="8" rx="2" />
+            <rect x="24" y="20" width="5" height="8" rx="2" />
+            <g className="home-svg-wave">
+              <path d="M13 23v3m3-5v7m3-5v3" />
+            </g>
+          </>
+        );
       case '/gallery':
         return (
           <>

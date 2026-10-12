@@ -21,6 +21,7 @@ import {
   BookOpenIcon,
   FilmIcon,
   FolderIcon,
+  HeadphonesIcon,
   HistoryIcon,
   HomeIcon,
   LayersIcon,
@@ -183,6 +184,13 @@ export function CommandPalette() {
       group: workspaceGroup,
       icon: BookOpenIcon,
       run: () => navigate({ to: '/audiobook' }),
+    },
+    {
+      id: 'reader',
+      label: t('reader.title'),
+      group: workspaceGroup,
+      icon: HeadphonesIcon,
+      run: () => navigate({ to: '/reader' }),
     },
     {
       id: 'projects',

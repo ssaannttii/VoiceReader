@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, lazyRouteComponent, redirect } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell/app-shell';
 import { readLastSettingsRoute } from '@/lib/settings-route';
+import { shouldOpenReaderAtLaunch } from '@/features/reader/pwa';
 
 const HomePage = lazyRouteComponent(() => import('@/features/home/home-page'), 'HomePage');
 
@@ -46,13 +47,37 @@ const SettingsPage = lazyRouteComponent(
   'SettingsPage',
 );
 const ProPage = lazyRouteComponent(() => import('@/features/pro/pro-page'), 'ProPage');
+const ReaderLibraryPage = lazyRouteComponent(
+  () => import('@/features/reader/library-page'),
+  'ReaderLibraryPage',
+);
+const ReaderDocumentPage = lazyRouteComponent(
+  () => import('@/features/reader/reader-page'),
+  'ReaderDocumentPage',
+);
 
 export const rootRoute = createRootRoute({ component: AppShell });
 
 export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  // Web UI opened on a phone: the Reader is the phone-sized workspace.
+  beforeLoad: ({ preload }) => {
+    if (!preload && shouldOpenReaderAtLaunch()) throw redirect({ to: '/reader' });
+  },
   component: HomePage,
+});
+
+export const readerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reader',
+  component: ReaderLibraryPage,
+});
+
+export const readerDocumentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reader/$docId',
+  component: ReaderDocumentPage,
 });
 
 export const savedVoicesRoute = createRoute({
@@ -277,6 +302,8 @@ export const routeTree = rootRoute.addChildren([
   audiobookRoute,
   projectsRoute,
   indexRoute,
+  readerRoute,
+  readerDocumentRoute,
   cloneRoute,
   savedVoicesRoute,
   pronunciationRoute,

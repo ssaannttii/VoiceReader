@@ -38,6 +38,8 @@ import { ExternalLink } from './external-link';
 interface BackendGateProps {
   children: ReactNode;
   repairDock?: ReactNode;
+  /** Run the first-run setup wizard before the children (off for the phone Reader). */
+  setup?: boolean;
 }
 
 const RELEASES_URL = 'https://github.com/debpalash/VoiceStudio/releases/latest';
@@ -90,7 +92,7 @@ export function delimitedDiagnostic(message?: string): string {
  * Holds the page until the local backend answers. The shell (top bar, rail,
  * footer) stays mounted around it, so the splash-to-page swap shifts nothing.
  */
-export function BackendGate({ children, repairDock }: BackendGateProps) {
+export function BackendGate({ children, repairDock, setup: withSetup = true }: BackendGateProps) {
   const { t } = useTranslation();
   const status = useBackendStatus();
   const [reachedReady, setReachedReady] = useState(false);
@@ -150,9 +152,7 @@ export function BackendGate({ children, repairDock }: BackendGateProps) {
 
   if (status.stage === 'ready' || busy)
     return (
-      <div className="contents">
-        <SetupGate>{children}</SetupGate>
-      </div>
+      <div className="contents">{withSetup ? <SetupGate>{children}</SetupGate> : children}</div>
     );
 
   const failed = RETRYABLE.has(status.stage);
@@ -599,7 +599,7 @@ export function BackendGate({ children, repairDock }: BackendGateProps) {
   if (recovering)
     return (
       <div className="contents">
-        <SetupGate>{children}</SetupGate>
+        {withSetup ? <SetupGate>{children}</SetupGate> : children}
         {gate}
       </div>
     );

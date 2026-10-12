@@ -22,6 +22,9 @@
 .workspace-nav-icon[data-tone='audiobook'] {
   --workspace-icon-accent: var(--color-amber-500);
 }
+.workspace-nav-icon[data-tone='reader'] {
+  --workspace-icon-accent: var(--color-emerald-400);
+}
 .workspace-nav-icon[data-tone='dubbing-group'] {
   --workspace-icon-accent: var(--color-rose-500);
 }

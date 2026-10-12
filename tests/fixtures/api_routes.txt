@@ -23,6 +23,8 @@ DELETE /profiles/{profile_id}
 DELETE /profiles/{profile_id}/consent
 DELETE /projects/{project_id}
 DELETE /pronunciation/{entry_id}
+DELETE /reader/documents/{doc_id}
+DELETE /reader/documents/{doc_id}/prerender
 GET /.well-known/voicestudio-speech
 GET /api/integrations/twilio/state
 GET /api/mcp/bindings
@@ -147,6 +149,13 @@ GET /projects
 GET /projects/{project_id}
 GET /pronunciation
 GET /pronunciation/export
+GET /reader/audio/{key}
+GET /reader/documents
+GET /reader/documents/{doc_id}
+GET /reader/documents/{doc_id}/cover
+GET /reader/documents/{doc_id}/prerender
+GET /reader/status
+GET /reader/voices
 GET /setup/download-stream
 GET /setup/preflight
 GET /setup/recommendations
@@ -177,6 +186,7 @@ GET /v1/models/{model_id:path}
 GET /watermark/status
 PATCH /gallery/voices/{voice_id}
 PATCH /projects/{project_id}
+PATCH /reader/documents/{doc_id}
 POST /api/auth/session
 POST /api/auth/ws-ticket
 POST /api/integrations/twilio/test
@@ -278,6 +288,11 @@ POST /projects
 POST /pronunciation
 POST /pronunciation/import
 POST /pronunciation/test
+POST /reader/documents/file
+POST /reader/documents/text
+POST /reader/documents/url
+POST /reader/documents/{doc_id}/prerender
+POST /reader/documents/{doc_id}/segments/{index}/render
 POST /setup/warmup
 POST /stories/encode
 POST /system/crash/ack
@@ -330,6 +345,7 @@ PUT /profiles/{profile_id}/audio
 PUT /profiles/{profile_id}/image
 PUT /projects/{project_id}
 PUT /pronunciation/{entry_id}
+PUT /reader/documents/{doc_id}/progress
 WS /v1/audio/transcriptions/stream
 WS /ws/events
 WS /ws/transcribe

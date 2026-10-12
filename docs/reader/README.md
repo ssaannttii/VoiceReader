@@ -1,0 +1,72 @@
+# Reader — tu "ElevenLabs Reader" local
+
+Reader convierte cualquier texto (PDF, EPUB, DOCX, TXT/Markdown, HTML, artículos web o texto
+pegado) en audio narrado con resaltado palabra a palabra. Todo se genera en tu PC con
+VoiceStudio (OmniVoice en la GPU); el móvil solo reproduce.
+
+Especificación técnica y contrato de API: [SPEC.md](SPEC.md).
+
+## Arrancar
+
+Doble clic en `scripts\reader\Reader.bat` (o `.\scripts\reader\start-reader.ps1`).
+
+El script:
+1. Compila la interfaz web si ha cambiado el código (`bun run build:web`).
+2. Arranca el backend en `http://127.0.0.1:3900` (sirve también la interfaz).
+3. Lo publica para tus dispositivos:
+   - **Tailscale** (por defecto si está activo): abre en el móvil la URL `http://<tu-pc>.<tailnet>.ts.net/#/reader`
+     desde casa o fuera. Si activas *HTTPS Certificates* en
+     <https://login.tailscale.com/admin/dns>, la URL pasa a `https://` y Reader se puede
+     **instalar como app** (PWA) desde Chrome → "Instalar app".
+   - **LAN con PIN** (`-Lan`): `http://<ip-del-pc>:3910/?pin=XXXXXXXX#/reader`. El PIN es fijo
+     (guardado en `%APPDATA%\OmniVoice\reader-share-pin.txt`) y el móvil lo recuerda un año.
+
+Opciones: `-Lan`, `-NoTailscale`, `-NoBuild`, `-Port 3900`, `-KeepServe` (deja `tailscale serve`
+activo al cerrar).
+
+En el PC también puedes usar Reader dentro de la app de escritorio (`bun run dev`) → menú
+**Reader**.
+
+## Uso
+
+- **Biblioteca**: botón **+** → pegar texto, subir archivo o pegar un enlace. "Seguir
+  escuchando" retoma el último documento donde lo dejaste (el progreso se guarda en el PC, así
+  que es el mismo en móvil y escritorio).
+- **Lector**: toca cualquier frase para saltar a ella. La vista sigue la lectura; si te
+  desplazas, aparece "Volver a la posición actual".
+- **Reproductor**: velocidad 0.5–3× sin cambiar el tono, frase anterior/siguiente, ±15 s,
+  temporizador de apagado (minutos o fin de capítulo), voces, capítulos, tamaño de texto.
+  Controles en pantalla de bloqueo y auriculares (Media Session).
+- **Offline**: menú del documento → *Descargar*. El PC pre-genera todo el audio y el móvil lo
+  guarda; después se escucha sin conexión.
+- **Teclado (PC)**: Espacio reproducir/pausa, ←/→ frase anterior/siguiente, +/− velocidad.
+
+## Voces
+
+Si un documento no tiene voz elegida, Reader usa automáticamente un perfil del idioma del
+documento (prefiere los marcados con la personalidad *Reader*) y la fija en el documento para
+que no cambie entre frases.
+
+Para crear voces nuevas usa VoiceStudio → **Voice design** (describe la voz) o **Voice
+cloning** (graba/sube 10–20 s de referencia limpia, con permiso de la persona). Aparecen en el
+selector de voces de Reader al momento.
+
+## Rendimiento (RTX 2070 SUPER 8 GB, OmniVoice)
+
+- Primera frase: ~1,5 s (el modelo tarda ~30 s en cargarse la primera vez tras arrancar).
+- Generación ~4–6× más rápida que tiempo real; el reproductor pre-genera 3 frases por delante.
+- El audio se cachea en `%APPDATA%\OmniVoice\reader\audio`: volver a escuchar es instantáneo.
+
+## Seguridad
+
+- Por Tailscale solo acceden tus dispositivos de la tailnet; entran como si fueran el propio PC
+  (acceso completo a VoiceStudio). No compartas el nodo con otras personas.
+- Por LAN, cualquier petición desde otra IP necesita el PIN.
+
+## Mantenerse al día con VoiceStudio
+
+```powershell
+git fetch upstream
+git merge upstream/main
+bun install; bun run setup:api
+```

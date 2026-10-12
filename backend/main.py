@@ -739,6 +739,7 @@ def _phase_a_build_inner() -> None:
         media_tools as media_tools_router,  # Audio tools: ffmpeg/ffprobe/yt-dlp
         auth as auth_router,
         voice_convert,  # Studio Convert: speech-to-speech via ASR → TTS
+        reader,  # Reader: library of documents to listen to (docs/reader/SPEC.md)
     )
     from api.routers import mcp_bindings as _mcp_bindings_router  # noqa: E402
     from api.routers import telephony_twilio as _telephony_twilio_router  # noqa: E402
@@ -751,7 +752,7 @@ def _phase_a_build_inner() -> None:
         openai_compat, tts_stream, marketplace, personas, sonitranslate,
         audiobook, longform_jobs, pronunciation, settings_router,
         media_tools_router, auth_router, _mcp_bindings_router,
-        _telephony_twilio_router, _calls_router,
+        _telephony_twilio_router, _calls_router, reader,
     ])
     # Download-acceleration state, once, for triage-from-logs (FDL-03).
     try:
@@ -1577,7 +1578,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-_SHELL_PATHS = {"/", "/index.html", "/favicon.ico", "/early-error-capture.js", "/health"}
+_SHELL_PATHS = {
+    "/", "/index.html", "/favicon.ico", "/early-error-capture.js", "/health",
+    # Reader PWA shell: the browser fetches these without the PIN cookie.
+    "/manifest.webmanifest", "/reader-sw.js", "/apple-touch-icon.png",
+}
 
 
 def _is_public_path(path: str) -> bool:
@@ -1588,6 +1593,7 @@ def _is_public_path(path: str) -> bool:
         path in _SHELL_PATHS
         or path.startswith("/assets/")
         or path.startswith("/favicon")
+        or path.startswith("/reader-icon")
         or path == "/api/auth/session"
     )
 
@@ -1684,7 +1690,7 @@ class NetworkAccessMiddleware:
             async def send_with_cookie(message):
                 if message["type"] == "http.response.start":
                     headers = MutableHeaders(scope=message)
-                    headers.append("set-cookie", f"ov_pin={pin}; Path=/; SameSite=Lax")
+                    headers.append("set-cookie", f"ov_pin={pin}; Path=/; Max-Age=31536000; SameSite=Lax")
                 await send(message)
 
             return await self.app(scope, receive, send_with_cookie)
@@ -1878,6 +1884,7 @@ app.add_middleware(BackendMarkerMiddleware)
 import mimetypes as _mimetypes
 _mimetypes.add_type("audio/wav",  ".wav")
 _mimetypes.add_type("audio/flac", ".flac")
+_mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 # ── Health check ────────────────────────────────────────────────────────
 # Used by Docker health checks, load balancers, and the Electron desktop shell.

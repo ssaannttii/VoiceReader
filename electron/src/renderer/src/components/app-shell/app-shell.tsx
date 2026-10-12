@@ -16,6 +16,16 @@ export function AppShell() {
     select: (state) => state.location.pathname,
   });
   const shellOnly = pathname.startsWith('/settings') || pathname === '/pro';
+  // Reader is a full-screen, phone-first workspace: no studio sidebar or footer,
+  // and no desktop first-run wizard in front of a phone on the LAN.
+  if (pathname === '/reader' || pathname.startsWith('/reader/'))
+    return (
+      <div className="app-surface relative flex h-full flex-col bg-background text-foreground">
+        <BackendGate setup={false}>
+          <Outlet />
+        </BackendGate>
+      </div>
+    );
   const macWorkspace = isMac() && !shellOnly;
   const SettingsWorkspace = pathname === '/settings/openapi' ? 'div' : 'main';
   return (

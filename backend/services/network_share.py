@@ -182,6 +182,16 @@ def lan_ipv4_addresses() -> list:
     return out
 
 
+def configured_pin() -> str | None:
+    """A fixed share PIN from ``OMNIVOICE_SHARE_PIN`` (6+ chars), else None.
+
+    Lets a phone that saved the app to its home screen keep working across
+    backend restarts instead of asking for a fresh random PIN each time.
+    """
+    value = os.environ.get("OMNIVOICE_SHARE_PIN", "").strip()
+    return value if len(value) >= 6 else None
+
+
 def _gen_pin() -> str:
     return f"{secrets.randbelow(900000) + 100000}"  # 100000-999999
 
@@ -210,7 +220,7 @@ async def _enable(app) -> ShareState:
     if _runtime.state.enabled:
         return _runtime.state
     port = _find_free_port(share_port_base())
-    pin = _gen_pin()
+    pin = configured_pin() or _gen_pin()
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
     server = uvicorn.Server(config)
     server.install_signal_handlers = lambda: None  # never hijack signals in-process

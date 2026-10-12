@@ -210,6 +210,29 @@ _BASE_SCHEMA = """
     );
     CREATE INDEX IF NOT EXISTS idx_call_sessions_created ON call_sessions(created_at);
 
+    -- Reader library (docs/reader/SPEC.md): one row per imported document; the
+    -- segment text lives in <DATA_DIR>/reader/<id>/content.json. Existing DBs
+    -- get it via alembic 0014_reader_documents (dual-path discipline).
+    CREATE TABLE IF NOT EXISTS reader_documents (
+        id TEXT NOT NULL PRIMARY KEY,
+        title TEXT NOT NULL,
+        author TEXT,
+        source_type TEXT NOT NULL,
+        source_name TEXT,
+        source_url TEXT,
+        language TEXT,
+        segment_count INTEGER NOT NULL,
+        char_count INTEGER NOT NULL,
+        chapter_count INTEGER NOT NULL DEFAULT 0,
+        has_cover INTEGER NOT NULL DEFAULT 0,
+        voice_id TEXT,
+        engine TEXT,
+        position_segment INTEGER NOT NULL DEFAULT 0,
+        created_at REAL,
+        updated_at REAL,
+        last_opened_at REAL
+    );
+
     -- Legacy tables kept for existing installs; the feature moved to VoiceStudio Pro.
     CREATE TABLE IF NOT EXISTS remote_workers (
         id TEXT PRIMARY KEY,

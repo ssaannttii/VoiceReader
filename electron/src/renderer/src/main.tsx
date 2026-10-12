@@ -10,10 +10,12 @@ import './hooks/use-appearance';
 import { App } from './app';
 import { installPreloadRecovery } from './lib/preload-recovery';
 import { installGlobalErrorRecovery } from './lib/global-error-recovery';
+import { registerReaderServiceWorker } from './features/reader/pwa';
 
 installConsoleCapture();
 installGlobalErrorRecovery();
 installPreloadRecovery();
+registerReaderServiceWorker();
 
 createRoot(document.getElementById('root')!).render(
   window.location.hash === '#/capture' ? (

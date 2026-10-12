@@ -34,6 +34,29 @@ export const API_BASE = resolveApiBase(
   typeof window === 'undefined' ? undefined : (window as ApiBaseWindow),
 );
 
+/** Take a share PIN from a `?pin=` link (the LAN QR code), keep it for this
+ * tab and scrub it from the address bar. The first API request then carries
+ * it, and the backend answers with a long-lived `ov_pin` cookie, so a phone
+ * shortcut keeps working without the PIN in its URL. */
+export function captureLinkPin(win: Pick<Window, 'location' | 'history' | 'sessionStorage'>): void {
+  const url = new URL(win.location.href);
+  const pin = url.searchParams.get('pin');
+  if (!pin) return;
+  url.searchParams.delete('pin');
+  try {
+    win.sessionStorage.setItem('ov_pin', pin);
+  } catch {
+    // Blocked storage: the cookie path below still authenticates later visits.
+  }
+  try {
+    win.history.replaceState(win.history.state, '', url.toString());
+  } catch {
+    // Keep the PIN in the address bar rather than fail to load.
+  }
+}
+
+if (__WEB_DEPLOYMENT__ && typeof window !== 'undefined') captureLinkPin(window);
+
 export function absoluteApiBase(): string {
   if (typeof window === 'undefined') return API_BASE;
   return new URL(API_BASE || '/', window.location.href).toString().replace(/\/+$/, '');

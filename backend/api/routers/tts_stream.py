@@ -19,7 +19,7 @@ The chunked delivery targets <100ms time-to-first-audio (TTFA) on warm models.
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, asynccontextmanager
 import logging
 import os
 import time
@@ -228,6 +228,40 @@ class StreamUnavailableError(RuntimeError):
     """The selected engine cannot run on this host (routing gate)."""
 
 
+@asynccontextmanager
+async def stream_engine_session(
+    engine: str | None,
+    *,
+    voice: str | None = None,
+    language: str | None = None,
+):
+    """Yield ``(backend, kw)`` ready for guarded per-sentence dispatch.
+
+    Engine resolution, the cached-instance lease, profile kwargs, the
+    no-silent-CPU-fallback routing gate and eviction of other TTS engines —
+    the setup every non-WebSocket caller (:func:`synthesize_stream`, the
+    Reader) needs before ``run_on_gpu_pool_guarded(render_stream_sentence)``.
+    Raises :class:`StreamUnavailableError` when the engine cannot run here.
+    """
+    from core.device_caps import detect_host_caps
+    from core.scrub import scrub_text
+    from services.engine_routing import runtime_compute_profile_async
+
+    backend = await _resolve_stream_backend(engine)
+    from services.tts_backend import engine_in_use
+
+    kw = build_stream_kwargs({"voice": voice, "language": language})
+    with engine_in_use(backend):
+        routing = await runtime_compute_profile_async(backend, detect_host_caps())
+        if routing["routing_status"] == "unavailable":
+            raise StreamUnavailableError(
+                scrub_text(routing["routing_reason"]) or "engine cannot run on this host"
+            )
+        from services.engine_memory import evict_other_tts_engines
+        await evict_other_tts_engines(backend.id)
+        yield backend, kw
+
+
 async def synthesize_stream(
     text: str,
     *,
@@ -245,23 +279,9 @@ async def synthesize_stream(
     """
     import functools
 
-    from core.device_caps import detect_host_caps
-    from core.scrub import scrub_text
-    from services.engine_routing import runtime_compute_profile_async
     from services.model_manager import generate_timeout_s, run_on_gpu_pool_guarded
 
-    backend = await _resolve_stream_backend(engine)
-    from services.tts_backend import engine_in_use
-
-    kw = build_stream_kwargs({"voice": voice, "language": language})
-    with engine_in_use(backend):
-        routing = await runtime_compute_profile_async(backend, detect_host_caps())
-        if routing["routing_status"] == "unavailable":
-            raise StreamUnavailableError(
-                scrub_text(routing["routing_reason"]) or "engine cannot run on this host"
-            )
-        from services.engine_memory import evict_other_tts_engines
-        await evict_other_tts_engines(backend.id)
+    async with stream_engine_session(engine, voice=voice, language=language) as (backend, kw):
         for sentence in split_stream_sentences(text, language):
             wav, sr, _synth_s = await run_on_gpu_pool_guarded(
                 functools.partial(render_stream_sentence, backend, kw, sentence),

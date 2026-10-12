@@ -11,6 +11,7 @@ const routes = [
   '/calls',
   '/stories',
   '/audiobook',
+  '/reader',
   '/dub',
   '/batch',
   '/projects',

@@ -57,6 +57,8 @@ const iconTones: Record<string, string> = {
     'bg-rose-100 text-rose-700 ring-rose-300/60 dark:bg-rose-400/15 dark:text-rose-300 dark:ring-rose-300/30',
   '/audiobook':
     'bg-amber-100 text-amber-800 ring-amber-300/60 dark:bg-amber-400/15 dark:text-amber-200 dark:ring-amber-300/30',
+  '/reader':
+    'bg-emerald-100 text-emerald-700 ring-emerald-300/60 dark:bg-emerald-400/15 dark:text-emerald-300 dark:ring-emerald-300/30',
   '/gallery':
     'bg-fuchsia-100 text-fuchsia-700 ring-fuchsia-300/60 dark:bg-fuchsia-400/15 dark:text-fuchsia-300 dark:ring-fuchsia-300/30',
   '/transcriptions':
@@ -109,6 +111,11 @@ export function HomePage() {
       to: '/audiobook',
       label: t('audiobook.title'),
       description: t('homeUi.audiobook'),
+    },
+    {
+      to: '/reader',
+      label: t('reader.title'),
+      description: t('reader.home_description'),
     },
     {
       to: '/gallery',

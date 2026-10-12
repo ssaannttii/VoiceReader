@@ -6,6 +6,7 @@ import {
   FingerprintIcon,
   BookOpenIcon,
   FolderIcon,
+  HeadphonesIcon,
   WrenchIcon,
   LayersIcon,
   LibraryIcon,
@@ -28,6 +29,7 @@ type Destination = readonly [
     | '/clone'
     | '/stories'
     | '/audiobook'
+    | '/reader'
     | '/projects'
     | '/tools'
     | '/batch'
@@ -54,6 +56,7 @@ const voiceDestinations: Destination[] = [
 const storyDestinations: Destination[] = [
   ['/stories', 'nav.stories', AudioLinesIcon],
   ['/audiobook', 'audiobook.title', BookOpenIcon],
+  ['/reader', 'reader.title', HeadphonesIcon],
 ];
 const dubDestinations: Destination[] = [
   ['/dub', 'dubWorkspace.title', FilmIcon],
@@ -79,6 +82,7 @@ const iconMotion: Record<Destination[0], string> = {
   '/gallery': 'lift',
   '/stories': 'wave',
   '/audiobook': 'tilt',
+  '/reader': 'pulse',
   '/dub': 'tilt',
   '/batch': 'lift',
   '/transcriptions': 'nudge',
