@@ -23,7 +23,7 @@
 
 ![A tour of the Electron app: voice cloning, voice design, dubbing, and model management](docs/media/electron/voicestudio.gif)
 
-> **VoiceReader fork:** this fork adds **Reader**, a local ElevenLabs Reader–style app — import PDFs, EPUBs, DOCX, web articles or pasted text and listen on your phone with word-by-word highlighting, rendered on your PC's GPU. Start it with `scriptseader\Reader.bat`; see [docs/reader](docs/reader/README.md).
+> **VoiceReader fork:** this fork adds **Reader**, a local ElevenLabs Reader–style app — import PDFs, EPUBs, DOCX, web articles or pasted text and listen on your phone with word-by-word highlighting, rendered on your PC's GPU. Start it with `scripts/reader/Reader.bat`; see [docs/reader](docs/reader/README.md).
 
 ## Your voice. Your workflow.
 
