@@ -15,9 +15,18 @@ const CHANNEL_COUNTS: Record<ChannelMode, number | undefined> = {
 export function buildAudioInputConstraints(
   deviceId: string,
   channelMode: ChannelMode,
+  /** Voice references for cloning: the browser's echo cancellation, noise
+   * suppression and auto gain smear timbre and pump the level, and the clone
+   * copies those artifacts. The backend denoiser cleans the take instead. */
+  raw = false,
 ): MediaStreamConstraints {
   const audio: MediaTrackConstraints = {};
   if (deviceId) audio.deviceId = { exact: deviceId };
+  if (raw) {
+    audio.echoCancellation = false;
+    audio.noiseSuppression = false;
+    audio.autoGainControl = false;
+  }
   const channels = CHANNEL_COUNTS[channelMode];
   if (channels) audio.channelCount = { ideal: channels };
   return { audio: Object.keys(audio).length ? audio : true };

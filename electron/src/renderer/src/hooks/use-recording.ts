@@ -46,6 +46,8 @@ export interface UseRecording {
 export function useRecording(
   onRecorded: (file: File) => void,
   trackReference = true,
+  /** Disable browser voice processing — for clips a voice will be cloned from. */
+  rawAudio = false,
 ): UseRecording {
   const onRecordedRef = useRef(onRecorded);
   useEffect(() => {
@@ -182,7 +184,7 @@ export function useRecording(
     setIsStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia(
-        buildAudioInputConstraints(selectedInputId, channelMode),
+        buildAudioInputConstraints(selectedInputId, channelMode, rawAudio),
       );
       if (generation !== lifecycle.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -239,6 +241,7 @@ export function useRecording(
   }, [
     selectedInputId,
     channelMode,
+    rawAudio,
     refreshInputs,
     stopLevelMonitor,
     releaseStream,

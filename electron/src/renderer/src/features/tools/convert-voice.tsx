@@ -56,7 +56,7 @@ export function ConvertVoice() {
     invalidate();
     setFile(next);
   };
-  const recording = useRecording(ingest, false);
+  const recording = useRecording(ingest, false, true);
   const recordingBusy = recording.isStarting || recording.isRecording || recording.isCleaning;
   useEffect(() => {
     const url = file ? URL.createObjectURL(file) : '';

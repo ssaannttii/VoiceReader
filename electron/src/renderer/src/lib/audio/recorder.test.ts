@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startInputLevelMonitor } from './recorder';
+import { buildAudioInputConstraints, startInputLevelMonitor } from './recorder';
 
 function stubAudioContext(overrides: Record<string, unknown> = {}) {
   const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
@@ -22,7 +22,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('startInputLevelMonitor setup failure', () => {
   it('closes the AudioContext when graph setup throws', () => {
-    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    );
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     const context = stubAudioContext({
       createMediaStreamSource: vi.fn(() => {
@@ -44,5 +47,20 @@ describe('startInputLevelMonitor setup failure', () => {
     const context = stubAudioContext();
     expect(() => startInputLevelMonitor({} as MediaStream, vi.fn())).toThrow('no frames');
     expect(context.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe('buildAudioInputConstraints', () => {
+  it('turns off browser voice processing only for raw voice references', () => {
+    expect(buildAudioInputConstraints('', 'auto')).toEqual({ audio: true });
+    expect(buildAudioInputConstraints('mic-1', 'mono', true)).toEqual({
+      audio: {
+        deviceId: { exact: 'mic-1' },
+        channelCount: { ideal: 1 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
   });
 });

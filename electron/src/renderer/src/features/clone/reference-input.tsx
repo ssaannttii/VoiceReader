@@ -142,7 +142,7 @@ export function RecordZone({
 }: { onAccept?: AcceptReference; pickToken?: PickToken } = {}) {
   const { t } = useTranslation();
   const ingestFile = useIngest(onAccept, pickToken);
-  const rec = useRecording((file) => void ingestFile(file));
+  const rec = useRecording((file) => void ingestFile(file), true, true);
   const hasSignal = rec.level >= LEVEL_THRESHOLD;
   let micButton;
   if (rec.isStarting || rec.isCleaning) {
