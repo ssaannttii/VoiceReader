@@ -57,12 +57,6 @@ export function captureLinkPin(win: Pick<Window, 'location' | 'history' | 'sessi
 
 if (__WEB_DEPLOYMENT__ && typeof window !== 'undefined') captureLinkPin(window);
 
-/** True for the backend's admin refusal (403): a LAN/phone client asked for
- * something only the computer running VoiceStudio may change. */
-export function isHostOnlyError(error: unknown): boolean {
-  return (error as { status?: unknown } | null)?.status === 403;
-}
-
 export function absoluteApiBase(): string {
   if (typeof window === 'undefined') return API_BASE;
   return new URL(API_BASE || '/', window.location.href).toString().replace(/\/+$/, '');

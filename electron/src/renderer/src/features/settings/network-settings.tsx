@@ -9,6 +9,7 @@ import { apiJson } from '@/lib/api/client';
 import { SettingsSection, SettingsRow } from './settings-layout';
 import { useSettingsAction } from './use-settings-action';
 import { saveProxyPreference } from '@shared/utils/networkPreferences';
+import { settingsErrorText } from '@/lib/settings-error';
 export function NetworkSettings() {
   const { t } = useTranslation();
   const client = useQueryClient();
@@ -73,7 +74,7 @@ export function NetworkSettings() {
       </SettingsRow>
       {(query.isError || action.error) && (
         <p role="alert" className="p-4 text-sm text-destructive">
-          {t('common.error')}{' '}
+          {settingsErrorText(t, query.error)}{' '}
           <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>
             {t('common.retry')}
           </Button>

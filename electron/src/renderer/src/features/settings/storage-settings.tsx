@@ -15,10 +15,8 @@ import { ModelsDirectorySettings } from './models-directory-settings';
 import { ResetSettings } from './reset-settings';
 import { DataDirectorySettings } from './data-directory-settings';
 import { UninstallSettings } from './uninstall-settings';
-import {
-  warningText,
-  type StorageWarning,
-} from '@shared/utils/storageWarnings';
+import { warningText, type StorageWarning } from '@shared/utils/storageWarnings';
+import { settingsErrorText } from '@/lib/settings-error';
 interface Item {
   id: string;
   path?: string;
@@ -104,7 +102,7 @@ export function StorageSettings() {
         )}
         {(query.isError || action.error) && (
           <p role="alert" className="p-4 text-sm text-destructive">
-            {t('common.error')}{' '}
+            {settingsErrorText(t, query.error)}{' '}
             <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
               {t('common.retry')}
             </Button>
@@ -266,7 +264,7 @@ export function StorageSettings() {
             t('common.loading')
           ) : backup.isError ? (
             <p role="alert">
-              {t('common.error')}{' '}
+              {settingsErrorText(t, backup.error)}{' '}
               <Button size="sm" variant="ghost" onClick={() => void backup.refetch()}>
                 {t('common.retry')}
               </Button>

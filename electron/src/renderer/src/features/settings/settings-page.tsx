@@ -52,7 +52,8 @@ import {
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { apiJson, isHostOnlyError } from '@/lib/api/client';
+import { apiJson } from '@/lib/api/client';
+import { isHostOnlyError } from '@/lib/settings-error';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';

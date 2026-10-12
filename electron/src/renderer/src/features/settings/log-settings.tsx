@@ -15,6 +15,7 @@ import {
   getFrontendLogs,
   clearFrontendLogs,
 } from '@shared/utils/consoleBuffer';
+import { settingsErrorText } from '@/lib/settings-error';
 interface LogResponse {
   lines: string[];
   path?: string;
@@ -195,7 +196,7 @@ export function LogSettings() {
           role="alert"
           className="shrink-0 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-sm text-destructive"
         >
-          {t('common.error')}
+          {settingsErrorText(t, query.error)}
         </p>
       )}
       <div

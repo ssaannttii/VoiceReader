@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { apiJson } from '@/lib/api/client';
 import { SettingsSection, SettingsRow } from './settings-layout';
 import { useSettingsAction } from './use-settings-action';
+import { isHostOnlyError } from '@/lib/settings-error';
 interface MirrorState {
   configured: string;
   effective: string;
@@ -166,7 +167,7 @@ export function MirrorSettings() {
           {t('models.mirror_saved')}
         </p>
       )}
-      {query.isError && (query.error as { status?: unknown } | null)?.status === 403 ? (
+      {isHostOnlyError(query.error) ? (
         <p role="status" className="p-4 text-sm text-muted-foreground">
           {t('settings.host_only_section')}
         </p>

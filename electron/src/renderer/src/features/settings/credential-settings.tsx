@@ -9,6 +9,7 @@ import { apiJson } from '@/lib/api/client';
 import { SettingsSection, SettingsRow } from './settings-layout';
 import { useSettingsAction } from './use-settings-action';
 import { PROVIDER_FIELDS } from '@shared/utils/translationProviderFields';
+import { settingsErrorText } from '@/lib/settings-error';
 interface TokenState {
   active: string | null;
   sources: {
@@ -170,7 +171,7 @@ export function HuggingFaceToken() {
       )}
       {(action.error || query.isError) && (
         <p role="alert" className="p-4 text-sm text-destructive">
-          {t('common.error')}{' '}
+          {settingsErrorText(t, query.error)}{' '}
           <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>
             {t('common.retry')}
           </Button>

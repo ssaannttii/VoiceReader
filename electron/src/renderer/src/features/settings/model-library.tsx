@@ -49,6 +49,7 @@ import {
   engineSelectionFeedback,
   type EngineSelectionResult,
 } from '@/lib/engine-selection-feedback';
+import { isHostOnlyError } from '@/lib/settings-error';
 
 interface RecommendedModel {
   repo_id: string;
@@ -193,9 +194,7 @@ export function PerformanceModelPacks({ compact = false }: { compact?: boolean }
 
   // Model packs change admin state, which the backend only accepts from the
   // computer it runs on; a LAN/phone client gets 403 and should be told so.
-  const hostOnly = [catalogue.error, profile.error].some(
-    (error) => (error as { status?: unknown } | null)?.status === 403,
-  );
+  const hostOnly = [catalogue.error, profile.error].some(isHostOnlyError);
   if (hostOnly)
     return (
       <div role="status" className="p-4">

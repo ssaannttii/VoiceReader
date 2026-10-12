@@ -21,6 +21,7 @@ import { apiJson, describeError } from '@/lib/api/client';
 import { SettingsRow, SettingsSection } from './settings-layout';
 import { McpBindingsSettings } from './mcp-bindings-settings';
 import { RemoteBackendSettings } from './remote-backend-settings';
+import { settingsErrorText } from '@/lib/settings-error';
 
 interface NetworkState {
   enabled: boolean;
@@ -330,7 +331,7 @@ export function SharingSettings() {
         )}
         {(network.isError || networkError) && (
           <p role="alert" className="px-4 py-3 text-sm text-destructive">
-            {networkError || t('common.error')}
+            {networkError || settingsErrorText(t, network.error)}
           </p>
         )}
       </SettingsSection>
@@ -447,7 +448,7 @@ export function SharingSettings() {
         )}
         {(tailscale.isError || tailscaleError) && (
           <p role="alert" className="px-4 py-3 text-sm text-destructive">
-            {tailscaleError || t('common.error')}
+            {tailscaleError || settingsErrorText(t, tailscale.error)}
           </p>
         )}
       </SettingsSection>

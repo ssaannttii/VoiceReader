@@ -6,6 +6,7 @@ import { getBridge } from '@/components/bridge';
 import { Button } from '@/components/ui/button';
 import { apiJson, describeError } from '@/lib/api/client';
 import { SettingsRow, SettingsSection } from './settings-layout';
+import { settingsErrorText } from '@/lib/settings-error';
 
 interface ModelsDirectoryState {
   configured: string | null;
@@ -87,7 +88,9 @@ export function ModelsDirectorySettings() {
       </SettingsRow>
       {(query.isError || error) && (
         <div role="alert" className="flex items-center gap-2 px-4 py-3 text-sm text-destructive">
-          <span className="min-w-0 flex-1 break-words">{error || t('common.error')}</span>
+          <span className="min-w-0 flex-1 break-words">
+            {error || settingsErrorText(t, query.error)}
+          </span>
           {query.isError && (
             <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
               {t('common.retry')}

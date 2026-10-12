@@ -31,6 +31,7 @@ import {
   type PerformanceChoice,
   type PerformanceProfileState,
 } from '@/hooks/use-performance-profile';
+import { settingsErrorText } from '@/lib/settings-error';
 
 export function PerformanceProfile({
   family = null,
@@ -212,7 +213,7 @@ export function PerformanceProfile({
         )}
         {(failed || profile.isError || batch.isError) && (
           <div role="alert" className="mt-1 text-xs text-destructive">
-            {t('common.error')}
+            {settingsErrorText(t, profile.error, batch.error)}
             <Button
               size="xs"
               variant="ghost"
@@ -429,7 +430,7 @@ export function PerformanceProfile({
       </p>
       {(failed || profile.isError || batch.isError) && (
         <div role="alert" className="text-xs text-destructive">
-          {t('common.error')}
+          {settingsErrorText(t, profile.error, batch.error)}
           <Button
             size="xs"
             variant="ghost"

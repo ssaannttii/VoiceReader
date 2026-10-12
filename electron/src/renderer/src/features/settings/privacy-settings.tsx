@@ -10,6 +10,7 @@ import { apiJson } from '@/lib/api/client';
 import { SettingsSection, SettingsRow } from './settings-layout';
 import { useSettingsAction } from './use-settings-action';
 import { translatorPrivacy } from '@shared/utils/translatorPrivacy';
+import { settingsErrorText } from '@/lib/settings-error';
 export function PrivacySettings({ showAnalytics = true }: { showAnalytics?: boolean } = {}) {
   const { t } = useTranslation();
   const info = useQuery({
@@ -91,7 +92,7 @@ function PrivacyToggle({ kind }: { kind: 'watermark' | 'analytics' }) {
       </SettingsRow>
       {(query.isError || action.error) && (
         <p role="alert" className="px-4 pb-3 text-sm text-destructive">
-          {t('common.error')}{' '}
+          {settingsErrorText(t, query.error)}{' '}
           <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
             {t('common.retry')}
           </Button>
@@ -193,7 +194,7 @@ export function HistoryRetention() {
       )}
       {(query.isError || action.error) && (
         <p role="alert" className="p-4 text-sm text-destructive">
-          {t('common.error')}{' '}
+          {settingsErrorText(t, query.error)}{' '}
           <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
             {t('common.retry')}
           </Button>

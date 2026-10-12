@@ -24,6 +24,7 @@ import { SettingsSection, SettingsRow } from './settings-layout';
 import { useSettingsAction } from './use-settings-action';
 // @ts-expect-error shared JSX component has no declaration file
 import SearchableSelect from '@shared/components/SearchableSelect';
+import { settingsErrorText } from '@/lib/settings-error';
 interface DeviceState {
   value: string;
   applied: string;
@@ -261,6 +262,7 @@ export function PerformanceSettings() {
         {(info.isError || hardware.isError) && (
           <div className="col-span-full">
             <ErrorRow
+              errors={[info.error, hardware.error]}
               retry={() => {
                 void info.refetch();
                 void hardware.refetch();
@@ -340,7 +342,7 @@ function MemoryManagement() {
       {loaded.isPending ? (
         <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : loaded.isError ? (
-        <ErrorRow retry={() => void loaded.refetch()} />
+        <ErrorRow errors={[loaded.error]} retry={() => void loaded.refetch()} />
       ) : loaded.data.models.length === 0 ? (
         <p className="p-4 text-sm text-muted-foreground">{t('header.no_models')}</p>
       ) : (
@@ -447,15 +449,17 @@ function OffloadAfterGeneration() {
           {t('settings.generate_timeout_shadowed_note')}
         </p>
       )}
-      {(action.error || query.isError) && <ErrorRow retry={() => void query.refetch()} />}
+      {(action.error || query.isError) && (
+        <ErrorRow errors={[query.error]} retry={() => void query.refetch()} />
+      )}
     </>
   );
 }
-function ErrorRow({ retry }: { retry: () => void }) {
+function ErrorRow({ retry, errors = [] }: { retry: () => void; errors?: unknown[] }) {
   const { t } = useTranslation();
   return (
     <p role="alert" className="p-4 text-sm text-destructive">
-      {t('common.error')}{' '}
+      {settingsErrorText(t, ...errors)}{' '}
       <Button size="sm" variant="ghost" onClick={retry}>
         {t('common.retry')}
       </Button>
@@ -572,6 +576,7 @@ function ComputeDevice() {
       )}
       {(action.error || query.isError || cudaAction.error || cudaQuery.isError) && (
         <ErrorRow
+          errors={[query.error, cudaQuery.error]}
           retry={() => {
             void Promise.all([
               query.refetch({ throwOnError: true }),
@@ -628,7 +633,9 @@ function CompileSetting() {
         />
       </SettingsRow>
       <p className="p-4 text-xs text-muted-foreground">{t('settings.compute_device_restart')}</p>
-      {(action.error || query.isError) && <ErrorRow retry={() => void query.refetch()} />}
+      {(action.error || query.isError) && (
+        <ErrorRow errors={[query.error]} retry={() => void query.refetch()} />
+      )}
     </SettingsSection>
   );
 }
