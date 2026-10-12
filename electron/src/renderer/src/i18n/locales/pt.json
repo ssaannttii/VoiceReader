@@ -1416,7 +1416,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: dispositivo de computação fixado em CPU",
     "gpu_report_engine_no_family_path": "CPU: sem caminho para o seu tipo de GPU",
     "gpu_report_engine_no_gpu": "CPU: nenhuma GPU disponível",
-    "gpu_report_engine_needs_accelerator": "Precisa de uma GPU ({{needs}}) que esta máquina não tem"
+    "gpu_report_engine_needs_accelerator": "Precisa de uma GPU ({{needs}}) que esta máquina não tem",
+    "host_only_banner": "Você está vendo as Configurações de outro dispositivo. O que altera o PC que executa o VoiceStudio — modelos, motores, ditado e downloads — só pode ser editado nesse PC.",
+    "host_only_section": "Disponível apenas no computador que executa o VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio Galeria",
@@ -1997,6 +1999,7 @@
   },
   "models": {
     "pack_title": "Pacotes de modelos",
+    "pack_host_only": "Os pacotes de modelos só podem ser alterados no computador que executa o VoiceStudio. Abra as Configurações nele para instalar ou trocar pacotes.",
     "pack_for": "Ajustado para {{device}}",
     "pack_desc": "Escolha um nível, confira os modelos locais e o uso do disco e instale e ative o conjunto em uma etapa. Diarização e LLM continuam sendo escolhas separadas.",
     "pack_download": "{{size}} GB para baixar",

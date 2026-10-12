@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: thiết bị tính toán được ghim vào CPU",
     "gpu_report_engine_no_family_path": "CPU: không có đường chạy cho loại GPU của bạn",
     "gpu_report_engine_no_gpu": "CPU: không có GPU",
-    "gpu_report_engine_needs_accelerator": "Cần GPU ({{needs}}) mà máy này không có"
+    "gpu_report_engine_needs_accelerator": "Cần GPU ({{needs}}) mà máy này không có",
+    "host_only_banner": "Bạn đang xem Cài đặt từ thiết bị khác. Những cài đặt thay đổi máy tính chạy VoiceStudio — mô hình, công cụ, đọc chính tả và tải xuống — chỉ chỉnh được trên máy đó.",
+    "host_only_section": "Chỉ khả dụng trên máy tính đang chạy VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio Thư viện ảnh",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Gói mô hình",
+    "pack_host_only": "Chỉ có thể thay đổi gói mô hình trên máy tính đang chạy VoiceStudio. Hãy mở Cài đặt trên máy đó để cài đặt hoặc chuyển gói.",
     "pack_for": "Tinh chỉnh cho {{device}}",
     "pack_desc": "Chọn một mức, xem các mô hình cục bộ và dung lượng đĩa, rồi cài đặt và kích hoạt cả bộ trong một bước. Phân tách người nói và LLM vẫn là lựa chọn riêng.",
     "pack_download": "Cần tải {{size}} GB",

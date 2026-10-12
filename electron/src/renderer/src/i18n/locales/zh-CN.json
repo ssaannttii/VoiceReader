@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU：计算设备已固定为 CPU",
     "gpu_report_engine_no_family_path": "CPU：没有适用于你的 GPU 类型的路径",
     "gpu_report_engine_no_gpu": "CPU：没有可用的 GPU",
-    "gpu_report_engine_needs_accelerator": "需要此电脑没有的 GPU（{{needs}}）"
+    "gpu_report_engine_needs_accelerator": "需要此电脑没有的 GPU（{{needs}}）",
+    "host_only_banner": "你正在从其他设备查看设置。会更改运行 VoiceStudio 的电脑的设置（模型、引擎、听写和下载）只能在那台电脑上编辑。",
+    "host_only_section": "仅在运行 VoiceStudio 的电脑上可用。"
   },
   "gallery": {
     "title": "VoiceStudio 音色库",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "模型包",
+    "pack_host_only": "只能在运行 VoiceStudio 的电脑上更改模型包。请在那台电脑上打开设置来安装或切换模型包。",
     "pack_for": "已针对 {{device}} 调整",
     "pack_desc": "选择档位，查看本地模型和磁盘占用，然后一步安装并启用整套模型。说话人分离和 LLM 仍需单独选择。",
     "pack_download": "需下载 {{size}} GB",

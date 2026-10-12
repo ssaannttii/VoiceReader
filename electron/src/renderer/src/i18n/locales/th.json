@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: อุปกรณ์ประมวลผลถูกตรึงไว้ที่ CPU",
     "gpu_report_engine_no_family_path": "CPU: ไม่มีเส้นทางสำหรับ GPU ประเภทของคุณ",
     "gpu_report_engine_no_gpu": "CPU: ไม่มี GPU ให้ใช้",
-    "gpu_report_engine_needs_accelerator": "ต้องใช้ GPU ({{needs}}) ซึ่งเครื่องนี้ไม่มี"
+    "gpu_report_engine_needs_accelerator": "ต้องใช้ GPU ({{needs}}) ซึ่งเครื่องนี้ไม่มี",
+    "host_only_banner": "คุณกำลังดูการตั้งค่าจากอุปกรณ์อื่น การตั้งค่าที่เปลี่ยนพีซีที่รัน VoiceStudio — โมเดล เอนจิน การพิมพ์ด้วยเสียง และการดาวน์โหลด — แก้ไขได้บนพีซีเครื่องนั้นเท่านั้น",
+    "host_only_section": "ใช้ได้เฉพาะบนคอมพิวเตอร์ที่รัน VoiceStudio"
   },
   "gallery": {
     "title": "VoiceStudio แกลเลอรี่",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "ชุดโมเดล",
+    "pack_host_only": "เปลี่ยนแพ็กโมเดลได้เฉพาะบนคอมพิวเตอร์ที่รัน VoiceStudio เท่านั้น เปิดการตั้งค่าบนเครื่องนั้นเพื่อติดตั้งหรือสลับแพ็ก",
     "pack_for": "ปรับให้เหมาะกับ {{device}}",
     "pack_desc": "เลือกระดับ ตรวจสอบโมเดลในเครื่องและพื้นที่ดิสก์ แล้วติดตั้งและเปิดใช้ทั้งชุดในขั้นตอนเดียว การแยกผู้พูดและ LLM ยังคงเลือกแยกต่างหาก",
     "pack_download": "ดาวน์โหลด {{size}} GB",

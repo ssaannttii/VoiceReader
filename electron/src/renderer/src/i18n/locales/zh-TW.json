@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU：運算裝置已固定為 CPU",
     "gpu_report_engine_no_family_path": "CPU：沒有適用於你的 GPU 類型的路徑",
     "gpu_report_engine_no_gpu": "CPU：沒有可用的 GPU",
-    "gpu_report_engine_needs_accelerator": "需要這台電腦沒有的 GPU（{{needs}}）"
+    "gpu_report_engine_needs_accelerator": "需要這台電腦沒有的 GPU（{{needs}}）",
+    "host_only_banner": "你正在從其他裝置檢視設定。會變更執行 VoiceStudio 之電腦的設定（模型、引擎、聽寫和下載）只能在那台電腦上編輯。",
+    "host_only_section": "僅在執行 VoiceStudio 的電腦上可用。"
   },
   "gallery": {
     "title": "VoiceStudio 畫廊",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "模型套件",
+    "pack_host_only": "只能在執行 VoiceStudio 的電腦上變更模型套件。請在那台電腦上開啟設定來安裝或切換模型套件。",
     "pack_for": "已針對 {{device}} 調整",
     "pack_desc": "選擇等級，檢視本機模型與磁碟用量，然後一步安裝並啟用整套模型。說話者分離與 LLM 仍需個別選擇。",
     "pack_download": "需下載 {{size}} GB",

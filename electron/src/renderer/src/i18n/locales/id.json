@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: perangkat komputasi dikunci ke CPU",
     "gpu_report_engine_no_family_path": "CPU: tidak ada jalur untuk jenis GPU Anda",
     "gpu_report_engine_no_gpu": "CPU: tidak ada GPU",
-    "gpu_report_engine_needs_accelerator": "Memerlukan GPU ({{needs}}) yang tidak dimiliki komputer ini"
+    "gpu_report_engine_needs_accelerator": "Memerlukan GPU ({{needs}}) yang tidak dimiliki komputer ini",
+    "host_only_banner": "Anda melihat Pengaturan dari perangkat lain. Pengaturan yang mengubah PC yang menjalankan VoiceStudio — model, mesin, dikte, dan unduhan — hanya bisa diubah di PC tersebut.",
+    "host_only_section": "Hanya tersedia di komputer yang menjalankan VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio Galeri",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Paket model",
+    "pack_host_only": "Paket model hanya dapat diubah di komputer yang menjalankan VoiceStudio. Buka Pengaturan di sana untuk memasang atau mengganti paket.",
     "pack_for": "Disetel untuk {{device}}",
     "pack_desc": "Pilih tingkat, periksa model lokal dan penggunaan disknya, lalu instal dan aktifkan set dalam satu langkah. Diarisasi dan LLM tetap menjadi pilihan tersendiri.",
     "pack_download": "{{size}} GB untuk diunduh",

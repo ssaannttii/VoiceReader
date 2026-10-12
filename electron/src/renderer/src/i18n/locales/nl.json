@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: rekenapparaat vastgezet op CPU",
     "gpu_report_engine_no_family_path": "CPU: geen pad voor uw GPU-type",
     "gpu_report_engine_no_gpu": "CPU: geen GPU beschikbaar",
-    "gpu_report_engine_needs_accelerator": "Heeft een GPU ({{needs}}) nodig die deze computer niet heeft"
+    "gpu_report_engine_needs_accelerator": "Heeft een GPU ({{needs}}) nodig die deze computer niet heeft",
+    "host_only_banner": "Je bekijkt Instellingen vanaf een ander apparaat. Wat de pc met VoiceStudio wijzigt — modellen, engines, dicteren en downloads — kan alleen op die pc worden bewerkt.",
+    "host_only_section": "Alleen beschikbaar op de computer waarop VoiceStudio draait."
   },
   "gallery": {
     "title": "VoiceStudio Galerij",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Modelpakketten",
+    "pack_host_only": "Modelpakketten kunnen alleen worden gewijzigd op de computer waarop VoiceStudio draait. Open daar Instellingen om pakketten te installeren of te wisselen.",
     "pack_for": "Afgestemd op {{device}}",
     "pack_desc": "Kies een niveau, controleer de lokale modellen en schijfruimte en installeer en activeer de set in één stap. Diarisatie en LLM blijven aparte keuzes.",
     "pack_download": "{{size}} GB te downloaden",

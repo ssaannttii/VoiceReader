@@ -51,6 +51,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import { apiJson, isHostOnlyError } from '@/lib/api/client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -550,6 +552,7 @@ export function SettingsPage() {
             (isMedia ? 'media' : isLogs ? 'logs' : isModels ? (modelFamily ?? 'models') : section)
           }
         >
+          <HostOnlyBanner />
           {extra ? (
             <extra.Component />
           ) : isMedia ? (
@@ -708,5 +711,27 @@ export function SettingsPage() {
         </SettingsContent>
       </section>
     </div>
+  );
+}
+
+/** Settings opened from a phone or another computer: most of this page edits
+ * the PC running VoiceStudio, which the backend only accepts from that PC. */
+function HostOnlyBanner() {
+  const { t } = useTranslation();
+  const probe = useQuery({
+    queryKey: ['settings-host-only-probe'],
+    queryFn: ({ signal }) => apiJson('/api/settings/performance-profile', { signal }),
+    retry: false,
+    staleTime: Infinity,
+    enabled: __WEB_DEPLOYMENT__,
+  });
+  if (!isHostOnlyError(probe.error)) return null;
+  return (
+    <p
+      role="status"
+      className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground"
+    >
+      {t('settings.host_only_banner')}
+    </p>
   );
 }

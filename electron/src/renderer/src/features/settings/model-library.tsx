@@ -191,6 +191,17 @@ export function PerformanceModelPacks({ compact = false }: { compact?: boolean }
     }
   };
 
+  // Model packs change admin state, which the backend only accepts from the
+  // computer it runs on; a LAN/phone client gets 403 and should be told so.
+  const hostOnly = [catalogue.error, profile.error].some(
+    (error) => (error as { status?: unknown } | null)?.status === 403,
+  );
+  if (hostOnly)
+    return (
+      <div role="status" className="p-4">
+        <p className="text-muted-foreground">{t('models.pack_host_only')}</p>
+      </div>
+    );
   if (!catalogue.data || !profile.data)
     return (
       <div role="status" className="space-y-3 p-4">

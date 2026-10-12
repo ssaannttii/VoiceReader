@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: hesaplama aygıtı CPU'ya sabitlenmiş",
     "gpu_report_engine_no_family_path": "CPU: GPU türünüz için yol yok",
     "gpu_report_engine_no_gpu": "CPU: kullanılabilir GPU yok",
-    "gpu_report_engine_needs_accelerator": "Bu bilgisayarda olmayan bir GPU ({{needs}}) gerekir"
+    "gpu_report_engine_needs_accelerator": "Bu bilgisayarda olmayan bir GPU ({{needs}}) gerekir",
+    "host_only_banner": "Ayarları başka bir cihazdan görüntülüyorsunuz. VoiceStudio'nun çalıştığı bilgisayarı değiştiren ayarlar — modeller, motorlar, dikte ve indirmeler — yalnızca o bilgisayarda düzenlenebilir.",
+    "host_only_section": "Yalnızca VoiceStudio'nun çalıştığı bilgisayarda kullanılabilir."
   },
   "gallery": {
     "title": "VoiceStudio Galeri",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Model paketleri",
+    "pack_host_only": "Model paketleri yalnızca VoiceStudio'nun çalıştığı bilgisayarda değiştirilebilir. Paket kurmak veya değiştirmek için oradaki Ayarlar'ı açın.",
     "pack_for": "{{device}} için ayarlandı",
     "pack_desc": "Bir seviye seçin, yerel modelleri ve disk kullanımını inceleyin, ardından paketi tek adımda yükleyip etkinleştirin. Konuşmacı ayırma ve LLM ayrı seçimler olarak kalır.",
     "pack_download": "İndirilecek {{size}} GB",

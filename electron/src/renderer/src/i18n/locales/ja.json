@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU：演算デバイスが CPU に固定されています",
     "gpu_report_engine_no_family_path": "CPU：お使いの GPU の種類に対応する経路がありません",
     "gpu_report_engine_no_gpu": "CPU：GPU がありません",
-    "gpu_report_engine_needs_accelerator": "このマシンにない GPU（{{needs}}）が必要です"
+    "gpu_report_engine_needs_accelerator": "このマシンにない GPU（{{needs}}）が必要です",
+    "host_only_banner": "別のデバイスから設定を表示しています。VoiceStudio を実行している PC を変更する設定（モデル、エンジン、音声入力、ダウンロード）は、その PC でのみ編集できます。",
+    "host_only_section": "VoiceStudio を実行しているコンピューターでのみ利用できます。"
   },
   "gallery": {
     "title": "VoiceStudio ギャラリー",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "モデルパック",
+    "pack_host_only": "モデルパックは VoiceStudio を実行しているコンピューターでのみ変更できます。インストールや切り替えはそのコンピューターの設定から行ってください。",
     "pack_for": "{{device}} 向けに最適化",
     "pack_desc": "レベルを選び、ローカルモデルとディスク使用量を確認して、セットを一度にインストールして有効化します。話者分離と LLM は個別に選択します。",
     "pack_download": "ダウンロード {{size}} GB",

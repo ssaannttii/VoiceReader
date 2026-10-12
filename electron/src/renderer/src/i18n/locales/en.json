@@ -1534,7 +1534,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: compute device pinned to CPU",
     "gpu_report_engine_no_family_path": "CPU: no path for your GPU type",
     "gpu_report_engine_no_gpu": "CPU: no GPU available",
-    "gpu_report_engine_needs_accelerator": "Needs a GPU ({{needs}}) this machine does not have"
+    "gpu_report_engine_needs_accelerator": "Needs a GPU ({{needs}}) this machine does not have",
+    "host_only_banner": "You're viewing Settings from another device. Settings that change the PC running VoiceStudio — models, engines, dictation and downloads — can only be edited on that PC.",
+    "host_only_section": "Only available on the computer running VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio Gallery",
@@ -2103,6 +2105,7 @@
   },
   "models": {
     "pack_title": "Model packs",
+    "pack_host_only": "Model packs can only be changed on the computer running VoiceStudio. Open Settings there to install or switch packs.",
     "pack_for": "Tuned for {{device}}",
     "pack_desc": "Choose a tier, review its local models and disk use, then install and activate the set in one step. Diarisation and LLM remain explicit choices.",
     "pack_download": "{{size}} GB to download",

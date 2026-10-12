@@ -166,13 +166,19 @@ export function MirrorSettings() {
           {t('models.mirror_saved')}
         </p>
       )}
-      {(query.isError || action.error) && (
-        <p role="alert" className="p-4 text-sm text-destructive">
-          {t('common.error')}{' '}
-          <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
-            {t('common.retry')}
-          </Button>
+      {query.isError && (query.error as { status?: unknown } | null)?.status === 403 ? (
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          {t('settings.host_only_section')}
         </p>
+      ) : (
+        (query.isError || action.error) && (
+          <p role="alert" className="p-4 text-sm text-destructive">
+            {t('common.error')}{' '}
+            <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
+              {t('common.retry')}
+            </Button>
+          </p>
+        )
       )}
     </SettingsSection>
   );

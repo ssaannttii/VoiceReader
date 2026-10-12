@@ -1422,7 +1422,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: جهاز الحوسبة مثبّت على CPU",
     "gpu_report_engine_no_family_path": "CPU: لا يوجد مسار لنوع GPU لديك",
     "gpu_report_engine_no_gpu": "CPU: لا يتوفر GPU",
-    "gpu_report_engine_needs_accelerator": "يحتاج إلى GPU ({{needs}}) غير موجود في هذا الجهاز"
+    "gpu_report_engine_needs_accelerator": "يحتاج إلى GPU ({{needs}}) غير موجود في هذا الجهاز",
+    "host_only_banner": "أنت تعرض الإعدادات من جهاز آخر. لا يمكن تعديل الإعدادات التي تغيّر الجهاز الذي يعمل عليه VoiceStudio — النماذج والمحركات والإملاء والتنزيلات — إلا على ذلك الجهاز.",
+    "host_only_section": "متاح فقط على الجهاز الذي يعمل عليه VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio معرض",
@@ -2003,6 +2005,7 @@
   },
   "models": {
     "pack_title": "حزم النماذج",
+    "pack_host_only": "لا يمكن تغيير حزم النماذج إلا على الجهاز الذي يعمل عليه VoiceStudio. افتح الإعدادات هناك لتثبيت الحزم أو تبديلها.",
     "pack_for": "مضبوطة لجهاز {{device}}",
     "pack_desc": "اختر مستوى، وراجع نماذجه المحلية ومساحة القرص، ثم ثبّت المجموعة وفعّلها بخطوة واحدة. يبقى فصل المتحدثين ونموذج اللغة خيارين منفصلين.",
     "pack_download": "{{size}} غيغابايت للتنزيل",

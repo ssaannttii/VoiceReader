@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: कंप्यूट डिवाइस CPU पर पिन है",
     "gpu_report_engine_no_family_path": "CPU: आपके GPU प्रकार के लिए रास्ता नहीं",
     "gpu_report_engine_no_gpu": "CPU: कोई GPU उपलब्ध नहीं",
-    "gpu_report_engine_needs_accelerator": "ऐसे GPU ({{needs}}) की ज़रूरत है जो इस मशीन में नहीं है"
+    "gpu_report_engine_needs_accelerator": "ऐसे GPU ({{needs}}) की ज़रूरत है जो इस मशीन में नहीं है",
+    "host_only_banner": "आप किसी दूसरे डिवाइस से सेटिंग्स देख रहे हैं। VoiceStudio चलाने वाले पीसी को बदलने वाली सेटिंग्स — मॉडल, इंजन, डिक्टेशन और डाउनलोड — केवल उसी पीसी पर बदली जा सकती हैं।",
+    "host_only_section": "केवल उस कंप्यूटर पर उपलब्ध है जिस पर VoiceStudio चल रहा है।"
   },
   "gallery": {
     "title": "VoiceStudio गैलरी",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "मॉडल पैक",
+    "pack_host_only": "मॉडल पैक केवल उसी कंप्यूटर पर बदले जा सकते हैं जिस पर VoiceStudio चल रहा है। पैक इंस्टॉल करने या बदलने के लिए वहीं सेटिंग्स खोलें।",
     "pack_for": "{{device}} के लिए अनुकूलित",
     "pack_desc": "एक स्तर चुनें, उसके स्थानीय मॉडल और डिस्क उपयोग की समीक्षा करें, फिर पूरे सेट को एक चरण में इंस्टॉल और सक्रिय करें। वक्ता पहचान और LLM अलग विकल्प रहते हैं।",
     "pack_download": "{{size}} GB डाउनलोड बाकी",

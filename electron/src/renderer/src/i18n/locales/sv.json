@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: beräkningsenheten är låst till CPU",
     "gpu_report_engine_no_family_path": "CPU: ingen väg för din GPU-typ",
     "gpu_report_engine_no_gpu": "CPU: ingen GPU tillgänglig",
-    "gpu_report_engine_needs_accelerator": "Kräver en GPU ({{needs}}) som den här datorn inte har"
+    "gpu_report_engine_needs_accelerator": "Kräver en GPU ({{needs}}) som den här datorn inte har",
+    "host_only_banner": "Du visar Inställningar från en annan enhet. Det som ändrar datorn som kör VoiceStudio – modeller, motorer, diktering och nedladdningar – kan bara redigeras på den datorn.",
+    "host_only_section": "Endast tillgängligt på datorn som kör VoiceStudio."
   },
   "gallery": {
     "title": "VoiceStudio Galleri",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Modellpaket",
+    "pack_host_only": "Modellpaket kan bara ändras på datorn där VoiceStudio körs. Öppna Inställningar där för att installera eller byta paket.",
     "pack_for": "Anpassat för {{device}}",
     "pack_desc": "Välj en nivå, granska lokala modeller och diskutrymme och installera och aktivera uppsättningen i ett steg. Talarseparering och LLM förblir separata val.",
     "pack_download": "{{size}} GB att hämta",

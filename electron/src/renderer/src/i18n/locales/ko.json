@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: 연산 장치가 CPU로 고정됨",
     "gpu_report_engine_no_family_path": "CPU: 사용 중인 GPU 종류에 맞는 경로 없음",
     "gpu_report_engine_no_gpu": "CPU: 사용 가능한 GPU 없음",
-    "gpu_report_engine_needs_accelerator": "이 컴퓨터에 없는 GPU({{needs}})가 필요함"
+    "gpu_report_engine_needs_accelerator": "이 컴퓨터에 없는 GPU({{needs}})가 필요함",
+    "host_only_banner": "다른 기기에서 설정을 보고 있습니다. VoiceStudio가 실행 중인 PC를 변경하는 설정(모델, 엔진, 받아쓰기, 다운로드)은 해당 PC에서만 편집할 수 있습니다.",
+    "host_only_section": "VoiceStudio가 실행 중인 컴퓨터에서만 사용할 수 있습니다."
   },
   "gallery": {
     "title": "VoiceStudio 갤러리",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "모델 팩",
+    "pack_host_only": "모델 팩은 VoiceStudio가 실행 중인 컴퓨터에서만 변경할 수 있습니다. 팩을 설치하거나 바꾸려면 해당 컴퓨터에서 설정을 여세요.",
     "pack_for": "{{device}}에 맞게 조정됨",
     "pack_desc": "단계를 선택하고 로컬 모델과 디스크 사용량을 확인한 뒤 한 번에 설치하고 활성화하세요. 화자 분리와 LLM은 별도로 선택합니다.",
     "pack_download": "다운로드할 용량 {{size}}GB",

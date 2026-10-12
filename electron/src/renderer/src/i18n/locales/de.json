@@ -1414,7 +1414,9 @@
     "gpu_report_engine_pinned_cpu": "CPU: Rechengerät auf CPU festgelegt",
     "gpu_report_engine_no_family_path": "CPU: kein Pfad für Ihren GPU-Typ",
     "gpu_report_engine_no_gpu": "CPU: keine GPU verfügbar",
-    "gpu_report_engine_needs_accelerator": "Benötigt eine GPU ({{needs}}), die dieser Rechner nicht hat"
+    "gpu_report_engine_needs_accelerator": "Benötigt eine GPU ({{needs}}), die dieser Rechner nicht hat",
+    "host_only_banner": "Du siehst die Einstellungen von einem anderen Gerät. Was den PC mit VoiceStudio verändert – Modelle, Engines, Diktat und Downloads – lässt sich nur auf diesem PC bearbeiten.",
+    "host_only_section": "Nur auf dem Computer verfügbar, auf dem VoiceStudio läuft."
   },
   "gallery": {
     "title": "VoiceStudio Galerie",
@@ -1995,6 +1997,7 @@
   },
   "models": {
     "pack_title": "Modellpakete",
+    "pack_host_only": "Modellpakete lassen sich nur auf dem Computer ändern, auf dem VoiceStudio läuft. Öffne dort die Einstellungen, um Pakete zu installieren oder zu wechseln.",
     "pack_for": "Abgestimmt auf {{device}}",
     "pack_desc": "Wähle eine Stufe, prüfe lokale Modelle und Speicherbedarf und installiere und aktiviere das Paket in einem Schritt. Sprechertrennung und LLM bleiben eigene Optionen.",
     "pack_download": "{{size}} GB herunterzuladen",
