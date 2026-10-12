@@ -6,7 +6,20 @@ VoiceStudio (OmniVoice en la GPU); el móvil solo reproduce.
 
 Especificación técnica y contrato de API: [SPEC.md](SPEC.md).
 
-## Arrancar
+## Arranque automático (recomendado)
+
+Una vez, en PowerShell:
+
+```powershell
+.\scriptseader\install-autostart.ps1
+```
+
+Desde entonces Reader arranca solo y oculto al iniciar sesión en Windows, se reinicia si se cae y
+queda publicado en tu tailnet. El enlace para el móvil se guarda en
+`%APPDATA%\OmniVoiceeader-links.txt`; el registro en `reader-launcher.log`. Para quitarlo:
+`.\scriptseader\install-autostart.ps1 -Remove`.
+
+## Arrancar a mano
 
 Doble clic en `scripts\reader\Reader.bat` (o `.\scripts\reader\start-reader.ps1`).
 

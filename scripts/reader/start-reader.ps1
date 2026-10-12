@@ -11,6 +11,10 @@
        - LAN (-Lan): the built-in network share with a PIN, for phones without Tailscale.
   Ctrl+C stops the backend. `tailscale serve` is reset on exit unless -KeepServe is given.
 
+  -Background is the unattended mode used by the logon task (install-autostart.ps1): no
+  console output (log in %APPDATA%\OmniVoice\reader-launcher.log), the backend is restarted
+  if it exits, and `tailscale serve` stays on so the phone link keeps working.
+
 .EXAMPLE
   .\scripts\reader\start-reader.ps1
   .\scripts\reader\start-reader.ps1 -Lan -NoTailscale
@@ -20,23 +24,32 @@ param(
   [switch]$Lan,
   [switch]$NoTailscale,
   [switch]$NoBuild,
-  [switch]$KeepServe
+  [switch]$KeepServe,
+  [switch]$Background
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 Set-Location $Root
+if ($Background) { $KeepServe = $true }
+
+$logDir = Join-Path $env:APPDATA 'OmniVoice'
+New-Item -ItemType Directory -Force $logDir | Out-Null
+$launcherLog = Join-Path $logDir 'reader-launcher.log'
+
+function Write-Step($msg) {
+  if ($Background) { Add-Content $launcherLog ("{0:yyyy-MM-dd HH:mm:ss}  {1}" -f (Get-Date), $msg) }
+  else { Write-Host "==> $msg" -ForegroundColor Cyan }
+}
 
 # uv / bun installed per-user may not be on PATH in a fresh shell.
-foreach ($dir in @("$env:APPDATA\Python\Python314\Scripts", "$env:APPDATA\npm", "$env:USERPROFILE\.local\bin", "$env:USERPROFILE\.cargo\bin")) {
+foreach ($dir in @("$env:APPDATA\Python\Python314\Scripts", "$env:APPDATA\npm", "$env:USERPROFILE\.local\bin", "$env:USERPROFILE\.cargo\bin", "$env:ProgramFiles\Tailscale")) {
   if ((Test-Path $dir) -and ($env:PATH -notlike "*$dir*")) { $env:PATH = "$dir;$env:PATH" }
 }
 foreach ($tool in 'uv', 'bun') {
   if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool not found. See docs/reader/README.md (Setup)." }
 }
 if (-not (Test-Path '.venv\Scripts\python.exe')) { throw "Python env missing. Run: bun run setup:api" }
-
-function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
 # ── 1. Web UI build ────────────────────────────────────────────────────────────
 $dist = Join-Path $Root 'frontend\dist\index.html'
@@ -50,7 +63,7 @@ if (-not $NoBuild) {
   }
   if ($stale) {
     Write-Step 'Building web UI (first run or sources changed)...'
-    bun run build:web
+    if ($Background) { bun run build:web *>> $launcherLog } else { bun run build:web }
     if ($LASTEXITCODE -ne 0) { throw 'Web UI build failed.' }
   }
 }
@@ -61,49 +74,42 @@ $env:OMNIVOICE_BIND_HOST = '127.0.0.1'
 $base = "http://127.0.0.1:$Port"
 
 # Stable LAN PIN + port so a phone home-screen shortcut keeps working across restarts.
-$logDir = Join-Path $env:APPDATA 'OmniVoice'
-New-Item -ItemType Directory -Force $logDir | Out-Null
 $pinFile = Join-Path $logDir 'reader-share-pin.txt'
 if (-not (Test-Path $pinFile)) { [IO.File]::WriteAllText($pinFile, ('{0:D8}' -f (Get-Random -Minimum 10000000 -Maximum 99999999))) }
 $env:OMNIVOICE_SHARE_PIN = ([IO.File]::ReadAllText($pinFile)).Trim()
 if (-not $env:OMNIVOICE_SHARE_PORT) { $env:OMNIVOICE_SHARE_PORT = '3910' }
-
-try { Invoke-RestMethod "$base/health" -TimeoutSec 2 | Out-Null; throw "Port $Port already serves a backend. Close VoiceStudio first or pass -Port." }
-catch [System.Net.WebException] { }
-
-Write-Step "Starting backend on $base ..."
 $backendLog = Join-Path $logDir 'reader-backend.log'
-$proc = Start-Process -FilePath 'uv' -ArgumentList @('run', '--no-sync', 'uvicorn', 'main:app', '--app-dir', 'backend', '--host', '127.0.0.1', '--port', "$Port") `
-  -RedirectStandardOutput $backendLog -RedirectStandardError "$backendLog.err" -NoNewWindow -PassThru
 
-$ready = $false
-for ($i = 0; $i -lt 240; $i++) {
-  if ($proc.HasExited) { Get-Content "$backendLog.err" -Tail 30; throw 'Backend exited during startup.' }
-  try { Invoke-RestMethod "$base/health" -TimeoutSec 2 | Out-Null; $ready = $true; break } catch { Start-Sleep -Milliseconds 500 }
+function Test-Backend { try { Invoke-RestMethod "$base/health" -TimeoutSec 2 | Out-Null; $true } catch { $false } }
+
+function Start-Backend {
+  Write-Step "Starting backend on $base ..."
+  $p = Start-Process -FilePath 'uv' -ArgumentList @('run', '--no-sync', 'uvicorn', 'main:app', '--app-dir', 'backend', '--host', '127.0.0.1', '--port', "$Port") `
+    -RedirectStandardOutput $backendLog -RedirectStandardError "$backendLog.err" -WindowStyle Hidden -PassThru
+  for ($i = 0; $i -lt 240; $i++) {
+    if ($p.HasExited) { throw "Backend exited during startup. Log: $backendLog.err" }
+    if (Test-Backend) { return $p }
+    Start-Sleep -Milliseconds 500
+  }
+  throw "Backend did not become ready. Log: $backendLog.err"
 }
-if (-not $ready) { throw "Backend did not become ready. Log: $backendLog.err" }
 
-$urls = @()
-$serveOn = $false
-try {
-  # ── 3a. Tailscale ────────────────────────────────────────────────────────────
+function Publish {
+  $urls = @()
   if (-not $NoTailscale -and (Get-Command tailscale -ErrorAction SilentlyContinue)) {
     $ts = Invoke-RestMethod "$base/system/tailscale/status"
     if ($ts.running) {
       Write-Step 'Publishing to your tailnet (tailscale serve)...'
       $r = Invoke-RestMethod -Method Post "$base/system/tailscale/enable"
       if ($r.ok) {
-        $serveOn = $true
+        $script:serveOn = $true
         $urls += [pscustomobject]@{ Via = "Tailscale ($($r.scheme))"; Url = "$($r.url)/#/reader" }
         if ($r.scheme -ne 'https') {
-          Write-Host '    Tip: enable "HTTPS Certificates" at https://login.tailscale.com/admin/dns' -ForegroundColor Yellow
-          Write-Host '    to install Reader as a real app (PWA) with offline shell.' -ForegroundColor Yellow
+          Write-Step 'Tip: enable "HTTPS Certificates" at https://login.tailscale.com/admin/dns to install Reader as an app.'
         }
-      } else { Write-Warning "Tailscale: $($r.error)" }
-    } else { Write-Warning 'Tailscale is installed but not running; skipping.' }
+      } else { Write-Step "Tailscale: $($r.error)" }
+    } else { Write-Step 'Tailscale is installed but not running; skipping.' }
   }
-
-  # ── 3b. LAN share with PIN ───────────────────────────────────────────────────
   if ($Lan) {
     Write-Step 'Enabling LAN sharing...'
     $s = Invoke-RestMethod -Method Post "$base/system/network/enable"
@@ -111,19 +117,53 @@ try {
       $urls += [pscustomobject]@{ Via = "LAN (PIN $($s.pin))"; Url = "http://${ip}:$($s.share_port)/?pin=$($s.pin)#/reader" }
     }
   }
+  # The phone links, for the user to find later without a console.
+  $lines = @("This PC: $base/#/reader") + ($urls | ForEach-Object { "$($_.Via): $($_.Url)" })
+  [IO.File]::WriteAllLines((Join-Path $logDir 'reader-links.txt'), $lines)
+  return $urls
+}
 
+$serveOn = $false
+$proc = $null
+try {
+  if ($Background) {
+    # Supervisor: keep a backend up, restart it when it exits, back off on repeated crashes.
+    $delay = 5
+    while ($true) {
+      if (Test-Backend) {
+        # Another VoiceStudio (e.g. the desktop app) already serves the port; wait for it to go.
+        Start-Sleep -Seconds 30
+        continue
+      }
+      try {
+        $proc = Start-Backend
+        Publish | Out-Null
+        $started = Get-Date
+        Wait-Process -Id $proc.Id
+        Write-Step "Backend exited (code $($proc.ExitCode)); restarting."
+        $delay = if (((Get-Date) - $started).TotalMinutes -gt 5) { 5 } else { [Math]::Min($delay * 2, 300) }
+      } catch {
+        Write-Step "Error: $($_.Exception.Message)"
+        $delay = [Math]::Min($delay * 2, 300)
+      }
+      Start-Sleep -Seconds $delay
+    }
+  }
+
+  if (Test-Backend) { throw "Port $Port already serves a backend. Close VoiceStudio first or pass -Port." }
+  $proc = Start-Backend
+  $urls = Publish
   Write-Host ''
   Write-Host '  Reader is running.' -ForegroundColor Green
   Write-Host "  This PC:  $base/#/reader"
   foreach ($u in $urls) { Write-Host ("  {0,-22} {1}" -f "$($u.Via):", $u.Url) }
   Write-Host ''
   Write-Host '  Ctrl+C to stop.' -ForegroundColor DarkGray
-
   Wait-Process -Id $proc.Id
 }
 finally {
   if ($serveOn -and -not $KeepServe) {
     try { Invoke-RestMethod -Method Post "$base/system/tailscale/disable" -TimeoutSec 5 | Out-Null } catch { & tailscale serve reset 2>$null }
   }
-  if (-not $proc.HasExited) { & taskkill /T /F /PID $proc.Id 2>$null | Out-Null }
+  if ($proc -and -not $proc.HasExited) { & taskkill /T /F /PID $proc.Id 2>$null | Out-Null }
 }
