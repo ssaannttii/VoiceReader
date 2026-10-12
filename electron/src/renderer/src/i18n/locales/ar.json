@@ -3562,6 +3562,10 @@
     "voice_default": "الصوت الافتراضي",
     "voice_default_hint": "الصوت القياسي للمحرك النشط",
     "voices_builtin": "الأصوات المدمجة",
-    "voices_mine": "أصواتك"
+    "voices_mine": "أصواتك",
+    "default_voice_badge": "افتراضي",
+    "default_voice_make": "استخدام {{name}} افتراضيًا في هذه اللغة",
+    "default_voice_clear": "إيقاف استخدام {{name}} افتراضيًا",
+    "default_voice_set": "سيقرأ {{name}} المستندات بهذه اللغة افتراضيًا."
   }
 }

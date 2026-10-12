@@ -3554,6 +3554,10 @@
     "voice_default": "Standardstimme",
     "voice_default_hint": "Die Standardstimme der aktiven Engine",
     "voices_builtin": "Integrierte Stimmen",
-    "voices_mine": "Deine Stimmen"
+    "voices_mine": "Deine Stimmen",
+    "default_voice_badge": "Standard",
+    "default_voice_make": "{{name}} standardmäßig für diese Sprache verwenden",
+    "default_voice_clear": "{{name}} nicht mehr standardmäßig verwenden",
+    "default_voice_set": "{{name}} liest Dokumente in dieser Sprache jetzt standardmäßig vor."
   }
 }

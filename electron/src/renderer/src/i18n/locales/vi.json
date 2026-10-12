@@ -3554,6 +3554,10 @@
     "voice_default": "Giọng mặc định",
     "voice_default_hint": "Giọng chuẩn của engine đang dùng",
     "voices_builtin": "Giọng tích hợp",
-    "voices_mine": "Giọng của bạn"
+    "voices_mine": "Giọng của bạn",
+    "default_voice_badge": "Mặc định",
+    "default_voice_make": "Dùng {{name}} làm mặc định cho ngôn ngữ này",
+    "default_voice_clear": "Bỏ {{name}} khỏi mặc định",
+    "default_voice_set": "Từ giờ {{name}} sẽ đọc mặc định các tài liệu bằng ngôn ngữ này."
   }
 }

@@ -3558,6 +3558,10 @@
     "voice_default": "Głos domyślny",
     "voice_default_hint": "Standardowy głos aktywnego silnika",
     "voices_builtin": "Głosy wbudowane",
-    "voices_mine": "Twoje głosy"
+    "voices_mine": "Twoje głosy",
+    "default_voice_badge": "Domyślny",
+    "default_voice_make": "Używaj {{name}} domyślnie w tym języku",
+    "default_voice_clear": "Przestań używać {{name}} domyślnie",
+    "default_voice_set": "{{name}} będzie teraz domyślnie czytać dokumenty w tym języku."
   }
 }

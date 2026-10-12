@@ -3554,6 +3554,10 @@
     "voice_default": "Standardröst",
     "voice_default_hint": "Den aktiva motorns standardröst",
     "voices_builtin": "Inbyggda röster",
-    "voices_mine": "Dina röster"
+    "voices_mine": "Dina röster",
+    "default_voice_badge": "Standard",
+    "default_voice_make": "Använd {{name}} som standard för det här språket",
+    "default_voice_clear": "Sluta använda {{name}} som standard",
+    "default_voice_set": "{{name}} läser nu dokument på det här språket som standard."
   }
 }

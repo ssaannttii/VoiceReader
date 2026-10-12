@@ -3558,6 +3558,10 @@
     "voice_default": "Голос по умолчанию",
     "voice_default_hint": "Стандартный голос активного движка",
     "voices_builtin": "Встроенные голоса",
-    "voices_mine": "Ваши голоса"
+    "voices_mine": "Ваши голоса",
+    "default_voice_badge": "По умолчанию",
+    "default_voice_make": "Использовать {{name}} по умолчанию для этого языка",
+    "default_voice_clear": "Не использовать {{name}} по умолчанию",
+    "default_voice_set": "Теперь документы на этом языке по умолчанию читает {{name}}."
   }
 }

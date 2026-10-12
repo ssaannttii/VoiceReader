@@ -200,6 +200,52 @@ _LANGUAGE_NAMES = {
 }
 
 
+_DEFAULT_VOICES_PREF = "reader_default_voices"
+
+
+def _default_voice_prefs() -> dict:
+    from core import prefs
+
+    value = prefs.get(_DEFAULT_VOICES_PREF, {})
+    return value if isinstance(value, dict) else {}
+
+
+class DefaultVoiceRequest(BaseModel):
+    language: str = Field(min_length=2, max_length=12)
+    voice_id: Optional[str] = Field(None, max_length=200)
+
+
+@router.get("/reader/default-voices")
+async def get_default_voices():
+    """The listener's chosen voice per document language, e.g. ``{"es": "f952f96a"}``."""
+    return await asyncio.to_thread(_default_voice_prefs)
+
+
+@router.put("/reader/default-voices")
+async def set_default_voice(req: DefaultVoiceRequest):
+    """Choose (or clear, with ``voice_id: null``) the voice new documents in a language use."""
+    from core import prefs
+
+    language = _clean_lang(req.language)
+    if not language:
+        raise HTTPException(status_code=422, detail="Unknown language")
+    if req.voice_id:
+        voices = await asyncio.to_thread(_list_voices, None)
+        if not any(voice["id"] == req.voice_id for voice in voices):
+            raise HTTPException(status_code=404, detail="Voice not found")
+
+    def write() -> dict:
+        current = dict(_default_voice_prefs())
+        if req.voice_id:
+            current[language] = req.voice_id
+        else:
+            current.pop(language, None)
+        prefs.set_(_DEFAULT_VOICES_PREF, current)
+        return current
+
+    return await asyncio.to_thread(write)
+
+
 def _default_voice(language: Optional[str]) -> Optional[str]:
     """A saved profile to read with when the listener has not picked a voice.
 
@@ -216,6 +262,9 @@ def _default_voice(language: Optional[str]) -> Optional[str]:
             rows = conn.execute(
                 "SELECT id, language, personality FROM voice_profiles ORDER BY created_at"
             ).fetchall()
+        chosen = _default_voice_prefs().get(language or "")
+        if chosen and any(row["id"] == chosen for row in rows):
+            return chosen
     except Exception:  # noqa: BLE001 — rendering still works with the engine default
         logger.warning("Reader: default voice lookup failed", exc_info=True)
         return None

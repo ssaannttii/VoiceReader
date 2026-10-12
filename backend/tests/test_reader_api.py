@@ -420,3 +420,25 @@ def test_configured_share_pin(monkeypatch):
     assert network_share.configured_pin() is None
     monkeypatch.delenv("OMNIVOICE_SHARE_PIN")
     assert network_share.configured_pin() is None
+
+
+def test_chosen_default_voice_wins_and_can_be_cleared(env, monkeypatch, tmp_path):
+    import core.prefs
+
+    monkeypatch.setattr(core.prefs, "_PREFS_PATH", str(tmp_path / "prefs.json"))
+    _add_profile("es-reader", "Spanish", personality="Reader", created=1)
+    _add_profile("narrador", "Spanish", created=2)
+    client = TestClient(env.app)
+
+    assert client.put("/reader/default-voices", json={"language": "es", "voice_id": "nope"}).status_code == 404
+    assert client.put("/reader/default-voices", json={"language": "es", "voice_id": "narrador"}).json() == {
+        "es": "narrador"
+    }
+    doc = _create(client, "Hola. Esta es una frase en español para leer en voz alta.", language="es")
+    client.post(f"/reader/documents/{doc['id']}/segments/0/render", json={})
+    assert env.calls[-1][1] == "narrador"
+
+    assert client.put("/reader/default-voices", json={"language": "es", "voice_id": None}).json() == {}
+    other = _create(client, "Otra frase distinta en español para leer en voz alta.", language="es")
+    client.post(f"/reader/documents/{other['id']}/segments/0/render", json={})
+    assert env.calls[-1][1] == "es-reader"

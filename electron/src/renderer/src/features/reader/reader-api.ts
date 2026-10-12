@@ -98,6 +98,7 @@ export const readerKeys = {
   documents: ['reader', 'documents'] as const,
   document: (id: string) => ['reader', 'document', id] as const,
   voices: ['reader', 'voices'] as const,
+  defaultVoices: ['reader', 'default-voices'] as const,
   status: ['reader', 'status'] as const,
 };
 
@@ -169,6 +170,15 @@ export const readerApi = {
   cancelPrerender: (id: string) =>
     apiJson<ReaderPrerenderStatus>(`${doc(id)}/prerender`, { method: 'DELETE' }),
   voices: (signal?: AbortSignal) => apiJson<ReaderVoice[]>('/reader/voices', { signal }),
+  /** Voice chosen per document language, e.g. `{ es: 'f952f96a' }`. */
+  defaultVoices: (signal?: AbortSignal) =>
+    apiJson<Record<string, string>>('/reader/default-voices', { signal }),
+  setDefaultVoice: (language: string, voiceId: string | null) =>
+    apiJson<Record<string, string>>('/reader/default-voices', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language, voice_id: voiceId }),
+    }),
   status: (signal?: AbortSignal) => apiJson<ReaderStatus>('/reader/status', { signal }),
 };
 

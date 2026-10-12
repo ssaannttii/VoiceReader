@@ -3554,6 +3554,10 @@
     "voice_default": "Standaardstem",
     "voice_default_hint": "De standaardstem van de actieve engine",
     "voices_builtin": "Ingebouwde stemmen",
-    "voices_mine": "Jouw stemmen"
+    "voices_mine": "Jouw stemmen",
+    "default_voice_badge": "Standaard",
+    "default_voice_make": "{{name}} standaard gebruiken in deze taal",
+    "default_voice_clear": "{{name}} niet meer standaard gebruiken",
+    "default_voice_set": "{{name}} leest documenten in deze taal nu standaard voor."
   }
 }

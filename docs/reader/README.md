@@ -43,9 +43,9 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
 
 ## Voces
 
-Si un documento no tiene voz elegida, Reader usa automáticamente un perfil del idioma del
-documento (prefiere los marcados con la personalidad *Reader*) y la fija en el documento para
-que no cambie entre frases.
+Si un documento no tiene voz elegida, Reader usa la voz por defecto de su idioma: márcala con la
+**estrella** en el selector de voces. Sin estrella, elige un perfil del idioma (prefiere los de
+personalidad *Reader*). La voz queda fijada en el documento para que no cambie entre frases.
 
 Para crear voces nuevas usa VoiceStudio → **Voice design** (describe la voz) o **Voice
 cloning** (graba/sube 10–20 s de referencia limpia, con permiso de la persona). Aparecen en el

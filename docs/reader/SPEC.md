@@ -114,6 +114,7 @@ clause punctuation/whitespace. `text` is the display text (not normalized); norm
 | DELETE | `/reader/documents/{id}/prerender` | – | cancels; `PrerenderStatus` |
 | GET | `/reader/audio/{render_key}` | – | audio bytes (`audio/mpeg` or `audio/wav`), `Cache-Control: public, max-age=31536000, immutable`, supports Range |
 | GET | `/reader/voices` | optional `?engine=` | `Voice[]` |
+| GET / PUT | `/reader/default-voices` | PUT `{"language": "es", "voice_id": str\|null}` | `{lang: voice_id}`: the listener's chosen voice per document language |
 | GET | `/reader/status` | – | `{"engine": str, "engine_ready": bool, "audio_format": "mp3"\|"wav", "lan_url": str\|null}` |
 
 `RenderResult`:
@@ -155,7 +156,8 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
 ## Implementation notes (as built)
 - Render request fields default to the document's saved values; explicit `voice`/`engine` are
   saved on the document. With no voice at all, the backend picks a saved profile in the
-  document language (preferring personality "Reader") and pins it — cloning engines would
+  document language — the one chosen in `/reader/default-voices` (star in the voice sheet), else
+  one preferring personality "Reader" — and pins it — cloning engines would
   otherwise invent a new speaker per sentence. `RenderResult.voice` reports the voice used.
 - Prerender starts at `from_segment` and wraps to the start; idle status counts cached segments.
 - `lan_url` is the share base URL (no PIN, no hash).

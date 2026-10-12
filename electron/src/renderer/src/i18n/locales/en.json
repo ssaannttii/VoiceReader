@@ -3554,6 +3554,10 @@
     "voice_default": "Default voice",
     "voice_default_hint": "The active engine’s standard voice",
     "voices_builtin": "Built-in voices",
-    "voices_mine": "Your voices"
+    "voices_mine": "Your voices",
+    "default_voice_badge": "Default",
+    "default_voice_make": "Use {{name}} by default in this language",
+    "default_voice_clear": "Stop using {{name}} by default",
+    "default_voice_set": "{{name}} will now read documents in this language by default."
   }
 }

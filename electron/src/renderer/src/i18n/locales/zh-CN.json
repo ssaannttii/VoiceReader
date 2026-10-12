@@ -3554,6 +3554,10 @@
     "voice_default": "默认声音",
     "voice_default_hint": "当前引擎的标准声音",
     "voices_builtin": "内置声音",
-    "voices_mine": "你的声音"
+    "voices_mine": "你的声音",
+    "default_voice_badge": "默认",
+    "default_voice_make": "将 {{name}} 设为此语言的默认语音",
+    "default_voice_clear": "不再将 {{name}} 设为默认",
+    "default_voice_set": "此后此语言的文档将默认由 {{name}} 朗读。"
   }
 }

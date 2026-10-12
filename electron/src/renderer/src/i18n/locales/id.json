@@ -3554,6 +3554,10 @@
     "voice_default": "Suara default",
     "voice_default_hint": "Suara standar mesin aktif",
     "voices_builtin": "Suara bawaan",
-    "voices_mine": "Suara Anda"
+    "voices_mine": "Suara Anda",
+    "default_voice_badge": "Bawaan",
+    "default_voice_make": "Gunakan {{name}} secara bawaan untuk bahasa ini",
+    "default_voice_clear": "Berhenti menggunakan {{name}} secara bawaan",
+    "default_voice_set": "{{name}} kini membacakan dokumen dalam bahasa ini secara bawaan."
   }
 }

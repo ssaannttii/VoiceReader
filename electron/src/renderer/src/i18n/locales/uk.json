@@ -3558,6 +3558,10 @@
     "voice_default": "Голос за замовчуванням",
     "voice_default_hint": "Стандартний голос активного рушія",
     "voices_builtin": "Вбудовані голоси",
-    "voices_mine": "Ваші голоси"
+    "voices_mine": "Ваші голоси",
+    "default_voice_badge": "Типовий",
+    "default_voice_make": "Використовувати {{name}} типово для цієї мови",
+    "default_voice_clear": "Не використовувати {{name}} типово",
+    "default_voice_set": "Тепер документи цією мовою типово читає {{name}}."
   }
 }

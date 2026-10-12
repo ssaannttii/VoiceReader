@@ -3554,6 +3554,10 @@
     "voice_default": "डिफ़ॉल्ट आवाज़",
     "voice_default_hint": "सक्रिय इंजन की मानक आवाज़",
     "voices_builtin": "बिल्ट-इन आवाज़ें",
-    "voices_mine": "आपकी आवाज़ें"
+    "voices_mine": "आपकी आवाज़ें",
+    "default_voice_badge": "डिफ़ॉल्ट",
+    "default_voice_make": "इस भाषा में {{name}} को डिफ़ॉल्ट रूप से इस्तेमाल करें",
+    "default_voice_clear": "{{name}} को डिफ़ॉल्ट से हटाएँ",
+    "default_voice_set": "अब इस भाषा के दस्तावेज़ डिफ़ॉल्ट रूप से {{name}} पढ़ेगा।"
   }
 }

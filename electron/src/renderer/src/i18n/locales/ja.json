@@ -3554,6 +3554,10 @@
     "voice_default": "デフォルトの声",
     "voice_default_hint": "使用中のエンジンの標準の声",
     "voices_builtin": "内蔵の声",
-    "voices_mine": "あなたの声"
+    "voices_mine": "あなたの声",
+    "default_voice_badge": "既定",
+    "default_voice_make": "この言語で {{name}} を既定にする",
+    "default_voice_clear": "{{name}} を既定から外す",
+    "default_voice_set": "この言語のドキュメントは今後 {{name}} が既定で読み上げます。"
   }
 }

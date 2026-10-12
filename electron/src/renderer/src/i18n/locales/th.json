@@ -3554,6 +3554,10 @@
     "voice_default": "เสียงเริ่มต้น",
     "voice_default_hint": "เสียงมาตรฐานของเอนจินที่ใช้งานอยู่",
     "voices_builtin": "เสียงในตัว",
-    "voices_mine": "เสียงของคุณ"
+    "voices_mine": "เสียงของคุณ",
+    "default_voice_badge": "ค่าเริ่มต้น",
+    "default_voice_make": "ใช้ {{name}} เป็นค่าเริ่มต้นสำหรับภาษานี้",
+    "default_voice_clear": "เลิกใช้ {{name}} เป็นค่าเริ่มต้น",
+    "default_voice_set": "ตอนนี้ {{name}} จะอ่านเอกสารภาษานี้เป็นค่าเริ่มต้น"
   }
 }

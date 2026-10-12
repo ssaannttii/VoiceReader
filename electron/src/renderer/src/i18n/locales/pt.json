@@ -3556,6 +3556,10 @@
     "voice_default": "Voz predefinida",
     "voice_default_hint": "A voz padrão do motor ativo",
     "voices_builtin": "Vozes integradas",
-    "voices_mine": "As suas vozes"
+    "voices_mine": "As suas vozes",
+    "default_voice_badge": "Padrão",
+    "default_voice_make": "Usar {{name}} por padrão neste idioma",
+    "default_voice_clear": "Deixar de usar {{name}} por padrão",
+    "default_voice_set": "{{name}} vai ler por padrão os documentos neste idioma."
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -10,6 +10,7 @@ import {
   SquareIcon,
   UserRoundIcon,
   Volume2Icon,
+  StarIcon,
 } from 'lucide-react';
 import { claimPlayback } from '@/lib/audio/playback';
 import { createObjectUrl, revokeObjectUrl } from '@/lib/audio/object-url';
@@ -175,6 +176,25 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
     enabled: open,
     staleTime: 60_000,
   });
+  const client = useQueryClient();
+  const defaults = useQuery({
+    queryKey: readerKeys.defaultVoices,
+    queryFn: ({ signal }) => readerApi.defaultVoices(signal),
+    enabled: open && Boolean(doc.language),
+    staleTime: 60_000,
+  });
+  const defaultId = doc.language ? defaults.data?.[doc.language] : undefined;
+  const toggleDefault = (voice: ReaderVoice) => {
+    if (!doc.language) return;
+    const next = defaultId === voice.id ? null : voice.id;
+    readerApi
+      .setDefaultVoice(doc.language, next)
+      .then((saved) => {
+        client.setQueryData(readerKeys.defaultVoices, saved);
+        if (next) toast.success(t('reader.default_voice_set', { name: voice.name }));
+      })
+      .catch((error: unknown) => toast.error(describeError(error)));
+  };
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const token = useRef(0);
@@ -283,13 +303,39 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
                       icon={UserRoundIcon}
                       label={voice.name}
                       detail={
-                        [voice.description, voice.language?.toUpperCase()]
+                        [
+                          defaultId === voice.id ? t('reader.default_voice_badge') : null,
+                          voice.description,
+                          voice.language?.toUpperCase(),
+                        ]
                           .filter(Boolean)
                           .join(' · ') || undefined
                       }
                       checked={player.voice === voice.id}
                       onClick={() => choose(voice)}
                     />
+                    {doc.language && voice.kind === 'profile' && (
+                      <button
+                        type="button"
+                        className={cn(
+                          'rd-icon-btn shrink-0',
+                          defaultId === voice.id ? 'text-amber-500' : 'text-muted-foreground',
+                        )}
+                        aria-pressed={defaultId === voice.id}
+                        aria-label={t(
+                          defaultId === voice.id
+                            ? 'reader.default_voice_clear'
+                            : 'reader.default_voice_make',
+                          { name: voice.name },
+                        )}
+                        onClick={() => toggleDefault(voice)}
+                      >
+                        <StarIcon
+                          className={cn('size-4', defaultId === voice.id && 'fill-current')}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={cn(

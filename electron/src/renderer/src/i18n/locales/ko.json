@@ -3554,6 +3554,10 @@
     "voice_default": "기본 목소리",
     "voice_default_hint": "활성 엔진의 표준 목소리",
     "voices_builtin": "기본 제공 목소리",
-    "voices_mine": "내 목소리"
+    "voices_mine": "내 목소리",
+    "default_voice_badge": "기본값",
+    "default_voice_make": "이 언어에서 {{name}}을(를) 기본으로 사용",
+    "default_voice_clear": "{{name}} 기본 사용 해제",
+    "default_voice_set": "이제 이 언어의 문서는 기본적으로 {{name}}이(가) 읽습니다."
   }
 }

@@ -3554,6 +3554,10 @@
     "voice_default": "Varsayılan ses",
     "voice_default_hint": "Etkin motorun standart sesi",
     "voices_builtin": "Yerleşik sesler",
-    "voices_mine": "Sesleriniz"
+    "voices_mine": "Sesleriniz",
+    "default_voice_badge": "Varsayılan",
+    "default_voice_make": "Bu dilde {{name}} sesini varsayılan yap",
+    "default_voice_clear": "{{name}} sesini varsayılan olmaktan çıkar",
+    "default_voice_set": "Bu dildeki belgeleri artık varsayılan olarak {{name}} okuyacak."
   }
 }
