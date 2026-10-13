@@ -1,5 +1,6 @@
 /** Per-chapter listening state for the chapters sheet (pure). */
 import type { ReaderChapter } from './reader-api';
+import { estimateSegmentSeconds } from './reader-text';
 
 export type ChapterState =
   | { kind: 'current'; percent: number }
@@ -33,4 +34,27 @@ export function chapterStates(
     }
     return { kind: 'unread' };
   });
+}
+
+/** Length of every chapter in 1x seconds, from `secondsAt(segment)` (document start of a segment). */
+export function chapterSeconds(
+  chapters: readonly ReaderChapter[],
+  segmentCount: number,
+  secondsAt: (segment: number) => number,
+): number[] {
+  return chapters.map((chapter, index) => {
+    const end = Math.max(chapter.segment, chapters[index + 1]?.segment ?? segmentCount);
+    return Math.max(0, secondsAt(end) - secondsAt(chapter.segment));
+  });
+}
+
+/** `secondsAt` from text-length estimates, for a document that is not in the player. */
+export function estimatedSecondsAt(
+  segments: readonly { text: string }[],
+): (segment: number) => number {
+  const prefix = new Float64Array(segments.length + 1);
+  segments.forEach((segment, index) => {
+    prefix[index + 1] = prefix[index] + estimateSegmentSeconds(segment.text);
+  });
+  return (segment) => prefix[Math.min(Math.max(0, segment), segments.length)] ?? 0;
 }

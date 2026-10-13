@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { CheckIcon } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import {
   BACKGROUNDS,
@@ -13,6 +14,7 @@ import {
   type ReaderBackground,
   type ReaderFont,
   type ReaderHighlight,
+  type ReaderSurface,
 } from './reader-appearance';
 
 const HIGHLIGHT_LABELS: Record<ReaderHighlight, string> = {
@@ -38,15 +40,26 @@ const BACKGROUND_LABELS: Record<ReaderBackground, string> = {
   paper: 'reader.background_paper',
 };
 
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+export function SheetSection({
+  id,
+  title,
+  aside,
+  children,
+}: {
+  id: string;
+  title: string;
+  /** Right side of the heading (a current value). */
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section aria-labelledby={id}>
-      <h3
-        id={id}
-        className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-      >
-        {title}
-      </h3>
+      <div className="mb-2 flex items-baseline justify-between gap-2 px-1">
+        <h3 id={id} className="rd-sheet-heading">
+          {title}
+        </h3>
+        {aside}
+      </div>
       {children}
     </section>
   );
@@ -93,7 +106,43 @@ export function AppearancePreview({ textSize }: { textSize: number }) {
   );
 }
 
-/** Highlight colour, font and background pickers for the reader options sheet. */
+/** A miniature paragraph showing a highlight theme: grey lines, the sentence box, the word. */
+function HighlightSample({
+  highlight,
+  surface,
+}: {
+  highlight: ReaderHighlight;
+  surface: ReaderSurface;
+}) {
+  const colors = HIGHLIGHT_COLORS[highlight][surface];
+  const tokens = SURFACES[surface];
+  return (
+    <span
+      className="rd-hl-sample"
+      style={
+        {
+          '--hl-bg': tokens.background,
+          '--hl-ink': tokens.foreground,
+          '--hl-sentence': colors.sentence,
+          '--hl-word': colors.word,
+        } as CSSProperties
+      }
+      aria-hidden="true"
+    >
+      <i style={{ width: '82%' }} />
+      <b>
+        <i />
+        <u />
+        <i />
+      </b>
+      <b>
+        <i />
+      </b>
+    </span>
+  );
+}
+
+/** Background, font and highlight pickers for the "Aa" sheet. */
 export function AppearanceOptions() {
   const { t } = useTranslation();
   const appearance = useReaderAppearance();
@@ -101,84 +150,86 @@ export function AppearanceOptions() {
   const surface = resolveSurface(appearance.background, theme);
   return (
     <>
-      <Section id="reader-highlight" title={t('reader.highlight')}>
-        <div className="grid grid-cols-4 gap-2">
-          {HIGHLIGHTS.map((highlight) => {
-            const colors = HIGHLIGHT_COLORS[highlight][surface];
+      <SheetSection id="reader-background" title={t('reader.background')}>
+        <div className="flex justify-between gap-2 px-1" role="radiogroup">
+          {BACKGROUNDS.map((background) => {
+            const selected = appearance.background === background;
+            const tokens = background === 'system' ? null : SURFACES[background];
             return (
               <button
-                key={highlight}
+                key={background}
                 type="button"
-                className="rd-swatch-btn"
-                aria-pressed={appearance.highlight === highlight}
-                onClick={() => setReaderAppearance({ highlight })}
+                role="radio"
+                aria-checked={selected}
+                className="rd-bg-option"
+                onClick={() => setReaderAppearance({ background })}
               >
                 <span
-                  className="rd-swatch font-semibold"
-                  style={{ background: colors.word, color: colors.wordText }}
+                  className="rd-bg-swatch"
+                  style={
+                    tokens
+                      ? { background: tokens.background, color: tokens.foreground }
+                      : {
+                          background: `linear-gradient(135deg, ${SURFACES.light.background} 50%, ${SURFACES.dark.background} 50%)`,
+                          color: SURFACES.dark.foreground,
+                        }
+                  }
                   aria-hidden="true"
                 >
-                  Aa
+                  {selected && <CheckIcon className="size-4" strokeWidth={2.6} />}
                 </span>
-                <span>{t(HIGHLIGHT_LABELS[highlight])}</span>
+                <span className="max-w-full truncate">{t(BACKGROUND_LABELS[background])}</span>
               </button>
             );
           })}
         </div>
-      </Section>
-      <Section id="reader-font" title={t('reader.font')}>
-        <div className="grid grid-cols-3 gap-2">
+      </SheetSection>
+      <SheetSection id="reader-font" title={t('reader.font')}>
+        <div className="-mx-1 space-y-0.5" role="radiogroup">
           {FONTS.map((font) => (
             <button
               key={font}
               type="button"
-              className="rd-swatch-btn"
-              aria-pressed={appearance.font === font}
+              role="radio"
+              aria-checked={appearance.font === font}
+              className="rd-sheet-row"
               onClick={() => setReaderAppearance({ font })}
             >
               <span
-                className="text-xl leading-none"
+                className="min-w-0 flex-1 truncate text-[1.0625rem]"
                 style={{ fontFamily: FONT_FAMILIES[font] }}
-                aria-hidden="true"
               >
-                Aa
+                {t(FONT_LABELS[font])}
               </span>
-              <span>{t(FONT_LABELS[font])}</span>
+              {appearance.font === font && (
+                <CheckIcon className="size-5 shrink-0 text-primary" aria-hidden="true" />
+              )}
             </button>
           ))}
         </div>
-      </Section>
-      <Section id="reader-background" title={t('reader.background')}>
-        <div className="grid grid-cols-4 gap-2">
-          {BACKGROUNDS.map((background) => (
+      </SheetSection>
+      <SheetSection id="reader-highlight" title={t('reader.highlight')}>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup">
+          {HIGHLIGHTS.map((highlight) => (
             <button
-              key={background}
+              key={highlight}
               type="button"
-              className="rd-swatch-btn"
-              aria-pressed={appearance.background === background}
-              onClick={() => setReaderAppearance({ background })}
+              role="radio"
+              aria-checked={appearance.highlight === highlight}
+              className="rd-hl-card"
+              onClick={() => setReaderAppearance({ highlight })}
             >
-              <span
-                className="rd-swatch font-[family-name:var(--rd-serif)]"
-                style={
-                  background === 'system'
-                    ? {
-                        background: `linear-gradient(135deg, ${SURFACES.light.background} 50%, ${SURFACES.dark.background} 50%)`,
-                      }
-                    : {
-                        background: SURFACES[background].background,
-                        color: SURFACES[background].foreground,
-                      }
-                }
-                aria-hidden="true"
-              >
-                {background === 'system' ? '' : 'Aa'}
+              <HighlightSample highlight={highlight} surface={surface} />
+              <span className="flex items-center justify-between gap-1">
+                <span className="truncate">{t(HIGHLIGHT_LABELS[highlight])}</span>
+                {appearance.highlight === highlight && (
+                  <CheckIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                )}
               </span>
-              <span>{t(BACKGROUND_LABELS[background])}</span>
             </button>
           ))}
         </div>
-      </Section>
+      </SheetSection>
     </>
   );
 }

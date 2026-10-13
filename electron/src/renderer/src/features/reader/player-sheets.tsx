@@ -3,13 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  BookmarkIcon,
-  CheckCircle2Icon,
+  CheckIcon,
   Loader2Icon,
   MinusIcon,
+  PlayIcon,
   PlusIcon,
   SquareIcon,
-  UserRoundIcon,
   Volume2Icon,
   StarIcon,
 } from 'lucide-react';
@@ -18,10 +17,16 @@ import { createObjectUrl, revokeObjectUrl } from '@/lib/audio/object-url';
 import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { readerApi, readerKeys, type ReaderDocument, type ReaderVoice } from './reader-api';
-import { readerPlayer, silentWav, useReaderClock, useReaderPlayer } from './reader-player';
+import { readerPlayer, silentWav, useReaderPlayer } from './reader-player';
 import { ReaderSheet, SheetRow } from './reader-sheet';
 import { SearchField } from './search-field';
-import { chapterStates, type ChapterState } from './chapter-progress';
+import {
+  chapterSeconds,
+  chapterStates,
+  estimatedSecondsAt,
+  type ChapterState,
+} from './chapter-progress';
+import { VoiceAvatar } from './voice-avatar';
 import {
   chapterIndexAt,
   clampSpeed,
@@ -29,7 +34,6 @@ import {
   formatSpeed,
   SPEED_MAX,
   SPEED_MIN,
-  SPEED_PRESETS,
 } from './reader-text';
 import {
   ALL_LANGUAGES,
@@ -44,67 +48,77 @@ import {
 
 type SheetProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
+/** Tappable speed marks under the slider, each at its true position on the track. */
+const SPEED_MARKS = [0.5, 1, 1.5, 2, 2.5, 3] as const;
+
 export function SpeedSheet({ open, onOpenChange }: SheetProps) {
   const { t } = useTranslation();
   const { rate } = useReaderPlayer();
-  const fill = ((rate - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)) * 100;
+  const at = (value: number) => (value - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
   return (
-    <ReaderSheet open={open} onOpenChange={onOpenChange} title={t('reader.speed')}>
-      <div className="pb-2">
-        <div className="flex items-center justify-between gap-3 py-2">
-          <button
-            type="button"
-            className="rd-icon-btn bg-foreground/[0.07]"
-            aria-label={t('reader.slower')}
-            disabled={rate <= SPEED_MIN}
-            onClick={() => readerPlayer.setRate(rate - 0.1)}
-          >
-            <MinusIcon className="size-5" aria-hidden="true" />
-          </button>
-          <output className="text-4xl font-semibold tabular-nums tracking-tight" aria-live="polite">
-            {formatSpeed(rate)}
-          </output>
-          <button
-            type="button"
-            className="rd-icon-btn bg-foreground/[0.07]"
-            aria-label={t('reader.faster')}
-            disabled={rate >= SPEED_MAX}
-            onClick={() => readerPlayer.setRate(rate + 0.1)}
-          >
-            <PlusIcon className="size-5" aria-hidden="true" />
-          </button>
+    <ReaderSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={
+        <>
+          {t('reader.speed')}
+          <span className="tabular-nums text-muted-foreground"> · {formatSpeed(rate)}</span>
+        </>
+      }
+    >
+      <div className="flex items-start gap-2 pb-2 pt-1">
+        <button
+          type="button"
+          className="rd-icon-btn bg-foreground/[0.07]"
+          aria-label={t('reader.slower')}
+          disabled={rate <= SPEED_MIN}
+          onClick={() => readerPlayer.setRate(rate - 0.1)}
+        >
+          <MinusIcon className="size-5" aria-hidden="true" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <input
+            type="range"
+            className="rd-range"
+            min={SPEED_MIN}
+            max={SPEED_MAX}
+            step={0.1}
+            value={rate}
+            aria-label={t('reader.speed')}
+            aria-valuetext={formatSpeed(rate)}
+            style={{ '--rd-fill': `${at(rate) * 100}%` } as CSSProperties}
+            onChange={(event) => readerPlayer.setRate(clampSpeed(Number(event.target.value)))}
+          />
+          <div className="rd-speed-marks">
+            {SPEED_MARKS.map((mark) => (
+              <button
+                key={mark}
+                type="button"
+                className="rd-speed-mark"
+                style={{ '--rd-at': at(mark) } as CSSProperties}
+                aria-pressed={Math.abs(rate - mark) < 0.05}
+                onClick={() => readerPlayer.setRate(mark)}
+              >
+                {formatSpeed(mark)}
+              </button>
+            ))}
+          </div>
         </div>
-        <input
-          type="range"
-          className="rd-range"
-          min={SPEED_MIN}
-          max={SPEED_MAX}
-          step={0.1}
-          value={rate}
-          aria-label={t('reader.speed')}
-          aria-valuetext={formatSpeed(rate)}
-          style={{ '--rd-fill': `${fill}%` } as CSSProperties}
-          onChange={(event) => readerPlayer.setRate(clampSpeed(Number(event.target.value)))}
-        />
-        <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {SPEED_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              className="rd-chip"
-              aria-pressed={Math.abs(rate - preset) < 0.05}
-              onClick={() => readerPlayer.setRate(preset)}
-            >
-              {formatSpeed(preset)}
-            </button>
-          ))}
-        </div>
+        <button
+          type="button"
+          className="rd-icon-btn bg-foreground/[0.07]"
+          aria-label={t('reader.faster')}
+          disabled={rate >= SPEED_MAX}
+          onClick={() => readerPlayer.setRate(rate + 0.1)}
+        >
+          <PlusIcon className="size-5" aria-hidden="true" />
+        </button>
       </div>
     </ReaderSheet>
   );
 }
 
-const SLEEP_MINUTES = [5, 10, 15, 30, 45, 60] as const;
+const SLEEP_MINUTES = [5, 10, 15, 30, 45, 60, 90, 120] as const;
 
 export function SleepSheet({ open, onOpenChange, doc }: SheetProps & { doc: ReaderDocument }) {
   const { t } = useTranslation();
@@ -139,40 +153,49 @@ export function SleepSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
   );
 }
 
-/** Remaining sleep time as a compact chip label. */
-export function SleepLabel() {
-  const { t } = useTranslation();
-  const { sleep } = useReaderPlayer();
-  const clock = useReaderClock();
-  if (sleep.mode === 'off') return <>{t('reader.sleep')}</>;
-  if (sleep.mode === 'chapter') return <>{t('reader.sleep_chapter_short')}</>;
-  return <>{formatClock((clock.sleepLeft ?? 0) / 1000)}</>;
+/** Small ring showing how much of a chapter the furthest point covers. */
+function ProgressRing({ percent }: { percent: number }) {
+  const radius = 6;
+  const length = 2 * Math.PI * radius;
+  return (
+    <svg className="size-3.5 shrink-0 -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
+      <circle
+        cx="8"
+        cy="8"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.2"
+        strokeWidth="2.5"
+      />
+      <circle
+        cx="8"
+        cy="8"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeDasharray={`${(length * percent) / 100} ${length}`}
+      />
+    </svg>
+  );
 }
 
-/** Chapter row trailing state: listened ✓, "now", or how far the furthest point got. */
-function ChapterBadge({ state }: { state: ChapterState }) {
+function ChapterTrailing({ state, seconds }: { state: ChapterState; seconds: number }) {
   const { t } = useTranslation();
-  if (state.kind === 'current')
-    return (
-      <span className="shrink-0 rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold text-background">
-        {t('reader.chapter_now')}
-      </span>
-    );
-  if (state.kind === 'done')
-    return (
-      <CheckCircle2Icon
-        className="rd-ok size-5 shrink-0"
-        aria-label={t('reader.chapter_listened')}
-        role="img"
-      />
-    );
   if (state.kind === 'partial')
     return (
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+      <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
+        <ProgressRing percent={state.percent} />
         {t('reader.chapter_percent', { percent: state.percent })}
       </span>
     );
-  return null;
+  return (
+    <span className="shrink-0 text-[0.8125rem] tabular-nums">
+      {state.kind === 'done' && <span className="sr-only">{t('reader.chapter_listened')} · </span>}
+      {formatClock(seconds)}
+    </span>
+  );
 }
 
 export function ChaptersSheet({ open, onOpenChange, doc }: SheetProps & { doc: ReaderDocument }) {
@@ -186,24 +209,68 @@ export function ChaptersSheet({ open, onOpenChange, doc }: SheetProps & { doc: R
     () => chapterStates(doc.chapters, doc.segments.length, segment, furthest),
     [doc.chapters, doc.segments.length, segment, furthest],
   );
+  // The player's timings firm up as sentences render; reopening the sheet refreshes them.
+  const lengths = useMemo(
+    () =>
+      open
+        ? chapterSeconds(
+            doc.chapters,
+            doc.segments.length,
+            loaded ? (index) => readerPlayer.secondsAt(index) : estimatedSecondsAt(doc.segments),
+          )
+        : [],
+    [open, doc.chapters, doc.segments, loaded],
+  );
+  const list = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    // The drawer mounts its content on open: centre the current chapter once it is there.
+    const timer = setTimeout(() => {
+      list.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'center' });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [open]);
+  const rate = player.rate || 1;
   return (
-    <ReaderSheet open={open} onOpenChange={onOpenChange} title={t('reader.chapters')}>
-      <ol className="space-y-0.5 pb-1">
-        {doc.chapters.map((chapter, index) => (
-          <li key={`${chapter.segment}-${index}`}>
-            <SheetRow
-              icon={BookmarkIcon}
-              label={chapter.title}
-              aria-current={index === current ? 'true' : undefined}
-              trailing={states[index] && <ChapterBadge state={states[index]} />}
-              onClick={() => {
-                readerPlayer.seekSegment(chapter.segment);
-                window.dispatchEvent(new Event(FOLLOW_EVENT));
-                onOpenChange(false);
-              }}
-            />
-          </li>
-        ))}
+    <ReaderSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('reader.chapters')}
+      className={doc.chapters.length > 8 ? 'rd-sheet-tall' : undefined}
+    >
+      <ol ref={list} className="space-y-0.5 pb-1">
+        {doc.chapters.map((chapter, index) => {
+          const state = states[index] ?? { kind: 'unread' };
+          const now = index === current;
+          return (
+            <li key={`${chapter.segment}-${index}`}>
+              <button
+                type="button"
+                className="rd-chapter-row"
+                data-state={state.kind}
+                aria-current={now ? 'true' : undefined}
+                onClick={() => {
+                  readerPlayer.seekSegment(chapter.segment);
+                  window.dispatchEvent(new Event(FOLLOW_EVENT));
+                  onOpenChange(false);
+                }}
+              >
+                <span className="rd-chapter-lead" aria-hidden="true">
+                  {now ? (
+                    <PlayIcon className="size-4 fill-current" />
+                  ) : state.kind === 'done' ? (
+                    <CheckIcon className="size-4" />
+                  ) : null}
+                </span>
+                <span className="line-clamp-2 min-w-0 flex-1">
+                  {now && <span className="sr-only">{t('reader.chapter_now')} · </span>}
+                  {chapter.title}
+                </span>
+                <ChapterTrailing state={state} seconds={(lengths[index] ?? 0) / rate} />
+              </button>
+            </li>
+          );
+        })}
       </ol>
     </ReaderSheet>
   );
@@ -341,7 +408,7 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
     <li key={voice.id} className="flex items-center gap-1">
       <SheetRow
         className="flex-1"
-        icon={UserRoundIcon}
+        leading={<VoiceAvatar id={voice.id} name={voice.name} size={36} />}
         label={voice.name}
         detail={
           [
@@ -437,7 +504,7 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
         )}
         {!query.trim() && (
           <SheetRow
-            icon={Volume2Icon}
+            leading={<VoiceAvatar id={null} name="" size={36} />}
             label={t('reader.voice_default')}
             detail={t('reader.voice_default_hint')}
             checked={player.voice === null}
@@ -464,9 +531,7 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
         {groups.map(([label, items]) =>
           items.length ? (
             <section key={label} className="mt-3">
-              <h3 className="px-3 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                {t(label)}
-              </h3>
+              <h3 className="rd-sheet-heading px-3 pb-1">{t(label)}</h3>
               <ul className="space-y-0.5">{items.map(row)}</ul>
             </section>
           ) : null,

@@ -115,10 +115,11 @@ export const HIGHLIGHT_COLORS: Record<ReaderHighlight, Record<ReaderSurface, Hig
     dark: { sentence: '#2d2210', word: '#7c4d0b', wordText: '#ffffff' },
     paper: { sentence: '#f2ddb6', word: '#eab86a', wordText: '#2b2118' },
   },
+  // Only the word carries the hue; the sentence is a neutral tint of the surface.
   yellow: {
-    light: { sentence: '#fdf7c3', word: '#fde047', wordText: '#18181b' },
-    dark: { sentence: '#29270f', word: '#e9c84a', wordText: '#141414' },
-    paper: { sentence: '#f4e8a6', word: '#f1d34f', wordText: '#2b2118' },
+    light: { sentence: '#ededec', word: '#fde047', wordText: '#18181b' },
+    dark: { sentence: '#1e1e1d', word: '#e9c84a', wordText: '#141414' },
+    paper: { sentence: '#e8e0cf', word: '#f1d34f', wordText: '#2b2118' },
   },
   blue: {
     light: { sentence: '#e2ecfc', word: '#b4cff9', wordText: '#18181b' },
@@ -231,8 +232,10 @@ export function useReaderAppearance(): ReaderAppearance {
 export function useAppearanceProps(): { style: CSSProperties; 'data-rd-surface': ReaderSurface } {
   const appearance = useReaderAppearance();
   const { theme } = useTheme();
+  // React styles take `colorScheme`; the hyphenated name only works for custom properties.
+  const { 'color-scheme': colorScheme, ...vars } = appearanceVars(appearance, theme);
   return {
-    style: appearanceVars(appearance, theme) as CSSProperties,
+    style: { ...vars, ...(colorScheme ? { colorScheme } : {}) } as CSSProperties,
     'data-rd-surface': resolveSurface(appearance.background, theme),
   };
 }

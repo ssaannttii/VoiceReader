@@ -2,6 +2,7 @@
 import { useTranslation } from 'react-i18next';
 import { BookmarkIcon, FastForwardIcon, PointerIcon, TextIcon } from 'lucide-react';
 import { ReaderSheet, SheetRow } from './reader-sheet';
+import { AutoHideRow } from './reader-menus';
 import { setReaderPrefs, SKIP_OPTIONS, useReaderPrefs, type TrackAction } from './reader-prefs';
 
 export function ControlsSheet({
@@ -31,10 +32,7 @@ export function ControlsSheet({
     >
       <div className="space-y-4 pb-1">
         <section aria-labelledby="reader-skip">
-          <h3
-            id="reader-skip"
-            className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-          >
+          <h3 id="reader-skip" className="rd-sheet-heading mb-2 px-1">
             {t('reader.controls_skip')}
           </h3>
           <div className="grid grid-cols-4 gap-2">
@@ -52,10 +50,7 @@ export function ControlsSheet({
           </div>
         </section>
         <section aria-labelledby="reader-track">
-          <h3
-            id="reader-track"
-            className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-          >
+          <h3 id="reader-track" className="rd-sheet-heading px-1">
             {t('reader.controls_track')}
           </h3>
           <p className="px-1 pb-1 text-xs text-muted-foreground">
@@ -83,6 +78,7 @@ export function ControlsSheet({
             checked={prefs.doubleTap}
             onClick={() => setReaderPrefs({ doubleTap: !prefs.doubleTap })}
           />
+          <AutoHideRow />
         </div>
       </div>
     </ReaderSheet>

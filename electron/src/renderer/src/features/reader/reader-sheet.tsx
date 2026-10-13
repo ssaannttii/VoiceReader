@@ -54,6 +54,7 @@ export function ReaderSheet({
 /** Full-width 52px sheet row with an icon, label, optional detail and trailing state. */
 export function SheetRow({
   icon: Icon,
+  leading,
   label,
   detail,
   trailing,
@@ -64,6 +65,8 @@ export function SheetRow({
   ...props
 }: Omit<ComponentProps<'button'>, 'children'> & {
   icon?: LucideIcon;
+  /** Shown instead of the icon (an avatar, a state glyph). */
+  leading?: ReactNode;
   label: ReactNode;
   detail?: ReactNode;
   trailing?: ReactNode;
@@ -78,7 +81,8 @@ export function SheetRow({
       className={cn('rd-sheet-row', destructive && 'text-destructive', className)}
       {...props}
     >
-      {Icon && (
+      {leading}
+      {Icon && !leading && (
         <Icon
           className={cn('size-5 shrink-0', destructive ? '' : 'text-muted-foreground')}
           aria-hidden="true"
