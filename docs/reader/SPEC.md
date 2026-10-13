@@ -13,7 +13,8 @@ rendered on the PC GPU.
   title, author/source host, progress bar, "x% · ~N min left".
 - Add button opens a bottom sheet: Paste text · Upload file (txt, md, html, pdf, epub, docx)
   · From link (article URL).
-- Per-document menu: rename, download for offline, remove download, delete.
+- Per-document menu: rename, add to collection, download for offline, remove download, delete.
+- Tabs: Library · Collections · Archived · Finished · Downloads (see "Collections and downloads").
 - Persistent mini-player at the bottom whenever a document is loaded in the player.
 
 **Reader** (`#/reader/$docId`)
@@ -718,3 +719,49 @@ back to a pre-v2 key.
   / Same" logs `ab_vote` `{comparison, seg, choice, winner, blind, mapping, a, b}` (variant tags,
   no text) and reveals which was which. The last 20 votes stay on the device
   (`voicestudio.reader.labs.votes`) with a tally per comparison.
+
+## Collections and downloads
+
+### Collections (shared by every device)
+User-named groups of documents, like shelves; a document can be in several. Deleting a collection
+never deletes documents; deleting a document takes it out of every collection.
+
+Tables (alembic `0016_reader_collections`, mirrored in `_BASE_SCHEMA`):
+`reader_collections (id TEXT PK, name TEXT NOT NULL, created_at REAL, updated_at REAL)` and
+`reader_collection_items (collection_id, doc_id, added_at, PK (collection_id, doc_id))`, indexed by
+`doc_id`.
+
+`Collection`: `{"id", "name", "created_at", "updated_at", "doc_ids": [...]}` — `doc_ids` in the order
+added, existing documents only.
+
+| method | path | body | returns |
+|---|---|---|---|
+| GET | `/reader/collections` | – | `Collection[]`, oldest first |
+| POST | `/reader/collections` | `{"name": str, "doc_ids"?: [str]}` | `Collection` |
+| PATCH | `/reader/collections/{id}` | `{"name": str}` | `Collection` |
+| DELETE | `/reader/collections/{id}` | – | `{"ok": true}` (documents untouched) |
+| POST | `/reader/collections/{id}/documents` | `{"doc_ids": [str]}` (1–1000) | `Collection`; already-present ids keep their place |
+| DELETE | `/reader/collections/{id}/documents/{doc_id}` | – | `Collection` (a no-op when absent) |
+
+Names are whitespace-collapsed and cut at 100 chars; empty → 400; another collection with the same
+name (case-insensitive) → 409; unknown collection → 404 `Collection not found`; any unknown document
+→ 404 `Document not found` and nothing is added.
+
+Client: a **Collections** tab (after Library; hidden on backends without the routes) lists the
+collections (name, number of documents) and "New collection"; a collection opens in place with a
+header (back, name, count, ••• → rename / delete with confirmation) and the usual sort and rows. It
+shows its members that are not archived. "Add to collection" is in each document's actions sheet and
+in the multi-select bar ("Collection"): a checklist (✓ all, – some) that adds or removes the documents
+per tap, plus "New collection", which creates it with them inside.
+
+### Downloads (this device only)
+A **Downloads** tab appears while this device has at least one download (IndexedDB
+`reader-offline`). It lists every downloaded document — archived ones and ones the PC no longer
+lists included — with its size ("incomplete" for partial downloads) and a remove button instead of
+•••, plus the total ("3 documents · 182 MB on this device"). It works with the PC unreachable; Undo on
+removal is offered only for documents the PC still serves. In select mode, when every selected
+document is downloaded, the bar's Download button becomes "Remove download".
+
+### Durations
+Whole hours drop the minutes: "26 h" / "26 h left" instead of "26 h 0 min" (library rows, continue
+card, reader header and the dock's remaining time).

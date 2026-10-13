@@ -5,14 +5,19 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   CheckCircle2Icon,
+  ChevronLeftIcon,
   CircleIcon,
   CircleStopIcon,
   CloudDownloadIcon,
+  LibraryBigIcon,
   Loader2Icon,
   PencilIcon,
   Trash2Icon,
 } from 'lucide-react';
 import { describeError } from '@/lib/api/client';
+import { useReaderCollections } from './collection-actions';
+import { CollectionPicker } from './collection-sheets';
+import { collectionsOf } from './library-collections';
 import {
   cancelOfflineDownload,
   formatBytes,
@@ -79,18 +84,22 @@ export function DocumentActionsSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [view, setView] = useState<'menu' | 'rename' | 'delete'>('menu');
+  const [view, setView] = useState<'menu' | 'rename' | 'delete' | 'collections'>('menu');
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [shown, setShown] = useState(doc);
+  const collections = useReaderCollections();
   useEffect(() => {
     if (!doc) return;
     setShown(doc);
     setView('menu');
     setTitle(doc.title);
     setBusy(false);
+    setCreating(false);
   }, [doc]);
   if (!shown) return null;
+  const inCollections = collectionsOf(collections.collections, shown.id);
   // Archive / finished need a v2 server; they are hidden when it omits the fields.
   const ready = isReady(shown);
   const finished = isFinished(shown);
@@ -146,8 +155,29 @@ export function DocumentActionsSheet({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={view === 'delete' ? t('reader.delete_title') : shown.title}
-      keyboard={view === 'rename'}
+      title={
+        view === 'delete'
+          ? t('reader.delete_title')
+          : view === 'collections'
+            ? t(creating ? 'reader.lib_collection_new' : 'reader.lib_collection_add')
+            : shown.title
+      }
+      keyboard={view === 'rename' || view === 'collections'}
+      headerStart={
+        view === 'collections' ? (
+          <button
+            type="button"
+            className="rd-icon-btn"
+            aria-label={t('reader.lib_back')}
+            onClick={() => {
+              setCreating(false);
+              setView('menu');
+            }}
+          >
+            <ChevronLeftIcon className="size-5" aria-hidden="true" />
+          </button>
+        ) : undefined
+      }
     >
       {view === 'menu' && (
         <div className="space-y-0.5 pb-1">
@@ -185,6 +215,15 @@ export function DocumentActionsSheet({
             />
           )}
           {ready && <QueueRow doc={shown} onDone={onClose} />}
+          {ready && collections.supported && (
+            <SheetRow
+              icon={LibraryBigIcon}
+              label={t('reader.lib_collection_add')}
+              detail={inCollections.map((item) => item.name).join(', ') || undefined}
+              chevron
+              onClick={() => setView('collections')}
+            />
+          )}
           {ready && <OfflineRow id={shown.id} />}
           <SheetRow
             icon={Trash2Icon}
@@ -193,6 +232,9 @@ export function DocumentActionsSheet({
             onClick={() => setView('delete')}
           />
         </div>
+      )}
+      {view === 'collections' && (
+        <CollectionPicker docIds={[shown.id]} creating={creating} onCreatingChange={setCreating} />
       )}
       {view === 'rename' && (
         <form className="space-y-3 pb-1" onSubmit={(event) => void rename(event)}>

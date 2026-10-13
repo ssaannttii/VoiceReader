@@ -1,4 +1,5 @@
-"""Reader migrations 0014_reader_documents + 0015_reader_v2: upgrade,
+"""Reader migrations 0014_reader_documents, 0015_reader_v2 and
+0016_reader_collections: upgrade,
 idempotency, downgrade, and convergence with ``core.db._BASE_SCHEMA``
 (dual-path discipline)."""
 from __future__ import annotations
@@ -9,7 +10,9 @@ import sqlite3
 
 _PREVIOUS = "0013_generation_history_design_recipe"
 _V1 = "0014_reader_documents"
-_HEAD = "0015_reader_v2"
+_V2 = "0015_reader_v2"
+_HEAD = "0016_reader_collections"
+_COLLECTION_TABLES = ("reader_collections", "reader_collection_items")
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -49,6 +52,8 @@ def _pre_reader_db(path):
         conn.executescript(_base())
         conn.execute("DROP TABLE reader_documents")
         conn.execute("DROP TABLE reader_bookmarks")
+        for table in _COLLECTION_TABLES:
+            conn.execute(f"DROP TABLE {table}")
         conn.execute("INSERT INTO voice_profiles (id, name) VALUES ('keep', 'Mine')")
         conn.commit()
     _alembic("stamp", path, _PREVIOUS)
@@ -74,7 +79,7 @@ def test_upgrade_adds_tables_matching_base_schema_and_keeps_rows(tmp_path):
     _alembic("upgrade", migrated, "head")
     _alembic("upgrade", migrated, "head")  # idempotent
     fresh = _fresh(tmp_path / "fresh.db")
-    for table in ("reader_documents", "reader_bookmarks"):
+    for table in ("reader_documents", "reader_bookmarks", *_COLLECTION_TABLES):
         assert _cols(migrated, table) and _cols(migrated, table) == _cols(fresh, table)
         assert _defaults(migrated, table) == _defaults(fresh, table)
         assert _indexes(migrated, table) == _indexes(fresh, table)
@@ -136,3 +141,26 @@ def test_reconcile_adds_v2_columns_when_alembic_cannot_run(tmp_path, monkeypatch
         "furthest_segment", "archived", "completed", "import_status", "import_progress", "import_error",
     ]
     assert _cols(dbf, "reader_bookmarks")
+    assert all(_cols(dbf, table) for table in _COLLECTION_TABLES)
+
+
+def test_collections_migration_adds_tables_and_downgrade_keeps_documents(tmp_path):
+    dbf = tmp_path / "user.db"
+    _pre_reader_db(dbf)
+    _alembic("upgrade", dbf, _V2)
+    assert all(_cols(dbf, table) == [] for table in _COLLECTION_TABLES)
+    with sqlite3.connect(str(dbf)) as conn:
+        conn.execute(
+            "INSERT INTO reader_documents (id, title, source_type, segment_count, char_count)"
+            " VALUES ('d1', 'Book', 'file', 10, 100)"
+        )
+        conn.commit()
+    _alembic("upgrade", dbf, "head")
+    fresh = _fresh(tmp_path / "fresh.db")
+    for table in _COLLECTION_TABLES:
+        assert _cols(dbf, table) and _cols(dbf, table) == _cols(fresh, table)
+    assert _indexes(dbf, "reader_collection_items") == ["idx_reader_collection_items_doc"]
+    _alembic("downgrade", dbf, _V2)
+    assert all(_cols(dbf, table) == [] for table in _COLLECTION_TABLES)
+    with sqlite3.connect(str(dbf)) as conn:
+        assert conn.execute("SELECT id FROM reader_documents").fetchall() == [("d1",)]

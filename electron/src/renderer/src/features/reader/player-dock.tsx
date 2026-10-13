@@ -39,14 +39,13 @@ export type DockSheet =
   | 'search'
   | 'chapters';
 
-/** "2 h 14 min" / "14 min" for the scrubber's remaining time. */
+/** "2 h 14 min" / "2 h" / "14 min" for the scrubber's remaining time. */
 export function useDuration() {
   const { t } = useTranslation();
   return (seconds: number) => {
     const { hours, minutes } = durationParts(seconds);
-    return hours > 0
-      ? t('reader.duration_hm', { hours, minutes })
-      : t('reader.minutes_total', { minutes });
+    if (!hours) return t('reader.minutes_total', { minutes });
+    return minutes ? t('reader.duration_hm', { hours, minutes }) : t('reader.duration_h', { hours });
   };
 }
 

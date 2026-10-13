@@ -121,7 +121,17 @@ export interface ReaderBookmark {
   created_at: number;
 }
 
-export type ReaderModelState = 'unloaded' | 'loading' | 'ready' | 'error';
+/** A named group of documents (shared by every device); a document can be in several. */
+export interface ReaderCollection {
+  id: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+  /** Member documents, in the order they were added. */
+  doc_ids: string[];
+}
+
+export type ReaderModelState ='unloaded' | 'loading' | 'ready' | 'error';
 
 export interface ReaderStatus {
   engine: string;
@@ -219,7 +229,10 @@ export const readerKeys = {
     ['reader', 'pronunciations', language ?? '*'] as const,
   bookmarks: (id: string) => ['reader', 'bookmarks', id] as const,
   speech: (id: string) => ['reader', 'speech', id] as const,
+  collections: ['reader', 'collections'] as const,
 };
+
+const collection = (id: string) => `/reader/collections/${encodeURIComponent(id)}`;
 
 const doc = (id: string) => `/reader/documents/${encodeURIComponent(id)}`;
 
@@ -360,6 +373,32 @@ export const readerApi = {
     }),
   /** Markdown export (title, then chapter, sentence and note per bookmark). */
   exportBookmarks: async (id: string) => (await apiFetch(`${doc(id)}/bookmarks/export`)).blob(),
+  /** Collections, oldest first (404 on backends without them). */
+  collections: (signal?: AbortSignal) =>
+    apiJson<ReaderCollection[]>('/reader/collections', { signal }),
+  /** 409 when another collection has that name (case-insensitive). */
+  createCollection: (name: string, docIds: readonly string[] = []) =>
+    apiJson<ReaderCollection>('/reader/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name, doc_ids: docIds }),
+    }),
+  renameCollection: (id: string, name: string) =>
+    apiJson<ReaderCollection>(collection(id), {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+  /** Removes the collection only; its documents stay in the library. */
+  deleteCollection: (id: string) =>
+    apiJson<{ ok: boolean }>(collection(id), { method: 'DELETE' }),
+  addToCollection: (id: string, docIds: readonly string[]) =>
+    apiJson<ReaderCollection>(`${collection(id)}/documents`, {
+      method: 'POST',
+      body: JSON.stringify({ doc_ids: docIds }),
+    }),
+  removeFromCollection: (id: string, docId: string) =>
+    apiJson<ReaderCollection>(`${collection(id)}/documents/${encodeURIComponent(docId)}`, {
+      method: 'DELETE',
+    }),
   /** Start loading the TTS engine (idempotent; 404 on backends without it). */
   warmup: () => apiJson<ReaderStatus>('/reader/warmup', { method: 'POST' }),
   /** Scenes for the automatic ambience; starts the analysis on the PC when missing. */

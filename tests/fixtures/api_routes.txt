@@ -24,6 +24,8 @@ DELETE /profiles/{profile_id}/consent
 DELETE /projects/{project_id}
 DELETE /pronunciation/{entry_id}
 DELETE /reader/bookmarks/{bookmark_id}
+DELETE /reader/collections/{collection_id}
+DELETE /reader/collections/{collection_id}/documents/{doc_id}
 DELETE /reader/documents/{doc_id}
 DELETE /reader/documents/{doc_id}/prerender
 DELETE /reader/documents/{doc_id}/speech/items/{n}
@@ -155,6 +157,7 @@ GET /pronunciation/export
 GET /reader/ambience/pack
 GET /reader/ambience/pack/{name}
 GET /reader/audio/{key}
+GET /reader/collections
 GET /reader/default-voices
 GET /reader/documents
 GET /reader/documents/{doc_id}
@@ -199,6 +202,7 @@ GET /watermark/status
 PATCH /gallery/voices/{voice_id}
 PATCH /projects/{project_id}
 PATCH /reader/bookmarks/{bookmark_id}
+PATCH /reader/collections/{collection_id}
 PATCH /reader/documents/{doc_id}
 PATCH /reader/documents/{doc_id}/speech/items/{n}
 POST /api/auth/session
@@ -302,6 +306,8 @@ POST /projects
 POST /pronunciation
 POST /pronunciation/import
 POST /pronunciation/test
+POST /reader/collections
+POST /reader/collections/{collection_id}/documents
 POST /reader/debug/events
 POST /reader/documents/file
 POST /reader/documents/scan

@@ -6,10 +6,12 @@ import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { describeError } from '@/lib/api/client';
 import { tr } from '@/lib/i18n-text';
+import { queryClient } from '@/lib/query';
 import { confirm, tick } from './haptics';
 import { cancelOfflineDownload, offlineSnapshot, removeOfflineDownload } from './offline-state';
 import { deleteDocument, downloadDocument, setDocumentFlags } from './reader-actions';
-import type { ReaderDocumentSummary } from './reader-api';
+import { readerKeys, type ReaderDocumentSummary } from './reader-api';
+import type { ReaderListItem } from './use-reader-data';
 
 type Flags = Pick<Partial<ReaderDocumentSummary>, 'archived' | 'completed'>;
 type Doc = Pick<ReaderDocumentSummary, 'id' | 'title' | 'archived' | 'completed'>;
@@ -97,21 +99,45 @@ export function toggleDownload(doc: Pick<ReaderDocumentSummary, 'id' | 'title'>)
     startDownload(doc);
     return;
   }
-  void removeOfflineDownload(doc.id).then(
-    () =>
-      toast.success(tr('reader.lib_download_removed'), {
-        description: doc.title,
-        duration: ACTION_TOAST_MS,
-        action: {
-          label: tr('reader.undo'),
-          onClick: () => {
-            tick();
-            startDownload(doc);
-          },
-        },
-      }),
-    (error: unknown) => toast.error(describeError(error)),
+  removeDownloads([doc]);
+}
+
+/** Library entries that exist only as downloads leave the list with them. */
+function forgetOfflineOnly(ids: readonly string[]) {
+  queryClient.setQueryData<ReaderListItem[]>(readerKeys.documents, (list) =>
+    list?.filter((item) => !(item.offlineOnly && ids.includes(item.id))),
   );
+}
+
+/**
+ * Remove downloads from this device (works without the PC). Undo downloads
+ * them again, so it is offered only for documents the PC still serves.
+ */
+export function removeDownloads(
+  docs: readonly Pick<ReaderListItem, 'id' | 'title' | 'offlineOnly'>[],
+): void {
+  if (!docs.length) return;
+  void Promise.allSettled(docs.map((doc) => removeOfflineDownload(doc.id))).then((results) => {
+    const failed = results.find((result) => result.status === 'rejected');
+    if (failed) toast.error(describeError((failed as PromiseRejectedResult).reason));
+    const done = docs.filter((_, index) => results[index].status === 'fulfilled');
+    if (!done.length) return;
+    forgetOfflineOnly(done.filter((doc) => doc.offlineOnly).map((doc) => doc.id));
+    const again = done.filter((doc) => !doc.offlineOnly);
+    toast.success(tr('reader.lib_download_removed'), {
+      description: done.length === 1 ? done[0].title : tr('reader.lib_items', { count: done.length }),
+      duration: ACTION_TOAST_MS,
+      action: again.length
+        ? {
+            label: tr('reader.undo'),
+            onClick: () => {
+              tick();
+              startDownloads(again);
+            },
+          }
+        : undefined,
+    });
+  });
 }
 
 /* Deferred delete: the row hides at once and the DELETE runs when Undo expires. */
