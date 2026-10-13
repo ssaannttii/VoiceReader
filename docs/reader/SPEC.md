@@ -537,3 +537,41 @@ by chapter with identical ones merged (compare: renders the sentence as written 
 plays A then B on a separate `<audio>`; read as written / use again; edit; add to dictionary), and
 pause rules with counts. Toggling, readiness and edits call `readerPlayer.refreshAudio()`.
 Downloaded (offline) documents keep the audio they were downloaded with until downloaded again.
+
+## Labs ("Laboratorio")
+
+Reader options → **Labs** (flask icon): experimental switches in one sheet and A/B listening tests
+run from the phone. Nothing changes until the listener turns something on.
+
+### Experiments
+- **Prepared reading** for this document (status and "preparing x%"), with every pause type as a
+  switch; dialogue-tag pauses ("Incisos de diálogo") stay off by default and are marked experimental.
+- **Automatic ambience**: the soundscape's "Automatic" choice (off returns to no soundscape).
+- **Voice quality**: Normal / High (32 steps), per device (`localStorage['voicestudio.reader.labs']`).
+  High makes the player's render requests carry `num_step: 32` (`labs-prefs.ts` →
+  `withLabsQuality`, the only player hook) and refreshes the rendered audio. OmniVoice only; tests
+  showed no accuracy gain. Prerender and offline downloads keep the default steps.
+- **Diagnostics overlay** and **diagnostics log** (the same switches as the options sheet).
+
+### Sampling steps (API)
+`POST …/segments/{i}/render` and `POST …/speech/preview/{i}` accept an optional `num_step`
+(int 8–64). It reaches the engine only when the active engine is OmniVoice and is ignored
+otherwise. The render key gains `|steps=N` **only** when the effective value differs from the
+default 16, so every existing cache key is unchanged; such entries store `num_step` and never fall
+back to a pre-v2 key.
+
+### A/B comparisons
+- **What:** prepared reading vs plain, voice A vs voice B (two pickers; A defaults to the reading
+  voice, B to another voice in the document language), normal vs high quality. Variants otherwise
+  match what the player reads (prepared on/off, voice, quality).
+- **Scope:** the sentence being read (text shown), with previous/next and "back to the current one";
+  segments without words are skipped.
+- **Play A, Play B, A → B** (0.45 s gap). Both variants render on the PC through the speech-preview
+  route (the document's voice is never changed), download as blobs and play on a dedicated
+  `<audio>` that claims playback; a playing reader is paused and "Resume reading" is offered.
+  Closing the sheet aborts renders in flight and frees the audio. Engine loading and an unreachable
+  PC show the dock's status line or an inline error.
+- **Blind mode** (default on): labels become X / Y in a random order per trial; "Prefer X / Prefer Y
+  / Same" logs `ab_vote` `{comparison, seg, choice, winner, blind, mapping, a, b}` (variant tags,
+  no text) and reveals which was which. The last 20 votes stay on the device
+  (`voicestudio.reader.labs.votes`) with a tally per comparison.

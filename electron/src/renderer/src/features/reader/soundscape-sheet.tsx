@@ -60,7 +60,7 @@ export function soundscapeIcon(id: SoundscapeChoice): LucideIcon {
 }
 
 /** "Now: rain" / "Now: silence" / "Reading the text…" under the Automático row. */
-function useAmbienceDetail(info: AmbienceInfo): string {
+export function useAmbienceDetail(info: AmbienceInfo): string {
   const { t } = useTranslation();
   if (info.status === 'loading' || info.status === 'computing')
     return t('reader.ambience_analyzing');

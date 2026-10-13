@@ -1,0 +1,160 @@
+/*
+ * Reader Labs sheet (lab-sheet.tsx): switches with wrapping explanations, an
+ * "experimental" badge and the A/B controls. Built on the reader tokens, so
+ * light, dark and paper surfaces follow the reading appearance.
+ */
+@layer components {
+  /* Badge ink per surface: the nearest surface wins (sheets carry their own). */
+  :root,
+  [data-rd-surface='light'],
+  [data-rd-surface='paper'] {
+    --rd-lab-warn: #92400e;
+  }
+  .dark,
+  [data-rd-surface='dark'] {
+    --rd-lab-warn: #fbbf24;
+  }
+
+  .rd-lab-row {
+    align-items: flex-start;
+    padding-block: 0.7rem;
+  }
+  .rd-lab-row > svg {
+    margin-top: 0.05rem;
+  }
+  .rd-sheet-row.rd-lab-row[aria-checked='true'] {
+    background: transparent;
+  }
+  @media (hover: hover) {
+    .rd-sheet-row.rd-lab-row[aria-checked='true']:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    }
+  }
+  .rd-lab-row:disabled {
+    opacity: 0.55;
+  }
+
+  /* Switch track + thumb, driven by the row's aria-checked. */
+  .rd-lab-switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 1.625rem;
+    margin-top: 0.05rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foreground) 18%, transparent);
+    transition: background-color 160ms ease;
+  }
+  .rd-lab-switch::after {
+    content: '';
+    position: absolute;
+    top: 0.1875rem;
+    left: 0.1875rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+    transition: transform 200ms var(--rd-ease-out, ease);
+  }
+  .rd-lab-row[aria-checked='true'] .rd-lab-switch {
+    background: var(--rd-accent, var(--primary));
+  }
+  .rd-lab-row[aria-checked='true'] .rd-lab-switch::after {
+    transform: translateX(1.125rem);
+  }
+
+  .rd-lab-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 1.25rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--rd-lab-warn);
+    background: color-mix(in srgb, var(--rd-lab-warn) 14%, transparent);
+  }
+
+  /* Pause types sit under the prepared-reading switch. */
+  .rd-lab-nested {
+    margin-left: 2.6rem;
+    padding-left: 0.25rem;
+    border-left: 1px solid var(--rd-hairline, var(--border));
+  }
+
+  .rd-lab-select {
+    min-height: 2.75rem;
+    padding-block: 0.5rem;
+  }
+
+  .rd-lab-scope {
+    border-radius: 1rem;
+    padding: 0.25rem 0.25rem 0.75rem;
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  }
+  .rd-lab-snippet {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+    padding: 0.25rem 0.75rem 0;
+    font-family: var(--rd-serif);
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .rd-lab-play {
+    display: inline-flex;
+    min-height: 3.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    touch-action: manipulation;
+    transition:
+      background-color 120ms ease,
+      transform 120ms ease;
+  }
+  .rd-lab-play:active {
+    transform: scale(0.97);
+  }
+  .rd-lab-play[data-playing='true'] {
+    background: var(--foreground);
+    color: var(--background);
+  }
+  .rd-lab-play:disabled,
+  .rd-chip:disabled {
+    opacity: 0.45;
+  }
+  .rd-lab-play:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .rd-lab-reveal {
+    border-radius: 1rem;
+    padding: 0.75rem;
+    background: color-mix(in oklab, var(--rd-accent, var(--primary)) 12%, transparent);
+  }
+
+  .rd-lab-tally,
+  .rd-lab-history {
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--foreground) 4%, transparent);
+    padding-block: 0.25rem;
+  }
+  .rd-lab-history > li + li {
+    border-top: 1px solid var(--rd-hairline, var(--border));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rd-lab-switch,
+    .rd-lab-switch::after,
+    .rd-lab-play {
+      transition-duration: 0ms !important;
+    }
+  }
+}

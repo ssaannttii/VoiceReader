@@ -61,19 +61,19 @@ export function useSpeech(docId: string) {
 }
 
 /** Drop the player's rendered audio when it reads this document. */
-function refreshPlayer(docId: string) {
+export function refreshPlayer(docId: string) {
   if (readerPlayer.getState().doc?.id === docId) readerPlayer.refreshAudio();
 }
 
 /** Store a new state; `refresh` when an edit changed what the voice says. */
-async function applySpeech(docId: string, request: Promise<ReaderSpeech>, refresh = false) {
+export async function applySpeech(docId: string, request: Promise<ReaderSpeech>, refresh = false) {
   const next = await request;
   queryClient.setQueryData(readerKeys.speech(docId), next);
   if (refresh && next.enabled && next.ready) refreshPlayer(docId);
   return next;
 }
 
-function statusDetail(
+export function statusDetail(
   t: (key: string, options?: Record<string, unknown>) => string,
   speech: ReaderSpeech | undefined,
 ) {

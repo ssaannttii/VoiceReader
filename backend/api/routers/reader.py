@@ -53,13 +53,18 @@ class ProgressRequest(BaseModel):
     segment: int = Field(..., ge=0)
 
 
-class RenderRequest(BaseModel):
+class VoiceRequest(BaseModel):
     voice: Optional[str] = Field(None, max_length=200)
     engine: Optional[str] = Field(None, max_length=100)
     language: Optional[str] = Field(None, max_length=16)
 
 
-class PrerenderRequest(RenderRequest):
+class RenderRequest(VoiceRequest):
+    # OmniVoice sampling steps (Reader Labs "high quality"); other engines ignore it.
+    num_step: Optional[int] = Field(None, ge=8, le=64)
+
+
+class PrerenderRequest(VoiceRequest):
     from_segment: Optional[int] = Field(None, ge=0)
 
 
@@ -340,7 +345,7 @@ async def get_asset(doc_id: str, name: str):
 # â”€â”€ Rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
-def _render_settings(doc: dict, req: RenderRequest) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def _render_settings(doc: dict, req: VoiceRequest) -> tuple[Optional[str], Optional[str], Optional[str]]:
     fields = req.model_fields_set
     voice = (req.voice or None) if "voice" in fields else doc.get("voice_id")
     engine = (req.engine or None) if "engine" in fields else doc.get("engine")
@@ -461,7 +466,8 @@ async def render_segment(doc_id: str, index: int, req: Optional[RenderRequest] =
     started = time.perf_counter()
     try:
         result = await reader_render.render_segment(
-            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken
+            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken,
+            num_step=req.num_step,
         )
     except HTTPException:
         raise
@@ -998,7 +1004,8 @@ async def preview_speech(doc_id: str, index: int, req: Optional[SpeechPreviewReq
             raise HTTPException(status_code=404, detail="Change not found") from None
     try:
         result = await reader_render.render_segment(
-            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken
+            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken,
+            num_step=req.num_step,
         )
     except Exception as exc:  # noqa: BLE001 — mapped to a typed HTTP error
         raise _render_error(exc) from None

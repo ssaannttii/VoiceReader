@@ -14,6 +14,10 @@ hit, and a new dictionary entry only invalidates the segments whose final text
 it changes. The JSON is written last, so its presence means the entry is
 complete. Speed is applied client-side; it is never part of the key.
 
+Sampling steps (``num_step``, OmniVoice only) are an opt-in quality setting:
+a value other than the engine default (:data:`DEFAULT_NUM_STEP`) is appended to
+the key (``...|final_text|steps=32``), so default renders keep their keys.
+
 Cache entries written before v2 were keyed by the *display* text
 (``sha1(engine|voice|language|display_text)``) and synthesized from
 ``normalize_for_tts(display_text)``. They stay valid exactly when the
@@ -57,6 +61,12 @@ MEDIA_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav"}
 SILENCE_S = 0.4
 SILENCE_SR = 24000
 MP3_BITRATE = "64k"
+#: OmniVoice's interactive sampling steps; renders at this value keep the plain key.
+DEFAULT_NUM_STEP = 16
+NUM_STEP_MIN = 8
+NUM_STEP_MAX = 64
+#: Engines whose ``generate`` honours ``num_step``.
+NUM_STEP_ENGINES = frozenset({"omnivoice"})
 
 
 # ── Paths / keys ─────────────────────────────────────────────────────────────
@@ -72,8 +82,21 @@ def valid_key(key: str) -> bool:
     return bool(_KEY_RE.match(key or ""))
 
 
-def render_key(engine: str, voice: Optional[str], language: Optional[str], text: str) -> str:
+def effective_num_step(engine_id: str, num_step: Optional[int]) -> Optional[int]:
+    """The sampling steps a render really uses beyond the default: ``None`` for
+    the default, for engines without the setting, or when nothing was asked."""
+    if num_step is None or engine_id not in NUM_STEP_ENGINES:
+        return None
+    steps = max(NUM_STEP_MIN, min(NUM_STEP_MAX, int(num_step)))
+    return None if steps == DEFAULT_NUM_STEP else steps
+
+
+def render_key(
+    engine: str, voice: Optional[str], language: Optional[str], text: str, num_step: Optional[int] = None
+) -> str:
     raw = f"{engine or ''}|{voice or ''}|{language or ''}|{text}"
+    if num_step is not None:
+        raw += f"|steps={int(num_step)}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()  # noqa: S324 — cache key, not security
 
 
@@ -152,10 +175,18 @@ class SegmentPlan:
     legacy_key: Optional[str]  # pre-v2 key, when its entry would still be valid
     spoken: Optional[Spoken] = None  # prepared reading (pieces + silences)
     finals: tuple = ()  # final text of each spoken piece
+    num_step: Optional[int] = None  # non-default sampling steps (see effective_num_step)
 
 
 def _spoken_plan(
-    text: str, spoken: Spoken, *, engine_id: str, voice: Optional[str], language: Optional[str], lexicon: Lexicon
+    text: str,
+    spoken: Spoken,
+    *,
+    engine_id: str,
+    voice: Optional[str],
+    language: Optional[str],
+    lexicon: Lexicon,
+    num_step: Optional[int] = None,
 ) -> SegmentPlan:
     """The plan of a prepared reading: every piece goes through the same
     ``final_text`` as plain text; the pauses are part of the final text, so
@@ -169,8 +200,8 @@ def _spoken_plan(
             parts.append(f"[pause {int(piece[3])}ms]")
     final = " ".join(parts)
     return SegmentPlan(
-        text=text, final=final, key=render_key(engine_id, voice, language, final), legacy_key=None,
-        spoken=spoken, finals=finals,
+        text=text, final=final, key=render_key(engine_id, voice, language, final, num_step), legacy_key=None,
+        spoken=spoken, finals=finals, num_step=num_step,
     )
 
 
@@ -182,11 +213,18 @@ def plan_segment(
     language: Optional[str],
     lexicon: Lexicon = (),
     spoken: Optional[Spoken] = None,
+    num_step: Optional[int] = None,
 ) -> SegmentPlan:
+    """Cache addressing for one segment; ``num_step`` must already be
+    :func:`effective_num_step` (``None`` = the engine default)."""
     if spoken is not None:
-        return _spoken_plan(text, spoken, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
+        return _spoken_plan(
+            text, spoken, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon, num_step=num_step
+        )
     final = final_text(text, language, lexicon)
-    key = render_key(engine_id, voice, language, final)
+    key = render_key(engine_id, voice, language, final, num_step)
+    if num_step is not None:
+        return SegmentPlan(text=text, final=final, key=key, legacy_key=None, num_step=num_step)
     # Pre-v2 entries were keyed by the display text and synthesized from its
     # normalization: still right when the dictionary changes nothing here.
     legacy = None
@@ -424,13 +462,19 @@ def _to_mono(wav) -> np.ndarray:
 
 
 async def synthesize_segment(
-    text: str, *, voice: Optional[str], engine: Optional[str], language: Optional[str]
+    text: str,
+    *,
+    voice: Optional[str],
+    engine: Optional[str],
+    language: Optional[str],
+    num_step: Optional[int] = None,
 ) -> tuple[np.ndarray, int]:
     """``(mono float32 samples, sample_rate)`` for one segment's *final* text.
 
     ``text`` is already normalized and has the pronunciation dictionary
     applied (:func:`final_text`); it is rendered through the streaming path's
-    guarded GPU-pool dispatch. Module seam for tests.
+    guarded GPU-pool dispatch. ``num_step`` (OmniVoice sampling steps) is
+    passed to the engine when given. Module seam for tests.
     """
     from api.routers.tts_stream import render_stream_sentence, stream_engine_session
     from services.model_manager import generate_timeout_s, run_on_gpu_pool_guarded
@@ -439,12 +483,20 @@ async def synthesize_segment(
     if not _SPEAKABLE_RE.search(normalized):
         return np.zeros(int(SILENCE_S * SILENCE_SR), dtype=np.float32), SILENCE_SR
     async with stream_engine_session(engine, voice=voice, language=language) as (backend, kw):
+        if num_step is not None and getattr(backend, "id", None) in NUM_STEP_ENGINES:
+            kw = {**kw, "num_step": int(num_step)}
         wav, sample_rate, _synth_s = await run_on_gpu_pool_guarded(
             functools.partial(render_stream_sentence, backend, kw, normalized),
             what="Reader TTS",
             timeout=generate_timeout_s(normalized, engine=backend),
         )
     return _to_mono(wav), int(sample_rate)
+
+
+def _steps_kw(num_step: Optional[int]) -> dict:
+    """``num_step`` for :func:`synthesize_segment` only when it is not the
+    default, so the plain path calls the seam exactly as before."""
+    return {} if num_step is None else {"num_step": num_step}
 
 
 _inflight: dict[str, asyncio.Task] = {}
@@ -460,7 +512,9 @@ async def _synthesize_spoken(plan: SegmentPlan, voice, engine_id, language) -> t
     sample_rate = 0
     for final in plan.finals:
         if _SPEAKABLE_RE.search(final or ""):
-            audio, sample_rate = await synthesize_segment(final, voice=voice, engine=engine_id, language=language)
+            audio, sample_rate = await synthesize_segment(
+                final, voice=voice, engine=engine_id, language=language, **_steps_kw(plan.num_step)
+            )
             audios.append(np.asarray(audio, dtype=np.float32).reshape(-1))
         else:
             audios.append(None)
@@ -495,12 +549,14 @@ async def _synthesize_spoken(plan: SegmentPlan, voice, engine_id, language) -> t
 
 async def _render_uncached(plan: SegmentPlan, voice, engine_id, language) -> tuple[dict, str]:
     meta = {"engine": engine_id, "voice": voice, "language": language, "synth_text": plan.final}
+    if plan.num_step is not None:
+        meta["num_step"] = plan.num_step
     if plan.spoken is not None:
         samples, sample_rate, timings = await _synthesize_spoken(plan, voice, engine_id, language)
         result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta, timings)
     else:
         samples, sample_rate = await synthesize_segment(
-            plan.final, voice=voice, engine=engine_id, language=language
+            plan.final, voice=voice, engine=engine_id, language=language, **_steps_kw(plan.num_step)
         )
         result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta)
     from services import reader_engine
@@ -518,6 +574,7 @@ async def render_segment(
     interactive: bool = True,
     lexicon: Optional[Lexicon] = None,
     spoken: Optional[Spoken] = None,
+    num_step: Optional[int] = None,
 ) -> dict:
     """``{render_key, audio_url, duration_s, words, cached}`` for one segment.
 
@@ -526,12 +583,16 @@ async def render_segment(
     reading) replaces what is said, never the display text. Cache hit → stored
     result. Otherwise one synthesis task per key; every concurrent caller
     awaits the same task (shielded, so a cancelled prerender never aborts a
-    render an interactive request is waiting on).
+    render an interactive request is waiting on). ``num_step`` asks for other
+    sampling steps (OmniVoice only; ignored for other engines).
     """
     engine_id = resolve_engine_id(engine)
+    steps = effective_num_step(engine_id, num_step)
     if lexicon is None:
         lexicon = await asyncio.to_thread(pronunciation_lexicon, language)
-    plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon, spoken=spoken)
+    plan = plan_segment(
+        text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon, spoken=spoken, num_step=steps
+    )
     hit = await asyncio.to_thread(lookup, plan)
     if hit is not None:
         return {**hit, "cached": True}

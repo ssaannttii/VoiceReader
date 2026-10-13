@@ -204,6 +204,8 @@ export interface ReaderVoiceChoice {
   voice?: string | null;
   engine?: string | null;
   language?: string | null;
+  /** OmniVoice sampling steps (Labs "high quality"); omitted = engine default. */
+  num_step?: number | null;
 }
 
 export const readerKeys = {
@@ -226,6 +228,7 @@ function voiceBody(choice: ReaderVoiceChoice, extra: Record<string, unknown> = {
   if (choice.voice) body.voice = choice.voice;
   if (choice.engine) body.engine = choice.engine;
   if (choice.language) body.language = choice.language;
+  if (choice.num_step) body.num_step = choice.num_step;
   return JSON.stringify(body);
 }
 
@@ -401,10 +404,12 @@ export const readerApi = {
     choice: ReaderVoiceChoice,
     prepared: boolean,
     item?: number,
+    signal?: AbortSignal,
   ) =>
     apiJson<ReaderRender & { prepared: boolean }>(`${doc(id)}/speech/preview/${segment}`, {
       method: 'POST',
       body: voiceBody(choice, item === undefined ? { prepared } : { prepared, item }),
+      signal,
     }),
 };
 
