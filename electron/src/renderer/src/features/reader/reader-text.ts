@@ -4,25 +4,37 @@ import type { ReaderChapter, ReaderSegment, ReaderWord } from './reader-api';
 /** Characters spoken per second at 1x; mirrors the backend's `est_duration_s`. */
 export const CHARS_PER_SECOND = 15;
 
+export type ReaderBlockKind = 'h' | 'p' | 'li' | 'quote' | 'img';
+
 export interface ReaderBlock {
   key: string;
-  kind: 'h' | 'p';
+  kind: ReaderBlockKind;
   segments: ReaderSegment[];
 }
 
+const BLOCK_KINDS: ReadonlySet<string> = new Set(['h', 'p', 'li', 'quote', 'img']);
+
+/** A segment's block kind; unknown kinds from newer servers read as body text. */
+function blockKind(segment: ReaderSegment): ReaderBlockKind {
+  return BLOCK_KINDS.has(segment.kind) ? segment.kind : 'p';
+}
+
 /**
- * Group sentence segments into rendered blocks: consecutive body sentences
- * sharing a `para` form one paragraph; every heading is its own block.
+ * Group sentence segments into rendered blocks: consecutive sentences of one
+ * paragraph (body, list item or quote) form one block; every heading and every
+ * image is its own block. List items are paragraphs of their own, so siblings
+ * never merge.
  */
 export function groupBlocks(segments: readonly ReaderSegment[]): ReaderBlock[] {
   const blocks: ReaderBlock[] = [];
   let current: ReaderBlock | null = null;
   for (const segment of segments) {
-    const kind = segment.kind === 'h' ? 'h' : 'p';
+    const kind = blockKind(segment);
     if (
       !current ||
       kind === 'h' ||
-      current.kind === 'h' ||
+      kind === 'img' ||
+      current.kind !== kind ||
       current.segments[0].para !== segment.para
     ) {
       current = { key: `b${segment.i}`, kind, segments: [] };
@@ -31,6 +43,96 @@ export function groupBlocks(segments: readonly ReaderSegment[]): ReaderBlock[] {
     current.segments.push(segment);
   }
   return blocks;
+}
+
+/** One `<li>`: its paragraphs (blocks sharing the item number) and nested lists. */
+export interface ListItemNode {
+  key: string;
+  n: number;
+  blocks: ReaderBlock[];
+  lists: ListNode[];
+}
+
+export interface ListNode {
+  type: 'list';
+  key: string;
+  /** The segments' `list` id. */
+  id: number;
+  ordered: boolean;
+  /** Nesting depth of this list (0 = top level); a window may start inside a nested list. */
+  depth: number;
+  items: ListItemNode[];
+}
+
+export type LayoutNode =
+  | { type: 'block'; key: string; block: ReaderBlock }
+  | { type: 'quote'; key: string; blocks: ReaderBlock[] }
+  | ListNode;
+
+/**
+ * Arrange a run of blocks for rendering: consecutive list items of one list form a
+ * list (deeper items nest inside the item before them, items sharing a number are
+ * one item with several paragraphs) and consecutive quote paragraphs one quotation.
+ */
+export function layoutBlocks(blocks: readonly ReaderBlock[]): LayoutNode[] {
+  const out: LayoutNode[] = [];
+  let open: ListNode[] = []; // open lists, outermost first
+  let quote: { type: 'quote'; key: string; blocks: ReaderBlock[] } | null = null;
+  for (const block of blocks) {
+    if (block.kind === 'quote') {
+      open = [];
+      if (!quote) {
+        quote = { type: 'quote', key: block.key, blocks: [] };
+        out.push(quote);
+      }
+      quote.blocks.push(block);
+      continue;
+    }
+    quote = null;
+    if (block.kind !== 'li') {
+      open = [];
+      out.push({ type: 'block', key: block.key, block });
+      continue;
+    }
+    const first = block.segments[0];
+    const id = first.list ?? -1;
+    const depth = Math.max(0, first.depth ?? 0);
+    const n = first.n ?? 1;
+    const innermost = () => open[open.length - 1];
+    // Close lists deeper than this item, and a different list at its own depth.
+    while (
+      open.length &&
+      (innermost().depth > depth || (innermost().depth === depth && innermost().id !== id))
+    )
+      open.pop();
+    let list = open.length && innermost().depth === depth ? innermost() : null;
+    if (!list) {
+      list = {
+        type: 'list',
+        key: `l${block.key}`,
+        id,
+        ordered: Boolean(first.ordered),
+        depth,
+        items: [],
+      };
+      const parent = innermost()?.items.at(-1);
+      if (parent) parent.lists.push(list);
+      else out.push(list);
+      open.push(list);
+    }
+    const last = list.items.at(-1);
+    // A later paragraph of the same item (same number, no nested list in between).
+    if (last && last.n === n && !last.lists.length) last.blocks.push(block);
+    else list.items.push({ key: block.key, n, blocks: [block], lists: [] });
+  }
+  return out;
+}
+
+/** Text shown for a segment in lists and previews: an image shows its description. */
+export function segmentLabel(segment: ReaderSegment | undefined, imageLabel = ''): string {
+  if (!segment) return '';
+  if (segment.kind === 'img') return segment.alt || segment.caption || imageLabel;
+  return segment.text;
 }
 
 /**

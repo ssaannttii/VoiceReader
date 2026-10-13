@@ -6,10 +6,13 @@ import {
   clampSpeed,
   formatClock,
   groupBlocks,
+  layoutBlocks,
+  segmentLabel,
   splitWords,
   wordIndexAt,
   blockIndexBySegment,
   windowAround,
+  type LayoutNode,
 } from './reader-text';
 
 const seg = (i: number, para: number, kind: 'h' | 'p' = 'p', text = `S${i}.`): ReaderSegment => ({
@@ -43,6 +46,160 @@ describe('groupBlocks', () => {
 
   it('returns nothing for an empty document', () => {
     expect(groupBlocks([])).toEqual([]);
+  });
+
+  it('keeps list items, quotes and images apart', () => {
+    const blocks = groupBlocks([
+      seg(0, 0),
+      li(1, 1, 0, 1),
+      li(2, 1, 0, 1, 'Second sentence of item one.'),
+      li(3, 2, 0, 2),
+      quote(4, 3),
+      quote(5, 3),
+      quote(6, 4),
+      img(7, 5),
+      img(8, 6),
+      seg(9, 7),
+    ]);
+    expect(blocks.map((block) => [block.kind, block.segments.map((s) => s.i)])).toEqual([
+      ['p', [0]],
+      ['li', [1, 2]],
+      ['li', [3]],
+      ['quote', [4, 5]],
+      ['quote', [6]],
+      ['img', [7]],
+      ['img', [8]],
+      ['p', [9]],
+    ]);
+  });
+
+  it('never joins a paragraph with a list item or quote of the same para', () => {
+    const blocks = groupBlocks([seg(0, 0), { ...li(1, 0, 0, 1) }, { ...quote(2, 0) }]);
+    expect(blocks.map((block) => block.kind)).toEqual(['p', 'li', 'quote']);
+  });
+
+  it('reads unknown kinds as body text', () => {
+    const odd = { i: 0, text: 'x', para: 0, kind: 'table' } as unknown as ReaderSegment;
+    expect(groupBlocks([odd])[0].kind).toBe('p');
+  });
+});
+
+const li = (
+  i: number,
+  para: number,
+  list: number,
+  n: number,
+  text = `Item ${i}.`,
+  depth = 0,
+  ordered = false,
+): ReaderSegment => ({ i, text, para, kind: 'li', list, n, ordered, depth });
+const quote = (i: number, para: number): ReaderSegment => ({
+  i,
+  text: `Q${i}.`,
+  para,
+  kind: 'quote',
+});
+const img = (i: number, para: number): ReaderSegment => ({
+  i,
+  text: '',
+  para,
+  kind: 'img',
+  src: `/reader/documents/x/assets/img-${i}.png`,
+});
+
+describe('layoutBlocks', () => {
+  type Shape = string | { list: number; ordered: boolean; depth: number; items: unknown[] };
+  const shape = (nodes: LayoutNode[]): Shape[] =>
+    nodes.map((node) => {
+      if (node.type === 'block') return `${node.block.kind}:${node.block.segments[0].i}`;
+      if (node.type === 'quote')
+        return `quote:${node.blocks.map((b) => b.segments[0].i).join(',')}`;
+      return {
+        list: node.id,
+        ordered: node.ordered,
+        depth: node.depth,
+        items: node.items.map((item) => ({
+          n: item.n,
+          paras: item.blocks.map((b) => b.segments[0].i),
+          ...(item.lists.length ? { lists: shape(item.lists) } : {}),
+        })),
+      };
+    });
+
+  it('builds nested lists with their numbers', () => {
+    const blocks = groupBlocks([
+      seg(0, 0),
+      li(1, 1, 0, 1),
+      li(2, 2, 1, 1, 'Nested.', 1, true),
+      li(3, 3, 1, 2, 'Nested two.', 1, true),
+      li(4, 4, 2, 1, 'Deeper.', 2),
+      li(5, 5, 0, 2),
+      li(6, 6, 0, 2, 'Second paragraph of item two.'),
+      seg(7, 7),
+      li(8, 8, 3, 5, 'Five.', 0, true),
+    ]);
+    expect(shape(layoutBlocks(blocks))).toEqual([
+      'p:0',
+      {
+        list: 0,
+        ordered: false,
+        depth: 0,
+        items: [
+          {
+            n: 1,
+            paras: [1],
+            lists: [
+              {
+                list: 1,
+                ordered: true,
+                depth: 1,
+                items: [
+                  { n: 1, paras: [2] },
+                  {
+                    n: 2,
+                    paras: [3],
+                    lists: [{ list: 2, ordered: false, depth: 2, items: [{ n: 1, paras: [4] }] }],
+                  },
+                ],
+              },
+            ],
+          },
+          { n: 2, paras: [5, 6] },
+        ],
+      },
+      'p:7',
+      { list: 3, ordered: true, depth: 0, items: [{ n: 5, paras: [8] }] },
+    ]);
+  });
+
+  it('starts a new list for a different list at the same depth', () => {
+    const blocks = groupBlocks([li(0, 0, 0, 1), li(1, 1, 1, 1)]);
+    const nodes = layoutBlocks(blocks);
+    expect(nodes).toHaveLength(2);
+    expect(new Set(nodes.map((node) => node.key)).size).toBe(2);
+  });
+
+  it('opens a window that starts inside a nested list at its depth', () => {
+    const blocks = groupBlocks([li(0, 0, 1, 3, 'Deep.', 1), li(1, 1, 0, 2)]);
+    expect(shape(layoutBlocks(blocks))).toEqual([
+      { list: 1, ordered: false, depth: 1, items: [{ n: 3, paras: [0] }] },
+      { list: 0, ordered: false, depth: 0, items: [{ n: 2, paras: [1] }] },
+    ]);
+  });
+
+  it('joins consecutive quote paragraphs and keeps images as blocks', () => {
+    const blocks = groupBlocks([quote(0, 0), quote(1, 1), img(2, 2), quote(3, 3)]);
+    expect(shape(layoutBlocks(blocks))).toEqual(['quote:0,1', 'img:2', 'quote:3']);
+  });
+});
+
+describe('segmentLabel', () => {
+  it('describes images by alt, caption or a fallback', () => {
+    expect(segmentLabel({ ...img(0, 0), alt: 'A map' }, 'Image')).toBe('A map');
+    expect(segmentLabel({ ...img(0, 0), caption: 'Fig. 1' }, 'Image')).toBe('Fig. 1');
+    expect(segmentLabel(img(0, 0), 'Image')).toBe('Image');
+    expect(segmentLabel(seg(1, 0), 'Image')).toBe('S1.');
+    expect(segmentLabel(undefined)).toBe('');
   });
 });
 

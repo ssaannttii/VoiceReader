@@ -163,6 +163,7 @@ def run_import(doc_id: str) -> None:
             segments=doc.segments,
             chapters=doc.chapters,
             cover=doc.cover,
+            assets=doc.assets,
         )
     except reader_store.DocumentNotFound:
         return

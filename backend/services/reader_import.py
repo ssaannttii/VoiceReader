@@ -13,10 +13,15 @@ every hop (``core.url_safety``) and size/time bounded.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import functools
 import io
+import json
 import os
 import posixpath
 import re
+import struct
 import zipfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -44,19 +49,47 @@ MAX_REDIRECTS = 5
 #: produce an unbounded content file.
 MAX_TEXT_CHARS = 5_000_000
 TITLE_MAX = 80
+#: Rich content: nested lists keep at most three levels (depth 0–2).
+MAX_LIST_DEPTH = 2
+#: Images kept per document, bytes per image and per document, alt/caption length.
+MAX_IMAGES = 40
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_IMAGES_TOTAL_BYTES = 100 * 1024 * 1024
+IMAGE_TEXT_MAX = 300
+#: Narrower or shorter images are decoration (icons, ornaments, tracking pixels).
+MIN_IMAGE_SIDE = 48
+#: Image downloads of a URL import: per image, and for all of them together.
+IMAGE_TIMEOUT_S = 10.0
+IMAGES_DEADLINE_S = 45.0
 
 FILE_EXTENSIONS = (".txt", ".md", ".markdown", ".html", ".htm", ".pdf", ".epub", ".docx")
 
 
 @dataclass
 class Block:
-    kind: str  # "h" | "p"
+    kind: str  # "h" | "p" | "li" (list item) | "quote" (block quotation) | "img"
     text: str
     level: int = 0  # heading level (1-6) for "h"
     #: A chapter starts at this block under this title without the title being
     #: read aloud (page-range chapters of a PDF, one chapter per scanned
     #: page). When any block carries one, headings no longer make chapters.
     chapter: Optional[str] = None
+    #: List items: the parser's id of their list (renumbered per document), whether it
+    #: is numbered, the item number and the nesting depth (0–2). Blocks of one item that
+    #: holds several paragraphs share the number.
+    list_id: Optional[int] = None
+    ordered: bool = False
+    n: int = 0
+    depth: int = 0
+    #: Images: where the parser found them (URL, ``data:`` URI or package member) until
+    #: :func:`_attach_images` stores them, then the asset name. ``text`` stays empty.
+    src: Optional[str] = None
+    alt: str = ""
+    caption: str = ""
+    #: Pixel size read from the stored image (0 when unknown), so the page can
+    #: reserve its space before it loads.
+    width: int = 0
+    height: int = 0
 
 
 #: ``progress(fraction)`` callback for long imports (0–1).
@@ -75,6 +108,8 @@ class ImportedDocument:
     cover: Optional[tuple[bytes, str]] = None
     segments: list[dict] = field(default_factory=list)
     chapters: list[dict] = field(default_factory=list)
+    #: Images referenced by ``img`` segments: asset name ("img-001.jpg") → bytes.
+    assets: dict[str, bytes] = field(default_factory=dict)
 
 
 class ReaderImportError(ValueError):
@@ -141,11 +176,25 @@ def split_sentences(text: str, language: Optional[str]) -> list[str]:
     return out
 
 
-def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[list[dict], list[int]]:
-    """Merge consecutive body sentences of the same paragraph up to ``limit`` chars.
+#: Segment fields beyond i/text/para/kind: list items (``list``, ``ordered``, ``n``,
+#: ``depth``) and images (``src``, ``alt``, ``caption``, pixel size ``w``/``h``).
+#: Carried through regrouping.
+_EXTRA_KEYS = ("list", "ordered", "n", "depth", "src", "alt", "caption", "w", "h")
+#: Kinds whose sentences are read as running text and may be grouped within their paragraph.
+_PROSE_KINDS = ("p", "li", "quote")
 
-    Returns the regrouped segments (renumbered) and, for every input index, the
-    index of the segment that now contains it. Headings are never merged.
+
+def _extras(seg: dict) -> dict:
+    return {key: seg[key] for key in _EXTRA_KEYS if key in seg}
+
+
+def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[list[dict], list[int]]:
+    """Merge consecutive sentences of the same paragraph up to ``limit`` chars.
+
+    Only body text, list items and quotes are merged, each within its own paragraph
+    (a list item never joins its siblings). Returns the regrouped segments
+    (renumbered) and, for every input index, the index of the segment that now
+    contains it. Headings and images are never merged.
     """
     limit = GROUP_CHARS if limit is None else limit
     out: list[dict] = []
@@ -154,14 +203,14 @@ def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[l
         prev = out[-1] if out else None
         if (
             prev is not None
-            and seg["kind"] == "p"
-            and prev["kind"] == "p"
+            and seg["kind"] in _PROSE_KINDS
+            and prev["kind"] == seg["kind"]
             and prev["para"] == seg["para"]
             and len(prev["text"]) + 1 + len(seg["text"]) <= limit
         ):
             prev["text"] = f"{prev['text']} {seg['text']}"
         else:
-            out.append({"i": len(out), "text": seg["text"], "para": seg["para"], "kind": seg["kind"]})
+            out.append({"i": len(out), "text": seg["text"], "para": seg["para"], "kind": seg["kind"], **_extras(seg)})
         mapping.append(len(out) - 1)
     return out, mapping
 
@@ -210,9 +259,10 @@ def repair_segments(
 
     Returns the new segments, remapped chapters and, for every old index, its new index.
     """
-    work: list[dict] = []  # mutable copies; "src" lists the old indices folded into each
+    # Mutable copies; "olds" lists the old indices folded into each, "x" the extra fields.
+    work: list[dict] = []
     for seg in segments:
-        work.append({"text": seg["text"], "para": seg["para"], "kind": seg["kind"], "src": [seg["i"]]})
+        work.append({"text": seg["text"], "para": seg["para"], "kind": seg["kind"], "olds": [seg["i"]], "x": _extras(seg)})
     titles = {c["segment"]: c for c in chapters}
 
     out: list[dict] = []
@@ -229,8 +279,8 @@ def repair_segments(
             # Small-caps opening: becomes the start of this paragraph's first sentence.
             # Sentence case so the engine does not spell the opening as an acronym.
             prev.update(text=f"{_sentence_case(prev['text'])} {seg['text']}", kind="p", para=seg["para"])
-            leadins.update(prev["src"])
-            prev["src"].extend(seg["src"])
+            leadins.update(prev["olds"])
+            prev["olds"].extend(seg["olds"])
             continue
         if (
             paginated
@@ -245,7 +295,7 @@ def repair_segments(
             # joins the previous one.
             old_para = seg["para"]
             prev["text"] = _join_text(prev["text"], seg["text"])
-            prev["src"].extend(seg["src"])
+            prev["olds"].extend(seg["olds"])
             prev["_absorb"] = old_para
             continue
         if prev is not None and prev.get("_absorb") == seg["para"] and seg["kind"] == "p":
@@ -258,7 +308,9 @@ def repair_segments(
     for seg in out:
         pieces = split_long(seg["text"]) if len(seg["text"]) > MAX_SEGMENT_CHARS else [seg["text"]]
         for n, piece in enumerate(pieces):
-            split.append({"text": piece, "para": seg["para"], "kind": seg["kind"], "src": seg["src"] if n == 0 else []})
+            split.append(
+                {"text": piece, "para": seg["para"], "kind": seg["kind"], "olds": seg["olds"] if n == 0 else [], "x": seg["x"]}
+            )
 
     # Renumber paragraphs densely, then regroup sentences.
     para_ids: dict[int, int] = {}
@@ -266,8 +318,8 @@ def repair_segments(
     first_of: dict[int, int] = {}
     for idx, seg in enumerate(split):
         para = para_ids.setdefault(seg["para"], len(para_ids))
-        staged.append({"i": idx, "text": seg["text"], "para": para, "kind": seg["kind"]})
-        for old in seg["src"]:
+        staged.append({"i": idx, "text": seg["text"], "para": para, "kind": seg["kind"], **seg["x"]})
+        for old in seg["olds"]:
             first_of.setdefault(old, idx)
     grouped, group_map = group_segments(staged, limit)
 
@@ -304,6 +356,7 @@ def segment_blocks(
     levels = [b.level for b in blocks if b.kind == "h" and _clean(b.text)]
     top = None if marked or not levels else min(levels)
     para = 0
+    list_ids: dict[int, int] = {}  # parser list id → dense per-document id
     step = max(1, len(blocks) // 50)
     for number, block in enumerate(blocks):
         if progress is not None and number % step == 0:
@@ -313,9 +366,23 @@ def segment_blocks(
                 chapters[-1]["title"] = _short_title(block.chapter)  # an empty range: replace it
             else:
                 chapters.append({"title": _short_title(block.chapter), "segment": len(segments)})
+        if block.kind == "img":
+            # One silent segment per image, its own paragraph.
+            if block.src:
+                image = {"i": len(segments), "text": "", "para": para, "kind": "img", "src": block.src}
+                for key in ("alt", "caption"):
+                    value = _clean(getattr(block, key))[:IMAGE_TEXT_MAX]
+                    if value:
+                        image[key] = value
+                if block.width > 0 and block.height > 0:
+                    image["w"], image["h"] = block.width, block.height
+                segments.append(image)
+                para += 1
+            continue
         text = _clean(block.text)
         if not text:
             continue
+        extra: dict = {}
         if block.kind == "h":
             if block.level == top:
                 chapters.append({"title": _short_title(text), "segment": len(segments)})
@@ -323,9 +390,14 @@ def segment_blocks(
             kind = "h"
         else:
             pieces = split_sentences(text, language)
-            kind = "p"
+            kind = block.kind if block.kind in ("li", "quote") else "p"
+            if kind == "li":
+                key = block.list_id if block.list_id is not None else -1 - number
+                extra = {"list": list_ids.setdefault(key, len(list_ids)), "ordered": bool(block.ordered), "n": max(1, block.n)}
+                if block.depth > 0:
+                    extra["depth"] = min(block.depth, MAX_LIST_DEPTH)
         for piece in pieces:
-            segments.append({"i": len(segments), "text": piece, "para": para, "kind": kind})
+            segments.append({"i": len(segments), "text": piece, "para": para, "kind": kind, **extra})
         para += 1
     segments, chapters, _mapping = repair_segments(segments, chapters, paginated=paginated)
     if marked:
@@ -369,8 +441,15 @@ _MD_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 _MD_SETEXT_RE = re.compile(r"^\s{0,3}(=+|-+)\s*$")
 _MD_FENCE_RE = re.compile(r"^\s{0,3}(```|~~~)")
 _MD_RULE_RE = re.compile(r"^\s{0,3}([-*_])(\s*\1){2,}\s*$")
-_MD_LIST_RE = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])\s+")
+_MD_LIST_ITEM_RE = re.compile(r"^(\s*)(?:[-*+]|(\d{1,3})[.)])\s+(.*)$")
+_MD_TASK_RE = re.compile(r"^\[[ xX]\]\s+")
 _MD_QUOTE_RE = re.compile(r"^\s*(?:>\s?)+")
+#: ``![alt](src "title")`` with the parts captured (the title becomes the caption).
+_MD_IMAGE_REF_RE = re.compile(r"!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+[\"'(]([^\"')]*)[\"')])?\s*\)")
+_MD_EMPTY_LINK_RE = re.compile(r"\[\s*\]\([^)]*\)")
+#: Rich EPUB script lines (see :class:`_RichEpubExtractor`): MARK + JSON + END + text.
+_RICH_MARK = "\ue000"
+_RICH_END = "\ue001"
 _MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
@@ -434,28 +513,97 @@ def _reflow(lines: list[str]) -> list[str]:
     return paragraphs
 
 
-def parse_markdown(text: str, *, markdown: bool = True) -> list[Block]:
+def _rich_line(line: str, blocks: list[Block]) -> None:
+    """One marked line of a rich EPUB script → a list item, quote, image or caption."""
+    head, _sep, body = line[len(_RICH_MARK):].partition(_RICH_END)
+    try:
+        meta = json.loads(head)
+    except ValueError:
+        meta = {}
+    kind = meta.get("t") if isinstance(meta, dict) else None
+    if kind == "img":
+        blocks.append(Block("img", "", src=str(meta.get("src") or "") or None, alt=str(meta.get("alt") or "")))
+    elif kind == "cap" and blocks and blocks[-1].kind == "img" and not blocks[-1].caption:
+        blocks[-1].caption = body
+    elif kind == "li":
+        blocks.append(Block(
+            "li", body, list_id=int(meta.get("list") or 0), ordered=bool(meta.get("o")),
+            n=int(meta.get("n") or 1), depth=int(meta.get("d") or 0),
+        ))
+    elif kind == "quote":
+        blocks.append(Block("quote", body))
+    elif _clean(body):
+        blocks.append(Block("p", body))
+
+
+def parse_markdown(text: str, *, markdown: bool = True, rich: bool = False) -> list[Block]:
     """Blocks from Markdown (or plain text with ``# `` chapter headings).
 
-    ``markdown=False`` recognizes only ATX headings (the chapter-script grammar
-    ``services.longform_import`` emits) and leaves inline characters alone.
+    Markdown lists become ``li`` blocks (nesting by indentation, numbering from the
+    first item), ``>`` lines ``quote`` paragraphs and ``![alt](src "title")`` images
+    ``img`` blocks placed after their paragraph. ``markdown=False`` recognizes only
+    ATX headings (the chapter-script grammar ``services.longform_import`` emits) and
+    leaves inline characters alone; ``rich`` also reads the marked lines of a rich
+    EPUB script.
     """
     blocks: list[Block] = []
     pending: list[str] = []
+    pending_kind = "p"
     in_fence = False
+    lists: list[dict] = []  # open lists, outermost first: indent, id, ordered, n
+    list_seq = 0
+    last_item: Optional[Block] = None  # list item a lazy continuation line extends
 
     def flush() -> None:
+        nonlocal pending_kind
         if not pending:
             return
         for paragraph in _reflow(pending):
+            images: list[Block] = []
+            if markdown:
+                images = [
+                    Block("img", "", src=m.group(2), alt=_strip_inline_md(m.group(1)), caption=m.group(3) or "")
+                    for m in _MD_IMAGE_REF_RE.finditer(paragraph)
+                ]
+                paragraph = _MD_EMPTY_LINK_RE.sub("", _MD_IMAGE_REF_RE.sub("", paragraph))
             body = _strip_inline_md(paragraph) if markdown else paragraph
             if _clean(body):
-                blocks.append(Block("p", body))
+                blocks.append(Block(pending_kind, body))
+            blocks.extend(images)
         pending.clear()
+        pending_kind = "p"
+
+    def close_lists() -> None:
+        nonlocal last_item
+        lists.clear()
+        last_item = None
+
+    def list_item(indent: int, ordered: bool, start: int, body: str) -> None:
+        nonlocal list_seq, last_item
+        while lists and indent < lists[-1]["indent"]:
+            lists.pop()
+        top = lists[-1] if lists else None
+        if top is None or (indent >= top["indent"] + 2 and len(lists) <= MAX_LIST_DEPTH):
+            list_seq += 1
+            lists.append({"indent": indent, "id": list_seq, "ordered": ordered, "n": start})
+        elif top["ordered"] != ordered:
+            list_seq += 1
+            lists[-1] = {"indent": top["indent"], "id": list_seq, "ordered": ordered, "n": start}
+        else:
+            top["n"] += 1
+        top = lists[-1]
+        last_item = Block("li", body, list_id=top["id"], ordered=top["ordered"], n=top["n"], depth=len(lists) - 1)
+        blocks.append(last_item)
 
     for raw in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if rich and raw.startswith(_RICH_MARK):
+            flush()
+            close_lists()
+            _rich_line(raw, blocks)
+            continue
         if markdown and _MD_FENCE_RE.match(raw):
             flush()
+            close_lists()
             in_fence = not in_fence
             continue
         if in_fence:
@@ -463,6 +611,7 @@ def parse_markdown(text: str, *, markdown: bool = True) -> list[Block]:
         heading = _MD_HEADING_RE.match(raw)
         if heading:
             flush()
+            close_lists()
             title = _strip_inline_md(heading.group(2)) if markdown else heading.group(2)
             if _clean(title):
                 blocks.append(Block("h", title, level=len(heading.group(1))))
@@ -472,23 +621,51 @@ def parse_markdown(text: str, *, markdown: bool = True) -> list[Block]:
             if setext and len(pending) == 1 and pending[0].strip():
                 title = _strip_inline_md(pending[0])
                 pending.clear()
+                pending_kind = "p"
                 blocks.append(Block("h", title, level=1 if setext.group(1)[0] == "=" else 2))
                 continue
             if _MD_RULE_RE.match(raw) or _MD_TABLE_SEP_RE.match(raw):
                 flush()
+                close_lists()
                 continue
-            line = _MD_QUOTE_RE.sub("", raw)
-            if _MD_LIST_RE.match(line):
+            quote = _MD_QUOTE_RE.match(raw)
+            line = raw[quote.end():] if quote else raw
+            item = _MD_LIST_ITEM_RE.match(line)
+            if item:
                 flush()
-                pending.append(_MD_LIST_RE.sub("", line))
-                flush()
+                body = _strip_inline_md(_MD_TASK_RE.sub("", item.group(3)))
+                number = item.group(2)
+                list_item(len(item.group(1).expandtabs(4)), number is not None, int(number or 1), body)
                 continue
             if line.strip().startswith("|") and line.strip().endswith("|"):
                 flush()
+                close_lists()
                 cells = [c.strip() for c in line.strip().strip("|").split("|")]
                 pending.append(", ".join(c for c in cells if c))
                 flush()
                 continue
+            if not line.strip():
+                flush()
+                last_item = None
+                continue
+            if last_item is not None:
+                # A lazy continuation line of the item above.
+                last_item.text = f"{last_item.text} {_strip_inline_md(line.strip())}"
+                continue
+            if lists and line[:1] in (" ", "\t"):
+                # An indented paragraph after a blank line: more of the open item.
+                top = lists[-1]
+                last_item = Block(
+                    "li", _strip_inline_md(line.strip()), list_id=top["id"], ordered=top["ordered"],
+                    n=top["n"], depth=len(lists) - 1,
+                )
+                blocks.append(last_item)
+                continue
+            close_lists()
+            kind = "quote" if quote else "p"
+            if pending and pending_kind != kind:
+                flush()
+            pending_kind = kind
             raw = line
         if not raw.strip():
             flush()
@@ -509,19 +686,86 @@ def _first_line(text: str) -> str:
 # ── HTML / article extraction ────────────────────────────────────────────────
 
 
+_IMAGE_NOISE_CLASS = re.compile(
+    r"(^|[\s_-])(icons?|logos?|avatars?|emojis?|sprites?|badges?|spinner|loader|pixel|tracking|tracker|"
+    r"spacer|gravatar|ads?|advert|share|social)([\s_-]|$)",
+    re.IGNORECASE,
+)
+_IMAGE_NOISE_PATH = re.compile(r"pixel|spacer|tracking|beacon|/ads?/|gravatar|emoji|/icons?/|favicon|logo", re.IGNORECASE)
+_LAZY_SRC_ATTRS = ("data-src", "data-original", "data-lazy-src", "data-url", "data-hi-res-src")
+_RASTER_DATA_PREFIXES = ("data:image/png", "data:image/jpeg", "data:image/jpg", "data:image/gif", "data:image/webp", "data:image/avif")
+
+
+def _px(value: Optional[str]) -> Optional[int]:
+    match = re.match(r"\s*(\d{1,5})(?:\.\d+)?\s*(?:px)?\s*$", value or "")
+    return int(match.group(1)) if match else None
+
+
+def _srcset_best(srcset: str) -> str:
+    """The widest candidate up to 1600 px of a ``srcset`` (else its first)."""
+    best, best_width, first = "", -1, ""
+    for part in re.split(r",\s+", (srcset or "").strip()):
+        bits = part.split()
+        if not bits:
+            continue
+        first = first or bits[0]
+        width = 0
+        if len(bits) > 1 and bits[1].lower().endswith("w") and bits[1][:-1].isdigit():
+            width = int(bits[1][:-1])
+        if best_width < width <= 1600:
+            best, best_width = bits[0], width
+    return best or first
+
+
+def _html_image(attrs: dict) -> Optional[tuple[str, str]]:
+    """``(src, alt)`` of a content ``<img>``, or ``None`` for decoration: tiny or
+    tracking images, icons, logos, avatars (by size attributes or class/path hints),
+    SVG (never served) and lazy-load placeholders without a real source."""
+    if attrs.get("aria-hidden") == "true" or (attrs.get("role") or "").lower() == "presentation":
+        return None
+    if _IMAGE_NOISE_CLASS.search(f"{attrs.get('class') or ''} {attrs.get('id') or ''}"):
+        return None
+    width, height = _px(attrs.get("width")), _px(attrs.get("height"))
+    if (width is not None and width < MIN_IMAGE_SIDE) or (height is not None and height < MIN_IMAGE_SIDE):
+        return None
+    src = (attrs.get("src") or "").strip()
+    lazy = next((attrs[key].strip() for key in _LAZY_SRC_ATTRS if (attrs.get(key) or "").strip()), "")
+    if lazy and (not src or src.startswith("data:")):
+        src = lazy
+    if not src or (src.startswith("data:") and len(src) < 200):  # a placeholder pixel
+        src = _srcset_best(attrs.get("srcset") or attrs.get("data-srcset") or "") or src
+    if not src:
+        return None
+    lowered = src.lower()
+    if lowered.startswith("data:"):
+        if not lowered.startswith(_RASTER_DATA_PREFIXES):
+            return None
+    else:
+        try:
+            path = urlsplit(src).path.lower()
+        except ValueError:
+            return None
+        if path.endswith((".svg", ".svgz")) or _IMAGE_NOISE_PATH.search(path):
+            return None
+    return src, _clean(attrs.get("alt") or "")
+
+
 class _ArticleParser(HTMLParser):
     """Main-content extraction with the stdlib parser.
 
     Collects ``h1-h3``, ``p``, ``li`` and ``blockquote`` text (plus loose text
     inside ``div``-like containers), tagging each block with the ``<article>``
     and ``<main>`` it sits in so the caller can prefer real article content
-    over the page chrome around it.
+    over the page chrome around it. List items keep their list (id, numbering,
+    nesting), blockquote paragraphs become quotes, and content images (``<img>``,
+    ``<figure>`` with its ``<figcaption>``) become image blocks; any other text
+    inside a ``<figure>`` (embeds, pull quotes, code) is not read.
     """
 
     _DROP = {
         "script", "style", "noscript", "nav", "aside", "footer", "form", "template",
         "svg", "button", "select", "textarea", "iframe", "canvas", "object", "dialog",
-        "menu", "figure",
+        "menu",
     }
     _BLOCKS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6, "p": 0, "li": 0, "blockquote": 0, "pre": 0, "dd": 0, "dt": 0, "td": 0, "th": 0, "figcaption": 0}
     _BOUNDARY = {"div", "section", "br", "tr", "table", "ul", "ol", "header", "main", "article", "body", "hr", "dl"}
@@ -557,20 +801,36 @@ class _ArticleParser(HTMLParser):
         self._main_depth = 0
         self._block_stack: list[str] = []
         self._buffer: list[str] = []
-        #: (kind, level, text, article_index | -1, in_main)
-        self.blocks: list[tuple[str, int, str, int, bool]] = []
+        self._lists: list[dict] = []  # open ul/ol: list, ordered, n (last item number)
+        self._list_seq = 0
+        self._items: list[dict] = []  # open li: list, ordered, n, depth
+        self._quote_depth = 0
+        self._figure_depth = 0
+        self._figure: dict = {}  # outermost open figure: img, caption parts
+        self._caption_depth = 0
+        self._images: list[dict] = []  # images seen since the last flush
+        #: (kind, level, text, article_index | -1, in_main, extra | None)
+        self.blocks: list[tuple[str, int, str, int, bool, Optional[dict]]] = []
 
     # -- helpers
     def _flush(self) -> None:
         text = _clean("".join(self._buffer))
         self._buffer = []
-        if not text:
-            return
-        tag = self._block_stack[-1] if self._block_stack else ""
-        level = self._BLOCKS.get(tag, 0)
-        kind = "h" if level else ("p" if tag else "loose")
         article = self._article_index if self._article_depth else -1
-        self.blocks.append((kind, level, text, article, self._main_depth > 0))
+        if text:
+            tag = self._block_stack[-1] if self._block_stack else ""
+            level = self._BLOCKS.get(tag, 0)
+            kind = "h" if level else ("p" if tag else "loose")
+            extra = None
+            if not level and self._items and "li" in self._block_stack:
+                kind, extra = "li", dict(self._items[-1])
+            elif not level and self._quote_depth:
+                kind = "quote"
+            self.blocks.append((kind, level, text, article, self._main_depth > 0, extra))
+        # Images inside a paragraph follow it.
+        for image in self._images:
+            self.blocks.append(("img", 0, "", article, self._main_depth > 0, image))
+        self._images = []
 
     def _is_dropped(self, tag: str, attrs: dict) -> bool:
         if tag in self._DROP:
@@ -606,6 +866,14 @@ class _ArticleParser(HTMLParser):
         if tag == "title" and not self.title_tag:
             self._in_title = True
             return
+        if tag == "img":
+            image = None if self._drop_depth else _html_image(attr)
+            if image is not None:
+                if self._figure_depth:
+                    self._figure.setdefault("img", image)
+                else:
+                    self._images.append({"src": image[0], "alt": image[1], "caption": ""})
+            return
         if tag in self._VOID:
             if tag in ("br", "hr") and not self._drop_depth:
                 if self._block_stack:
@@ -620,6 +888,27 @@ class _ArticleParser(HTMLParser):
                 self._flush()
             self._drop_depth += 1 if drops else 0
             return
+        if tag == "figure":
+            if not self._figure_depth:
+                self._flush()
+                self._figure = {"caption": []}
+            self._figure_depth += 1
+        elif tag == "figcaption" and self._figure_depth:
+            self._caption_depth += 1
+        elif tag in ("ul", "ol"):
+            self._list_seq += 1
+            start = _px(attr.get("start")) if tag == "ol" else None
+            self._lists.append({"list": self._list_seq, "ordered": tag == "ol", "n": (start or 1) - 1})
+        elif tag == "li":
+            if not self._lists:  # a stray item: a list of its own
+                self._list_seq += 1
+                self._lists.append({"list": self._list_seq, "ordered": False, "n": 0, "stray": True})
+            top = self._lists[-1]
+            top["n"] += 1
+            depth = min(sum(1 for item in self._lists if not item.get("stray")) - 1, MAX_LIST_DEPTH)
+            self._items.append({"list": top["list"], "ordered": top["ordered"], "n": top["n"], "depth": max(0, depth)})
+        elif tag == "blockquote":
+            self._quote_depth += 1
         if tag == "article":
             self._flush()
             if self._article_depth == 0:
@@ -663,12 +952,35 @@ class _ArticleParser(HTMLParser):
                 self._article_depth -= 1
             elif name == "main" and self._main_depth:
                 self._main_depth -= 1
+            elif name in ("ul", "ol") and self._lists:
+                self._lists.pop()
+            elif name == "li" and self._items:
+                self._items.pop()
+                if self._lists and self._lists[-1].get("stray"):
+                    self._lists.pop()
+            elif name == "blockquote" and self._quote_depth:
+                self._quote_depth -= 1
+            elif name == "figcaption" and self._caption_depth:
+                self._caption_depth -= 1
+            elif name == "figure" and self._figure_depth:
+                self._figure_depth -= 1
+                if not self._figure_depth:
+                    figure, self._figure = self._figure, {}
+                    if figure.get("img"):
+                        src, alt = figure["img"]
+                        caption = _clean("".join(figure["caption"]))
+                        self._images.append({"src": src, "alt": alt, "caption": caption})
+                        self._flush()
 
     def handle_data(self, data):
         if self._in_title:
             self.title_tag += data
             return
         if self._drop_depth:
+            return
+        if self._figure_depth:
+            if self._caption_depth:
+                self._figure["caption"].append(data)
             return
         self._buffer.append(data)
 
@@ -688,9 +1000,9 @@ _APPARATUS_HEADING_RE = re.compile(
 )
 
 
-def _select_blocks(raw: list[tuple[str, int, str, int, bool]]) -> list[Block]:
+def _select_blocks(raw: list[tuple[str, int, str, int, bool, Optional[dict]]]) -> list[Block]:
     def chars(items) -> int:
-        return sum(len(t) for k, _, t, _, _ in items if k != "h")
+        return sum(len(item[2]) for item in items if item[0] != "h")
 
     chosen = raw
     articles: dict[int, list] = {}
@@ -707,13 +1019,21 @@ def _select_blocks(raw: list[tuple[str, int, str, int, bool]]) -> list[Block]:
             chosen = main
     blocks: list[Block] = []
     skip_level = 0  # inside a dropped section until a heading at this level or above
-    for kind, level, text, _article, _main in chosen:
+    for kind, level, text, _article, _main, extra in chosen:
         if kind == "h":
             if skip_level and level <= skip_level:
                 skip_level = 0
             if not skip_level and _APPARATUS_HEADING_RE.match(text):
                 skip_level = level
         if skip_level:
+            continue
+        if kind == "img" and extra:
+            blocks.append(Block("img", "", src=extra["src"], alt=extra["alt"], caption=extra["caption"]))
+            continue
+        if kind == "li" and extra:
+            blocks.append(Block(
+                "li", text, list_id=extra["list"], ordered=extra["ordered"], n=extra["n"], depth=extra["depth"],
+            ))
             continue
         if kind == "loose":
             # Loose text outside paragraphs is mostly chrome ("Share", "Ad");
@@ -811,12 +1131,16 @@ def parse_docx(data: bytes) -> tuple[list[Block], dict]:
             raise ReaderImportError("not a valid DOCX file: word/document.xml is missing")
         styles_xml = _zip_member(zf, "word/styles.xml", _DOCX_MAX_XML)
         core_xml = _zip_member(zf, "docProps/core.xml", 1024 * 1024)
+        numbering_xml = _zip_member(zf, "word/numbering.xml", _DOCX_MAX_XML)
+        rels_xml = _zip_member(zf, "word/_rels/document.xml.rels", _DOCX_MAX_XML)
     try:
         root = ET.fromstring(document)  # nosec B314 — local user file, no external entities
     except ET.ParseError as exc:
         raise ReaderImportError(f"DOCX document is not well-formed XML: {exc}") from exc
 
     style_levels: dict[str, int] = {}
+    style_quotes: set[str] = set()
+    style_numbering: dict[str, tuple[str, int]] = {}  # style id → (numId, ilvl)
     if styles_xml:
         try:
             for style in ET.fromstring(styles_xml).iter(f"{_W}style"):  # nosec B314
@@ -826,25 +1150,63 @@ def parse_docx(data: bytes) -> tuple[list[Block], dict]:
                 level = _style_level(name) or _style_level(style_id)
                 if level:
                     style_levels[style_id] = level
+                if _QUOTE_STYLE_RE.match(name) or _QUOTE_STYLE_RE.match(style_id):
+                    style_quotes.add(style_id)
+                num = _docx_num_pr(style.find(f"{_W}pPr"))
+                if num:
+                    style_numbering[style_id] = num
         except ET.ParseError:
             pass
+    formats = _docx_numbering(numbering_xml)
+    images = _docx_relationships(rels_xml)
 
     blocks: list[Block] = []
+    counters: dict[str, list[int]] = {}  # numId → item count per level
+    open_lists: dict[tuple[str, int], int] = {}  # (numId, ilvl) → list id while the list runs
+    list_seq = 0
     body = root.find(f"{_W}body")
     for paragraph in (body.iter(f"{_W}p") if body is not None else []):
         parts: list[str] = []
+        pictures: list[Block] = []
         for node in paragraph.iter():
             if node.tag == f"{_W}t" and node.text:
                 parts.append(node.text)
             elif node.tag in (f"{_W}tab", f"{_W}br", f"{_W}cr"):
                 parts.append(" ")
+            elif node.tag in (f"{_W}drawing", f"{_W}pict"):
+                pictures.extend(_docx_pictures(node, images))
         text = _clean("".join(parts))
-        if not text:
+        if not text and not pictures:
             continue
+        properties = paragraph.find(f"{_W}pPr")
         style_el = paragraph.find(f"{_W}pPr/{_W}pStyle")
-        style_id = style_el.get(f"{_W}val") if style_el is not None else ""
-        level = style_levels.get(style_id or "") or _style_level(style_id or "")
-        blocks.append(Block("h", text, level=level) if level else Block("p", text))
+        style_id = (style_el.get(f"{_W}val") if style_el is not None else "") or ""
+        level = style_levels.get(style_id) or _style_level(style_id)
+        num = _docx_num_pr(properties) or style_numbering.get(style_id)
+        if text and level:
+            blocks.append(Block("h", text, level=level))
+            open_lists.clear()
+        elif text and num and num[0] != "0":
+            num_id, ilvl = num[0], min(max(num[1], 0), 8)
+            levels = counters.setdefault(num_id, [0] * 9)
+            levels[ilvl] += 1
+            for deeper in range(ilvl + 1, 9):
+                levels[deeper] = 0
+            for key in [key for key in open_lists if key[0] == num_id and key[1] > ilvl]:
+                del open_lists[key]  # a sublist ended
+            if (num_id, ilvl) not in open_lists:
+                list_seq += 1
+                open_lists[(num_id, ilvl)] = list_seq
+            fmt, start = formats.get((num_id, ilvl), ("decimal", 1))
+            blocks.append(Block(
+                "li", text, list_id=open_lists[(num_id, ilvl)], ordered=fmt not in ("bullet", "none"),
+                n=start - 1 + levels[ilvl], depth=min(ilvl, MAX_LIST_DEPTH),
+            ))
+        elif text:
+            blocks.append(Block("quote" if style_id in style_quotes or _QUOTE_STYLE_RE.match(style_id) else "p", text))
+            open_lists.clear()
+        # mc:AlternateContent can carry the same picture twice (DrawingML + VML fallback).
+        blocks.extend({picture.src: picture for picture in pictures}.values())
 
     meta = {"title": None, "author": None}
     if core_xml:
@@ -872,6 +1234,99 @@ def _style_level(name: str) -> int:
     if match:
         return max(1, min(6, int(match.group(1))))
     return 0
+
+
+_QUOTE_STYLE_RE = re.compile(
+    r"^(?:intense\s*quote|quote|block\s*text|cita(?:\s*destacada)?|zitat|intensives\s*zitat|citation(?:\s*intense)?|"
+    r"citazione(?:\s*intensa)?|cita[cç][aã]o(?:\s*intensa)?)$",
+    re.IGNORECASE,
+)
+_R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def _docx_num_pr(properties) -> Optional[tuple[str, int]]:
+    """``(numId, ilvl)`` of a paragraph's (or style's) ``w:numPr``, if any."""
+    if properties is None:
+        return None
+    num_pr = properties.find(f"{_W}numPr")
+    if num_pr is None:
+        return None
+    num_id = num_pr.find(f"{_W}numId")
+    if num_id is None or not num_id.get(f"{_W}val"):
+        return None
+    ilvl = num_pr.find(f"{_W}ilvl")
+    try:
+        level = int(ilvl.get(f"{_W}val") or 0) if ilvl is not None else 0
+    except ValueError:
+        level = 0
+    return num_id.get(f"{_W}val"), level
+
+
+def _docx_numbering(xml: Optional[bytes]) -> dict[tuple[str, int], tuple[str, int]]:
+    """``(numId, ilvl)`` → ``(numFmt, start)`` from ``word/numbering.xml``."""
+    if not xml:
+        return {}
+    try:
+        root = ET.fromstring(xml)  # nosec B314 — local user file
+    except ET.ParseError:
+        return {}
+    abstract: dict[str, dict[int, tuple[str, int]]] = {}
+    for definition in root.iter(f"{_W}abstractNum"):
+        levels: dict[int, tuple[str, int]] = {}
+        for lvl in definition.findall(f"{_W}lvl"):
+            try:
+                index = int(lvl.get(f"{_W}ilvl") or 0)
+                start_el = lvl.find(f"{_W}start")
+                start = int(start_el.get(f"{_W}val") or 1) if start_el is not None else 1
+            except ValueError:
+                continue
+            fmt_el = lvl.find(f"{_W}numFmt")
+            levels[index] = ((fmt_el.get(f"{_W}val") if fmt_el is not None else "") or "decimal", start)
+        abstract[definition.get(f"{_W}abstractNumId") or ""] = levels
+    out: dict[tuple[str, int], tuple[str, int]] = {}
+    for num in root.iter(f"{_W}num"):
+        ref = num.find(f"{_W}abstractNumId")
+        levels = abstract.get(ref.get(f"{_W}val") if ref is not None else "", {})
+        for index, value in levels.items():
+            out[(num.get(f"{_W}numId") or "", index)] = value
+    return out
+
+
+def _docx_relationships(xml: Optional[bytes]) -> dict[str, str]:
+    """Relationship id → package member of the document's embedded images."""
+    if not xml:
+        return {}
+    try:
+        root = ET.fromstring(xml)  # nosec B314 — local user file
+    except ET.ParseError:
+        return {}
+    out: dict[str, str] = {}
+    for rel in root:
+        if (rel.get("TargetMode") or "").lower() == "external" or not rel.get("Id"):
+            continue
+        if not (rel.get("Type") or "").endswith("/image"):
+            continue
+        target = (rel.get("Target") or "").replace("\\", "/")
+        member = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join("word", target))
+        if member and not member.startswith(".."):
+            out[rel.get("Id")] = member
+    return out
+
+
+def _docx_pictures(node, images: dict[str, str]) -> list[Block]:
+    """Image blocks for one ``w:drawing`` (DrawingML) or ``w:pict`` (VML) run."""
+    alt = ""
+    found: list[str] = []
+    for child in node.iter():
+        local = child.tag.rsplit("}", 1)[-1]
+        if local == "docPr":
+            alt = alt or child.get("descr") or child.get("title") or ""
+        elif local == "blip" and child.get(f"{_R}embed") in images:
+            found.append(images[child.get(f"{_R}embed")])
+        elif local == "imagedata" and child.get(f"{_R}id") in images:
+            found.append(images[child.get(f"{_R}id")])
+            alt = alt or child.get("{urn:schemas-microsoft-com:office:office}title") or ""
+    return [Block("img", "", src=member, alt=alt) for member in dict.fromkeys(found)]
 
 
 # ── EPUB metadata + cover ────────────────────────────────────────────────────
@@ -943,6 +1398,121 @@ def epub_metadata(data: bytes) -> dict:
             except (KeyError, zipfile.BadZipFile, RuntimeError, NotImplementedError, EOFError):
                 pass
     return out
+
+
+# ── EPUB rich content ────────────────────────────────────────────────────────
+
+
+@functools.lru_cache(maxsize=1)
+def _rich_epub_extractor() -> type:
+    """The audiobook importer's XHTML text extractor, extended to mark list items,
+    block quotations, images and figure captions as rich script lines
+    (``_RICH_MARK`` + JSON + ``_RICH_END`` + text) for :func:`parse_markdown`.
+
+    Everything else (titles, page-break markers, skipped elements, front-matter
+    detection in ``epub_to_chapter_script``) stays exactly the audiobook's.
+    """
+    from services.longform_import import _member_path, _TextExtractor
+
+    class RichEpubExtractor(_TextExtractor):
+        def __init__(self, base: str) -> None:
+            super().__init__()
+            self._base = base
+            self._lists: list[dict] = []
+            self._list_seq = 0
+            self._items: list[dict] = []
+            self._quote = 0
+            self._caption = 0
+            self._marked = False  # the current line already carries its mark
+
+        def _gated(self) -> bool:
+            return bool(self._skip_depth or self._pagebreak_stack)
+
+        @staticmethod
+        def _mark(meta: dict) -> str:
+            return _RICH_MARK + json.dumps(meta, ensure_ascii=False, separators=(",", ":")) + _RICH_END
+
+        def handle_starttag(self, tag, attrs):
+            super().handle_starttag(tag, attrs)
+            if tag in self._BREAK:
+                self._marked = False
+            if self._gated():
+                return
+            attr = {k.lower(): v or "" for k, v in attrs}
+            if tag in ("ul", "ol"):
+                self._list_seq += 1
+                start = _px(attr.get("start")) if tag == "ol" else None
+                self._lists.append({"list": self._list_seq, "o": int(tag == "ol"), "n": (start or 1) - 1})
+            elif tag == "li":
+                if not self._lists:
+                    self._list_seq += 1
+                    self._lists.append({"list": self._list_seq, "o": 0, "n": 0})
+                top = self._lists[-1]
+                top["n"] += 1
+                depth = min(len(self._lists) - 1, MAX_LIST_DEPTH)
+                self._items.append({"t": "li", "list": top["list"], "o": top["o"], "n": top["n"], "d": depth})
+            elif tag == "blockquote":
+                self._quote += 1
+            elif tag == "figcaption":
+                self._caption += 1
+            elif tag in ("img", "image") and not self._in_title:
+                src = attr.get("src") or attr.get("href") or attr.get("xlink:href") or ""
+                width, height = _px(attr.get("width")), _px(attr.get("height"))
+                small = (width is not None and width < MIN_IMAGE_SIDE) or (height is not None and height < MIN_IMAGE_SIDE)
+                member = _member_path(self._base, src) if src and not src.startswith("data:") and not small else ""
+                if member and not member.startswith(".."):
+                    alt = _clean(attr.get("alt") or "")
+                    self._parts.append("\n" + self._mark({"t": "img", "src": member, "alt": alt}) + "\n")
+                    self._marked = False
+
+        def handle_endtag(self, tag):
+            super().handle_endtag(tag)
+            if tag in self._BREAK:
+                self._marked = False
+            if tag in ("ul", "ol") and self._lists:
+                self._lists.pop()
+            elif tag == "li" and self._items:
+                self._items.pop()
+            elif tag == "blockquote" and self._quote:
+                self._quote -= 1
+            elif tag == "figcaption" and self._caption:
+                self._caption -= 1
+
+        def handle_data(self, data):
+            if not any(name == "pre" for name, _ns in self._elements):
+                # A line break in the source is a space in XHTML; only <br> and blocks break lines.
+                data = data.replace("\r", " ").replace("\n", " ")
+            if not self._gated() and not self._in_title and not self._marked and data.strip():
+                if self._items:
+                    meta = self._items[-1]
+                elif self._quote:
+                    meta = {"t": "quote"}
+                elif self._caption:
+                    meta = {"t": "cap"}
+                else:
+                    meta = None
+                if meta is not None:
+                    self._parts.append(self._mark(meta))
+                self._marked = True
+            super().handle_data(data)
+
+    return RichEpubExtractor
+
+
+def _rich_epub_extract(xhtml: str, path: str) -> tuple[set[str], str, str]:
+    """``epub_to_chapter_script`` ``extract`` hook: rich body lines; a section
+    whose only content is images reads as empty (skipped, as before)."""
+    parser = _rich_epub_extractor()(posixpath.dirname(path))
+    try:
+        parser.feed(xhtml)
+    except Exception:  # noqa: BLE001 — keep what was collected, like the plain extractor
+        pass
+    body = parser.text()
+    readable = any(
+        (line.partition(_RICH_END)[2] if line.startswith(_RICH_MARK) else line).strip()
+        for line in body.split("\n")
+    )
+    return parser.epub_types, parser.title, body if readable else ""
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────
@@ -1288,19 +1858,210 @@ def import_scan(
     return _finish(doc, lang, sample, (lambda f: progress(0.9 + 0.1 * f)) if progress else None)
 
 
+# ── Images ───────────────────────────────────────────────────────────────────
+#
+# Parsers leave ``img`` blocks pointing at where the picture lives; an
+# ``ImageLoader`` turns that reference into bytes. Only raster images whose
+# bytes say so (JPEG, PNG, GIF, WebP, AVIF) are kept — never SVG, which could
+# carry script — named ``img-NNN.<ext>`` and stored with the document.
+
+#: ``loader(reference) -> bytes | None``.
+ImageLoader = Callable[[str], Optional[bytes]]
+
+IMAGE_MEDIA_TYPES = {
+    "jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp", "avif": "image/avif",
+}
+_DATA_URI_RE = re.compile(r"^data:image/[a-z0-9.+-]+(?:;[^,;]*)*;base64,", re.IGNORECASE)
+_IMAGE_ACCEPT = "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1"
+
+
+def image_type(data: bytes) -> Optional[str]:
+    """Extension of a supported raster image, sniffed from its bytes."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data[4:12] in (b"ftypavif", b"ftypavis"):
+        return "avif"
+    return None
+
+
+def _image_size(data: bytes, ext: str) -> Optional[tuple[int, int]]:
+    """``(width, height)`` from the image header, when cheap to read."""
+    try:
+        if ext == "png" and len(data) >= 24:
+            return struct.unpack(">II", data[16:24])
+        if ext == "gif" and len(data) >= 10:
+            return struct.unpack("<HH", data[6:10])
+        if ext == "webp" and len(data) >= 30:
+            chunk = data[12:16]
+            if chunk == b"VP8X":
+                return 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+            if chunk == b"VP8 ":
+                width, height = struct.unpack("<HH", data[26:30])
+                return width & 0x3FFF, height & 0x3FFF
+            if chunk == b"VP8L":
+                bits = int.from_bytes(data[21:25], "little")
+                return 1 + (bits & 0x3FFF), 1 + ((bits >> 14) & 0x3FFF)
+        if ext == "jpg":
+            index = 2
+            while index + 9 < len(data):
+                if data[index] != 0xFF:
+                    index += 1
+                    continue
+                marker = data[index + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                    index += 1 if marker == 0xFF else 2
+                    continue
+                length = struct.unpack(">H", data[index + 2:index + 4])[0]
+                if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                    height, width = struct.unpack(">HH", data[index + 5:index + 9])
+                    return width, height
+                index += 2 + length
+    except struct.error:
+        return None
+    return None
+
+
+def data_uri_image(reference: str) -> Optional[bytes]:
+    """Bytes of a base64 ``data:image/…`` URI (``None`` for anything else)."""
+    match = _DATA_URI_RE.match(reference or "")
+    if not match:
+        return None
+    payload = reference[match.end():]
+    if len(payload) > MAX_IMAGE_BYTES * 4 // 3 + 8:
+        return None
+    try:
+        return base64.b64decode(re.sub(r"\s+", "", payload), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _zip_image_loader(data: bytes) -> ImageLoader:
+    """Images that are members of an EPUB/DOCX package (``data:`` URIs too)."""
+    state: dict = {}
+
+    def load(reference: str) -> Optional[bytes]:
+        if reference.startswith("data:"):
+            return data_uri_image(reference)
+        try:
+            if "zip" not in state:
+                state["zip"] = zipfile.ZipFile(io.BytesIO(data))
+            info = state["zip"].getinfo(reference)
+            if info.file_size > MAX_IMAGE_BYTES:
+                return None
+            return state["zip"].read(info)
+        except (KeyError, zipfile.BadZipFile, RuntimeError, NotImplementedError, EOFError, OSError):
+            return None
+
+    return load
+
+
+def _url_image_loader(base_url: str) -> ImageLoader:
+    """Images of a fetched page, through the same SSRF-checked fetch (≤ 5 MB each)."""
+
+    def load(reference: str) -> Optional[bytes]:
+        if reference.startswith("data:"):
+            return data_uri_image(reference)
+        try:
+            url = urljoin(base_url, reference)
+        except ValueError:
+            return None
+        if urlsplit(url).scheme not in ("http", "https"):
+            return None
+        body, _type, _final = fetch_url(
+            url, max_bytes=MAX_IMAGE_BYTES, accept=_IMAGE_ACCEPT, timeout=IMAGE_TIMEOUT_S, referer=base_url
+        )
+        return body
+
+    return load
+
+
+def _load_image(loader: ImageLoader, reference: str) -> Optional[bytes]:
+    try:
+        data = loader(reference)
+    except Exception:  # noqa: BLE001 — a missing picture never fails the import
+        return None
+    return data if data and len(data) <= MAX_IMAGE_BYTES else None
+
+
+def _load_images(references: list[str], loader: ImageLoader, parallel: bool) -> dict[str, Optional[bytes]]:
+    if not parallel:
+        return {ref: _load_image(loader, ref) for ref in references}
+    from concurrent.futures import ThreadPoolExecutor, wait
+
+    pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="reader-image")
+    try:
+        futures = {pool.submit(_load_image, loader, ref): ref for ref in references}
+        done, _pending = wait(futures, timeout=IMAGES_DEADLINE_S)
+        return {futures[future]: future.result() for future in done}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def attach_images(
+    blocks: list[Block], loader: Optional[ImageLoader], *, parallel: bool = False
+) -> tuple[list[Block], dict[str, bytes]]:
+    """Load the pictures of ``img`` blocks: ``(blocks, assets)``.
+
+    Kept images get their asset name as ``src``; images that cannot be loaded, are
+    not a supported raster type, are smaller than :data:`MIN_IMAGE_SIDE`, or exceed
+    :data:`MAX_IMAGES` / :data:`MAX_IMAGES_TOTAL_BYTES` are dropped (with their block).
+    """
+    references = list(dict.fromkeys(b.src for b in blocks if b.kind == "img" and b.src))[: MAX_IMAGES * 2]
+    loaded = _load_images(references, loader, parallel) if references and loader else {}
+    names: dict[str, tuple[str, tuple[int, int]]] = {}
+    assets: dict[str, bytes] = {}
+    total = 0
+    for reference in references:
+        data = loaded.get(reference)
+        ext = image_type(data) if data else None
+        if not ext or len(assets) >= MAX_IMAGES or total + len(data) > MAX_IMAGES_TOTAL_BYTES:
+            continue
+        size = _image_size(data, ext)
+        if size and min(size) < MIN_IMAGE_SIDE:
+            continue
+        name = f"img-{len(assets) + 1:03d}.{ext}"
+        names[reference] = (name, size or (0, 0))
+        assets[name] = data
+        total += len(data)
+    out: list[Block] = []
+    for block in blocks:
+        if block.kind == "img":
+            if block.src not in names:
+                continue
+            block.src, (block.width, block.height) = names[block.src]
+        out.append(block)
+    return out, assets
+
+
 # ── Front doors ──────────────────────────────────────────────────────────────
 
 
-def _finish(doc: ImportedDocument, language: Optional[str], sample: str, progress: Progress = None) -> ImportedDocument:
-    if not doc.blocks:
+def _finish(
+    doc: ImportedDocument,
+    language: Optional[str],
+    sample: str,
+    progress: Progress = None,
+    *,
+    images: Optional[ImageLoader] = data_uri_image,
+    parallel_images: bool = False,
+) -> ImportedDocument:
+    doc.blocks, doc.assets = attach_images(doc.blocks, images, parallel=parallel_images)
+    if not any(block.kind != "img" for block in doc.blocks):
         raise ReaderImportError("no readable text found")
     doc.language = (language or "").strip().lower()[:8] or doc.language or guess_language(sample)
     doc.segments, doc.chapters = segment_blocks(
         doc.blocks, doc.language, progress, paginated=is_paginated(doc.source_type, doc.source_name)
     )
-    if not doc.segments:
+    if not any(segment["text"] for segment in doc.segments):
         raise ReaderImportError("no readable text found")
-    doc.title = _short_title(doc.title or "") or _short_title(doc.segments[0]["text"]) or "Untitled"
+    first_text = next(segment["text"] for segment in doc.segments if segment["text"])
+    doc.title = _short_title(doc.title or "") or _short_title(first_text) or "Untitled"
     return doc
 
 
@@ -1352,7 +2113,15 @@ def _decode_html_bytes(data: bytes, content_type: str = "") -> str:
     return decode_text_upload(data)
 
 
-def _from_html(html: str, *, fallback_title: str, source_type: str, language: Optional[str], **extra) -> ImportedDocument:
+def _from_html(
+    html: str,
+    *,
+    fallback_title: str,
+    source_type: str,
+    language: Optional[str],
+    images: Optional[ImageLoader] = data_uri_image,
+    **extra,
+) -> ImportedDocument:
     blocks, info = parse_html(html)
     doc = ImportedDocument(
         title=info["title"] or fallback_title,
@@ -1362,16 +2131,24 @@ def _from_html(html: str, *, fallback_title: str, source_type: str, language: Op
         language=_html_lang(html),
         **extra,
     )
-    return _finish(doc, language, _blocks_text(blocks))
+    return _finish(doc, language, _blocks_text(blocks), images=images, parallel_images=images is not data_uri_image)
 
 
 def import_file(
-    filename: str, data: bytes, *, language: Optional[str] = None, progress: Progress = None
+    filename: str,
+    data: bytes,
+    *,
+    language: Optional[str] = None,
+    progress: Progress = None,
+    image_base: Optional[str] = None,
 ) -> ImportedDocument:
     """txt / md / html / pdf / epub / docx bytes → document.
 
     ``progress`` (0–1) is reported per page for PDFs and per chapter while
-    segmenting EPUBs (and every other format).
+    segmenting EPUBs (and every other format). Images come from the package
+    (EPUB, DOCX) or ``data:`` URIs; a Markdown or HTML file fetched from the web
+    passes its URL as ``image_base`` so its images are fetched too (a local file
+    never makes network requests).
     """
     from services.longform_import import epub_to_chapter_script
     from services.text_upload import decode_text_upload
@@ -1385,21 +2162,22 @@ def import_file(
     ext = ext.lower()
     title = stem.replace("_", " ").strip()
     common = {"source_type": "file", "source_name": name}
+    web_images = _url_image_loader(image_base) if image_base else data_uri_image
 
     if ext in (".html", ".htm", ".xhtml"):
-        return _from_html(_decode_html_bytes(data), fallback_title=title, language=language, **common)
+        return _from_html(_decode_html_bytes(data), fallback_title=title, language=language, images=web_images, **common)
     if ext == ".pdf":
         return import_pdf(data, title=title, language=language, progress=progress, **common)
     if ext == ".epub":
         try:
-            script = epub_to_chapter_script(data)
+            script = epub_to_chapter_script(data, extract=_rich_epub_extract)
         except ValueError as exc:
             raise ReaderImportError(f"couldn't read the EPUB: {exc}") from exc
         _check_size(script)
         if progress is not None:
             progress(0.3)
         meta = epub_metadata(data)
-        blocks = parse_markdown(script, markdown=False)
+        blocks = parse_markdown(script, markdown=False, rich=True)
         doc = ImportedDocument(
             title=meta["title"] or title,
             author=meta["author"],
@@ -1408,11 +2186,14 @@ def import_file(
             cover=meta["cover"],
             **common,
         )
-        return _finish(doc, language, _blocks_text(blocks), (lambda f: progress(0.3 + 0.7 * f)) if progress else None)
+        return _finish(
+            doc, language, _blocks_text(blocks), (lambda f: progress(0.3 + 0.7 * f)) if progress else None,
+            images=_zip_image_loader(data),
+        )
     if ext == ".docx":
         blocks, meta = parse_docx(data)
         doc = ImportedDocument(title=meta["title"] or title, author=meta["author"], blocks=blocks, **common)
-        return _finish(doc, language, _blocks_text(blocks), progress)
+        return _finish(doc, language, _blocks_text(blocks), progress, images=_zip_image_loader(data))
     if ext in (".txt", ".md", ".markdown", ".text", ""):
         from services.longform_import import chapterize_plaintext
 
@@ -1422,7 +2203,9 @@ def import_file(
         blocks = parse_markdown(text if is_md else chapterize_plaintext(text))
         first_heading = next((b.text for b in blocks if b.kind == "h" and b.level == 1), None)
         doc = ImportedDocument(title=(first_heading if is_md else None) or title, blocks=blocks, **common)
-        return _finish(doc, language, _blocks_text(blocks), progress)
+        return _finish(
+            doc, language, _blocks_text(blocks), progress, images=web_images, parallel_images=bool(image_base)
+        )
     raise ReaderImportError(
         f"unsupported file type {ext or '(none)'}; use " + ", ".join(e.lstrip(".") for e in FILE_EXTENSIONS[:-1]) + " or docx"
     )
@@ -1436,24 +2219,35 @@ _USER_AGENT = (
 )
 
 
-def fetch_url(url: str) -> tuple[bytes, str, str]:
+def fetch_url(
+    url: str,
+    *,
+    max_bytes: Optional[int] = None,
+    accept: Optional[str] = None,
+    timeout: Optional[float] = None,
+    referer: Optional[str] = None,
+) -> tuple[bytes, str, str]:
     """``(body, content_type, final_url)``; blocking — call from a worker thread.
 
     Every hop is policy-checked (``check_public_url``) and the connections run
     under the connect-time guard, so a redirect or DNS answer can't reach a
-    private address. Body capped at :data:`MAX_URL_BYTES`.
+    private address. Body capped at ``max_bytes`` (default :data:`MAX_URL_BYTES`).
     """
     import httpx
 
     from core.url_safety import UnsafeURLError, check_public_url, guard_outbound_connections
 
+    limit = MAX_URL_BYTES if max_bytes is None else max_bytes
+    too_large = f"the page is too large (max {max(1, limit // (1024 * 1024))} MB)"
     try:
         current = check_public_url(url)
     except UnsafeURLError as exc:
         raise ReaderImportError(str(exc)) from exc
-    headers = {"User-Agent": _USER_AGENT, "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5"}
+    headers = {"User-Agent": _USER_AGENT, "Accept": accept or "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5"}
+    if referer:
+        headers["Referer"] = referer
     with guard_outbound_connections(), httpx.Client(
-        follow_redirects=False, timeout=URL_TIMEOUT_S, headers=headers
+        follow_redirects=False, timeout=URL_TIMEOUT_S if timeout is None else timeout, headers=headers
     ) as client:
         for _hop in range(MAX_REDIRECTS + 1):
             with client.stream("GET", current) as response:
@@ -1467,13 +2261,13 @@ def fetch_url(url: str) -> tuple[bytes, str, str]:
                 if response.status_code >= 400:
                     raise ReaderImportError(f"the page answered HTTP {response.status_code}")
                 declared = response.headers.get("content-length")
-                if declared and declared.isdigit() and int(declared) > MAX_URL_BYTES:
-                    raise ReaderImportError("the page is too large (max 10 MB)")
+                if declared and declared.isdigit() and int(declared) > limit:
+                    raise ReaderImportError(too_large)
                 chunks, size = [], 0
                 for chunk in response.iter_bytes():
                     size += len(chunk)
-                    if size > MAX_URL_BYTES:
-                        raise ReaderImportError("the page is too large (max 10 MB)")
+                    if size > limit:
+                        raise ReaderImportError(too_large)
                     chunks.append(chunk)
                 return b"".join(chunks), response.headers.get("content-type", ""), current
     raise ReaderImportError("too many redirects")
@@ -1502,12 +2296,13 @@ def import_url(url: str, *, language: Optional[str] = None) -> ImportedDocument:
         doc.source_type, doc.source_name, doc.source_url = "url", common["source_name"], final_url
         return doc
     if kind == "text/plain" or path.endswith((".txt", ".md")):
-        doc = import_file(os.path.basename(path) or "document.txt", body, language=language)
+        doc = import_file(os.path.basename(path) or "document.txt", body, language=language, image_base=final_url)
         doc.source_type, doc.source_name, doc.source_url = "url", common["source_name"], final_url
         return doc
     return _from_html(
         _decode_html_bytes(body, content_type),
         fallback_title=host or final_url,
         language=language,
+        images=_url_image_loader(final_url),
         **common,
     )

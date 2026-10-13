@@ -3684,6 +3684,8 @@
     "bookmark_delete": "Видалити закладку",
     "bookmark_deleted": "Закладку видалено",
     "bookmark_missing": "(фраза більше недоступна)",
+    "image": "Зображення",
+    "image_unavailable": "Зображення недоступне",
     "bookmarks_empty": "Закладок поки немає. Натисніть «Додати закладку тут» або клавішу B.",
     "bookmarks_export": "Експорт у Markdown",
     "bookmarks_export_hint": "Завантажити закладки й нотатки файлом .md",

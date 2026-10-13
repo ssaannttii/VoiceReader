@@ -8,6 +8,7 @@ import {
   createIndexedDbOfflineBackend,
   createMemoryOfflineBackend,
   downloadForOffline,
+  readOfflineAsset,
   type OfflineBackend,
   type OfflineDocRecord,
 } from './offline-store';
@@ -91,6 +92,15 @@ export async function offlineDocument(id: string): Promise<ReaderDocument | null
   }
 }
 
+/** A downloaded document's image, or null when it was not kept. */
+export async function offlineAsset(docId: string, src: string): Promise<Blob | null> {
+  try {
+    return await readOfflineAsset(offlineBackend(), docId, src);
+  } catch {
+    return null;
+  }
+}
+
 export function offlineSnapshot(): OfflineSnapshot {
   return snapshot;
 }
@@ -125,6 +135,7 @@ export async function startOfflineDownload(
         prerenderStatus: (id) => readerApi.prerenderStatus(id),
         render: (id, segment, voice) => readerApi.render(id, segment, voice, controller.signal),
         audio: (url) => readerApi.audio(url, controller.signal),
+        asset: (src) => readerApi.asset(src, controller.signal),
       },
       doc,
       choice,

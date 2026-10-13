@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Yer işaretini sil",
     "bookmark_deleted": "Yer işareti silindi",
     "bookmark_missing": "(cümle artık mevcut değil)",
+    "image": "Görsel",
+    "image_unavailable": "Görsel kullanılamıyor",
     "bookmarks_empty": "Henüz yer işareti yok. “Buraya yer işareti ekle”ye dokunun veya B’ye basın.",
     "bookmarks_export": "Markdown olarak dışa aktar",
     "bookmarks_export_hint": "Yer işaretlerinizi ve notlarınızı .md dosyası olarak indirin",

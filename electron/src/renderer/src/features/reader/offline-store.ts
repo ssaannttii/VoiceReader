@@ -1,7 +1,8 @@
 /**
  * Offline copies of Reader documents: the document JSON plus every segment's
- * render timing and audio bytes, kept in IndexedDB (`reader-offline`). Works on
- * plain-HTTP LAN origins, where the Cache API and service workers do not.
+ * render timing and audio bytes, and the document's images, kept in IndexedDB
+ * (`reader-offline`). Works on plain-HTTP LAN origins, where the Cache API and
+ * service workers do not.
  */
 import type {
   ReaderDocument,
@@ -11,9 +12,11 @@ import type {
 } from './reader-api';
 
 export const OFFLINE_DB_NAME = 'reader-offline';
-const DB_VERSION = 1;
+/** v2 adds the `assets` store (images of `img` segments). */
+const DB_VERSION = 2;
 const DOCS = 'docs';
 const SEGMENTS = 'segments';
+const ASSETS = 'assets';
 
 export interface OfflineDocRecord {
   id: string;
@@ -38,6 +41,15 @@ export interface OfflineSegmentRecord {
   type: string;
 }
 
+/** An image of a downloaded document, by its `src` (the API path). */
+export interface OfflineAssetRecord {
+  key: string;
+  docId: string;
+  src: string;
+  data: ArrayBuffer;
+  type: string;
+}
+
 export interface OfflineBackend {
   getDoc(id: string): Promise<OfflineDocRecord | undefined>;
   putDoc(record: OfflineDocRecord): Promise<void>;
@@ -45,16 +57,20 @@ export interface OfflineBackend {
   getSegment(docId: string, index: number): Promise<OfflineSegmentRecord | undefined>;
   putSegment(record: OfflineSegmentRecord): Promise<void>;
   segmentIndexes(docId: string): Promise<number[]>;
-  /** Removes the document and all of its segments. */
+  getAsset(docId: string, src: string): Promise<OfflineAssetRecord | undefined>;
+  putAsset(record: OfflineAssetRecord): Promise<void>;
+  /** Removes the document and all of its segments and images. */
   deleteDoc(id: string): Promise<void>;
 }
 
 export const segmentKey = (docId: string, index: number) => `${docId}:${index}`;
+export const assetKey = (docId: string, src: string) => `${docId}:${src}`;
 
 /** In-memory backend: tests, and browsers where IndexedDB is unavailable. */
 export function createMemoryOfflineBackend(): OfflineBackend {
   const docs = new Map<string, OfflineDocRecord>();
   const segments = new Map<string, OfflineSegmentRecord>();
+  const assets = new Map<string, OfflineAssetRecord>();
   return {
     getDoc: async (id) => docs.get(id),
     putDoc: async (record) => void docs.set(record.id, record),
@@ -63,9 +79,12 @@ export function createMemoryOfflineBackend(): OfflineBackend {
     putSegment: async (record) => void segments.set(record.key, record),
     segmentIndexes: async (docId) =>
       [...segments.values()].filter((record) => record.docId === docId).map((record) => record.i),
+    getAsset: async (docId, src) => assets.get(assetKey(docId, src)),
+    putAsset: async (record) => void assets.set(record.key, record),
     deleteDoc: async (id) => {
       docs.delete(id);
       for (const [key, record] of segments) if (record.docId === id) segments.delete(key);
+      for (const [key, record] of assets) if (record.docId === id) assets.delete(key);
     },
   };
 }
@@ -100,6 +119,8 @@ export function createIndexedDbOfflineBackend(
       if (!db.objectStoreNames.contains(DOCS)) db.createObjectStore(DOCS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(SEGMENTS))
         db.createObjectStore(SEGMENTS, { keyPath: 'key' }).createIndex('docId', 'docId');
+      if (!db.objectStoreNames.contains(ASSETS))
+        db.createObjectStore(ASSETS, { keyPath: 'key' }).createIndex('docId', 'docId');
     };
     opening = request(req).then((db) => {
       // Another tab upgrading the schema must not be blocked by this one.
@@ -137,17 +158,22 @@ export function createIndexedDbOfflineBackend(
       );
       return keys.map((key) => Number(String(key).slice(docId.length + 1)));
     },
+    getAsset: (docId, src) =>
+      read<OfflineAssetRecord | undefined>(ASSETS, (os) => os.get(assetKey(docId, src))),
+    putAsset: (record) => write(ASSETS, record),
     deleteDoc: async (id) => {
       const db = await open();
-      const tx = db.transaction([DOCS, SEGMENTS], 'readwrite');
+      const tx = db.transaction([DOCS, SEGMENTS, ASSETS], 'readwrite');
       tx.objectStore(DOCS).delete(id);
-      const cursor = tx.objectStore(SEGMENTS).index('docId').openKeyCursor(IDBKeyRange.only(id));
-      cursor.onsuccess = () => {
-        const current = cursor.result;
-        if (!current) return;
-        tx.objectStore(SEGMENTS).delete(current.primaryKey);
-        current.continue();
-      };
+      for (const name of [SEGMENTS, ASSETS]) {
+        const cursor = tx.objectStore(name).index('docId').openKeyCursor(IDBKeyRange.only(id));
+        cursor.onsuccess = () => {
+          const current = cursor.result;
+          if (!current) return;
+          tx.objectStore(name).delete(current.primaryKey);
+          current.continue();
+        };
+      }
       await done(tx);
     },
   };
@@ -162,6 +188,8 @@ export interface OfflineDownloadApi {
   prerenderStatus(id: string): Promise<ReaderPrerenderStatus>;
   render(id: string, segment: number, choice: ReaderVoiceChoice): Promise<ReaderRender>;
   audio(audioUrl: string): Promise<Blob>;
+  /** Image bytes of an `img` segment's `src`; without it images are not kept offline. */
+  asset?(src: string): Promise<Blob>;
 }
 
 export interface OfflineDownloadOptions {
@@ -256,10 +284,58 @@ export async function downloadForOffline({
       onProgress?.(stored.size, total);
     }
   }
+  await downloadImages(backend, api, doc, current, signal);
   current.complete = true;
   current.savedAt = Date.now();
   await backend.putDoc(current);
   return current;
+}
+
+/**
+ * Keep the document's images for offline reading. Best effort: a picture that
+ * fails to download only stays a placeholder, it never fails the download.
+ */
+async function downloadImages(
+  backend: OfflineBackend,
+  api: OfflineDownloadApi,
+  doc: ReaderDocument,
+  record: OfflineDocRecord,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!api.asset) return;
+  const sources = new Set<string>();
+  for (const segment of doc.segments)
+    if (segment.kind === 'img' && segment.src) sources.add(segment.src);
+  for (const src of sources) {
+    throwIfAborted(signal);
+    if (await backend.getAsset(doc.id, src)) continue;
+    let blob: Blob;
+    try {
+      blob = await api.asset(src);
+    } catch {
+      throwIfAborted(signal);
+      continue;
+    }
+    const data = await blob.arrayBuffer();
+    await backend.putAsset({
+      key: assetKey(doc.id, src),
+      docId: doc.id,
+      src,
+      data,
+      type: blob.type || 'image/jpeg',
+    });
+    record.bytes += data.byteLength;
+  }
+}
+
+/** A downloaded image as a Blob, when stored. */
+export async function readOfflineAsset(
+  backend: OfflineBackend,
+  docId: string,
+  src: string,
+): Promise<Blob | null> {
+  const record = await backend.getAsset(docId, src);
+  return record ? new Blob([record.data], { type: record.type }) : null;
 }
 
 /** Offline audio for one segment as a playable Blob, when stored. */

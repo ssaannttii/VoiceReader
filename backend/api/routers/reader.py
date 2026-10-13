@@ -100,6 +100,7 @@ def _save(doc: reader_import.ImportedDocument) -> dict:
         segments=doc.segments,
         chapters=doc.chapters,
         cover=doc.cover,
+        assets=doc.assets,
     )
 
 
@@ -313,6 +314,23 @@ async def get_cover(doc_id: str):
         raise HTTPException(status_code=404, detail="No cover")
     path, media_type = found
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/reader/documents/{doc_id}/assets/{name}")
+async def get_asset(doc_id: str, name: str):
+    """An image of the document (``src`` of its ``img`` segments)."""
+    try:
+        found = reader_store.asset_path(doc_id, name)
+    except reader_store.DocumentNotFound:
+        found = None
+    if not found:
+        raise HTTPException(status_code=404, detail="No such image")
+    path, media_type = found
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 # â”€â”€ Rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

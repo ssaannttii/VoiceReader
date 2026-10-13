@@ -3678,6 +3678,8 @@
     "bookmark_delete": "删除书签",
     "bookmark_deleted": "书签已删除",
     "bookmark_missing": "（该句已不存在）",
+    "image": "图片",
+    "image_unavailable": "图片不可用",
     "bookmarks_empty": "还没有书签。点按“在此添加书签”或按 B 键。",
     "bookmarks_export": "导出为 Markdown",
     "bookmarks_export_hint": "将书签和笔记下载为 .md 文件",

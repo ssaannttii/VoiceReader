@@ -236,8 +236,9 @@ export function BookmarksSheet({
                       {formatRelative(mark.created_at, now, i18n.language, t('reader.just_now'))}
                     </span>
                     <span className="mt-0.5 line-clamp-3 font-[family-name:var(--rd-serif)] text-[0.95rem] leading-snug">
-                      {bookmarkSnippet(bookmarkText(doc.segments, mark.segment)) ||
-                        t('reader.bookmark_missing')}
+                      {bookmarkSnippet(
+                        bookmarkText(doc.segments, mark.segment, t('reader.image')),
+                      ) || t('reader.bookmark_missing')}
                     </span>
                     {mark.note && editing !== mark.id && (
                       <span className="mt-1.5 block whitespace-pre-line border-l-2 border-[var(--rd-accent)] pl-2 text-sm text-muted-foreground">

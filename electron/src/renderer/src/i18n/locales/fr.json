@@ -3680,6 +3680,8 @@
     "bookmark_delete": "Supprimer le signet",
     "bookmark_deleted": "Signet supprimé",
     "bookmark_missing": "(phrase plus disponible)",
+    "image": "Image",
+    "image_unavailable": "Image indisponible",
     "bookmarks_empty": "Aucun signet pour l’instant. Touchez « Ajouter un signet ici » ou appuyez sur B.",
     "bookmarks_export": "Exporter en Markdown",
     "bookmarks_export_hint": "Téléchargez vos signets et notes dans un fichier .md",

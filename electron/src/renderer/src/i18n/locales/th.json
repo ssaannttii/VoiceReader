@@ -3678,6 +3678,8 @@
     "bookmark_delete": "ลบบุ๊กมาร์ก",
     "bookmark_deleted": "ลบบุ๊กมาร์กแล้ว",
     "bookmark_missing": "(ไม่มีประโยคนี้แล้ว)",
+    "image": "รูปภาพ",
+    "image_unavailable": "รูปภาพไม่พร้อมใช้งาน",
     "bookmarks_empty": "ยังไม่มีบุ๊กมาร์ก แตะ “เพิ่มบุ๊กมาร์กตรงนี้” หรือกด B",
     "bookmarks_export": "ส่งออกเป็น Markdown",
     "bookmarks_export_hint": "ดาวน์โหลดบุ๊กมาร์กและโน้ตเป็นไฟล์ .md",

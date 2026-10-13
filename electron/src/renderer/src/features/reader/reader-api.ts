@@ -36,11 +36,25 @@ export interface ReaderDocumentSummary {
 
 export type ReaderImportStatus = 'ready' | 'importing' | 'error';
 
+/** `h` heading, `p` body, `li` list item, `quote` block quotation, `img` image (silent). */
+export type ReaderSegmentKind = 'h' | 'p' | 'li' | 'quote' | 'img';
+
 export interface ReaderSegment {
   i: number;
   text: string;
   para: number;
-  kind: 'h' | 'p';
+  kind: ReaderSegmentKind;
+  // List items: the list (unique per document), numbered or not, item number, nesting 0–2.
+  list?: number;
+  ordered?: boolean;
+  n?: number;
+  depth?: number;
+  // Images: API path of the picture, its description and caption, pixel size when known.
+  src?: string;
+  alt?: string;
+  caption?: string;
+  w?: number;
+  h?: number;
 }
 
 export interface ReaderChapter {
@@ -208,6 +222,8 @@ export const readerApi = {
   remove: (id: string) => apiJson<{ ok: boolean }>(doc(id), { method: 'DELETE' }),
   cover: async (id: string, signal?: AbortSignal) =>
     (await apiFetch(`${doc(id)}/cover`, { signal })).blob(),
+  /** An image of a document: `src` of an `img` segment (`/reader/documents/{id}/assets/…`). */
+  asset: async (src: string, signal?: AbortSignal) => (await apiFetch(src, { signal })).blob(),
   render: (id: string, segment: number, choice: ReaderVoiceChoice, signal?: AbortSignal) =>
     apiJson<ReaderRender>(`${doc(id)}/segments/${segment}/render`, {
       method: 'POST',

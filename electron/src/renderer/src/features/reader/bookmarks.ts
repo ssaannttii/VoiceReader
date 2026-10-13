@@ -1,6 +1,6 @@
 /** Pure helpers for the bookmarks sheet: chapter grouping, snippets and dates. */
 import type { ReaderBookmark, ReaderChapter, ReaderSegment } from './reader-api';
-import { chapterIndexAt } from './reader-text';
+import { chapterIndexAt, segmentLabel } from './reader-text';
 
 export interface BookmarkGroup {
   /** Chapter index, or -1 before the first chapter / without chapters. */
@@ -44,9 +44,16 @@ export function bookmarkSnippet(text: string, max = 140): string {
   return `${head.replace(/[\s,;:.\-–—]+$/u, '')}…`;
 }
 
-/** Sentence text of a bookmark (empty when the segment no longer exists). */
-export function bookmarkText(segments: readonly ReaderSegment[], segment: number): string {
-  return segments[segment]?.text ?? '';
+/**
+ * Sentence text of a bookmark (empty when the segment no longer exists); an image
+ * shows its description, or `imageLabel` when it has none.
+ */
+export function bookmarkText(
+  segments: readonly ReaderSegment[],
+  segment: number,
+  imageLabel = '',
+): string {
+  return segmentLabel(segments[segment], imageLabel);
 }
 
 /** Set of bookmarked segments, for the marks in the reading view. */

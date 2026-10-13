@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Bladwijzer verwijderen",
     "bookmark_deleted": "Bladwijzer verwijderd",
     "bookmark_missing": "(zin niet meer beschikbaar)",
+    "image": "Afbeelding",
+    "image_unavailable": "Afbeelding niet beschikbaar",
     "bookmarks_empty": "Nog geen bladwijzers. Tik op ‘Bladwijzer hier toevoegen’ of druk op B.",
     "bookmarks_export": "Exporteren naar Markdown",
     "bookmarks_export_hint": "Download je bladwijzers en notities als .md-bestand",

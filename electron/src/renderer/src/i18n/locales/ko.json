@@ -3678,6 +3678,8 @@
     "bookmark_delete": "북마크 삭제",
     "bookmark_deleted": "북마크를 삭제했습니다",
     "bookmark_missing": "(문장을 더 이상 사용할 수 없음)",
+    "image": "이미지",
+    "image_unavailable": "이미지를 표시할 수 없음",
     "bookmarks_empty": "아직 북마크가 없습니다. ‘여기에 북마크 추가’를 누르거나 B 키를 누르세요.",
     "bookmarks_export": "Markdown으로 내보내기",
     "bookmarks_export_hint": "북마크와 메모를 .md 파일로 다운로드",

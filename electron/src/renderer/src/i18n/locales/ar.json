@@ -3690,6 +3690,8 @@
     "bookmark_delete": "حذف الإشارة المرجعية",
     "bookmark_deleted": "تم حذف الإشارة المرجعية",
     "bookmark_missing": "(الجملة لم تعد متاحة)",
+    "image": "صورة",
+    "image_unavailable": "الصورة غير متاحة",
     "bookmarks_empty": "لا توجد إشارات مرجعية بعد. اضغط «إضافة إشارة مرجعية هنا» أو مفتاح B.",
     "bookmarks_export": "تصدير بصيغة Markdown",
     "bookmarks_export_hint": "نزّل إشاراتك المرجعية وملاحظاتك كملف ‎.md",

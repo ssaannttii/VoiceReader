@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Ta bort bokmärke",
     "bookmark_deleted": "Bokmärket togs bort",
     "bookmark_missing": "(meningen finns inte längre)",
+    "image": "Bild",
+    "image_unavailable": "Bilden är inte tillgänglig",
     "bookmarks_empty": "Inga bokmärken än. Tryck på ”Lägg till bokmärke här” eller tryck B.",
     "bookmarks_export": "Exportera till Markdown",
     "bookmarks_export_hint": "Ladda ned bokmärken och anteckningar som .md-fil",
