@@ -67,7 +67,7 @@ plano en Android) durante sesiones largas. Es el criterio principal de 1.1.
 |---|---|---|
 | 5.2 | **Modo solo audio** | Oculta el texto; orbe en canvas que sigue el ritmo de las palabras (tiempos del resaltado). Sin `AnalyserNode`: pasar el audio por Web Audio rompería la reproducción en segundo plano. |
 | 5.3 | **Contenido rico** | El importador emite listas, citas e imágenes además de párrafos. |
-| 5.4 | **Paginado / dos columnas** | Modo alternativo de la vista de texto con zonas de toque. |
+| 5.4 | **Paginado / dos columnas** ✅ | Modo alternativo de la vista de texto con zonas de toque. Hecho: "Páginas" en Texto y apariencia (una página por pantalla; dos columnas en pantallas anchas queda pendiente). Ver SPEC "Paged layout". |
 | 5.5 | **Primer arranque** | Documento de ejemplo, elegir voz por defecto, avisos de un solo uso. |
 
 ## Fuera de alcance

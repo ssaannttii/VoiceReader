@@ -25,6 +25,7 @@ import { FOLLOW_EVENT } from './player-sheets';
 import { tapOutcome } from './player-chrome';
 import {
   blockIndexBySegment,
+  formatPercent,
   groupBlocks,
   layoutBlocks,
   splitWords,
@@ -34,6 +35,21 @@ import {
   type ListNode,
   type ReaderBlock,
 } from './reader-text';
+import { Pager } from './reader-pager';
+import {
+  charOffsets,
+  clampPage,
+  estimatePagesBefore,
+  growWindow,
+  PAGED_MAX,
+  pagedWindow,
+  pageKeyDelta,
+  percentRead,
+  swipeTurn,
+  tapZone,
+  windowEdge,
+} from './reader-pages';
+import { swipeIntent } from './swipe-math';
 
 const reducedMotion = () =>
   typeof window.matchMedia === 'function' &&
@@ -73,6 +89,17 @@ export function scrollToSentence(scroller: HTMLElement, element: HTMLElement, fo
 
 /** First sentence whose text is on screen below the header (for "continue from here"), or null. */
 export function firstVisibleSegment(scroller: HTMLElement): number | null {
+  const pages = scroller.querySelector<HTMLElement>('.rd-pages');
+  if (pages) {
+    // Pages: the first sentence that still has a line on the page shown.
+    const left = pages.getBoundingClientRect().left;
+    for (const element of scroller.querySelectorAll<HTMLElement>('.rd-sent[data-seg]')) {
+      const rects = element.getClientRects();
+      const last = rects[rects.length - 1];
+      if (last && last.right > left + 1) return Number(element.dataset.seg);
+    }
+    return null;
+  }
   const top = visibleBand(scroller).top;
   for (const element of scroller.querySelectorAll<HTMLElement>('.rd-sent[data-seg]')) {
     const rect = element.getBoundingClientRect();
@@ -86,6 +113,39 @@ export function firstVisibleSegment(scroller: HTMLElement): number | null {
 function flash(element: HTMLElement) {
   element.setAttribute('data-revealed', 'true');
   setTimeout(() => element.removeAttribute('data-revealed'), 1700);
+}
+
+/** Typing, or inside a sheet: reading-view shortcuts stay out of the way. */
+export const editableTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable ||
+    target.matches('input, textarea, select') ||
+    Boolean(target.closest('.rd-sheet')));
+
+/** Controls inside the reading surface keep their own taps. */
+const INTERACTIVE = 'button, a, input, select, textarea, [role="button"]';
+
+/** A wheel gesture (a notch run, a trackpad swipe and its momentum) ends after this pause. */
+const WHEEL_IDLE_MS = 200;
+/** Wheel travel that turns the page, once per gesture. */
+const WHEEL_TURN_PX = 40;
+/** The click a swipe ends with must not also turn or play. */
+const SWIPE_CLICK_MS = 400;
+
+/** Where the shown page starts, to put the reader back on the same text after a re-layout. */
+interface PageAnchor {
+  /** First sentence (or image) starting on the page, else the one running across it. */
+  segment: number;
+  /** Pages between where that segment starts and the page. */
+  delta: number;
+  /** The page number shown on it. */
+  number: number;
+}
+
+/** What the page indicator shows. */
+interface PageInfo {
+  number: number;
+  percent: number;
 }
 
 /** Two taps on the same sentence within this window count as a double tap. */
@@ -126,6 +186,9 @@ export const ReaderTextView = memo(function ReaderTextView({
   onWordPress,
   chromeHidden,
   onChrome,
+  paged = false,
+  pageKey,
+  onBrowse,
 }: {
   docId: string;
   segments: ReaderSegment[];
@@ -146,6 +209,12 @@ export const ReaderTextView = memo(function ReaderTextView({
   chromeHidden?: RefObject<boolean>;
   /** A tap toggles the controls; a seek or play keeps them up. */
   onChrome?: (event: 'toggle' | 'interact') => void;
+  /** Screen-sized pages turned by taps, swipes and keys instead of scrolling. */
+  paged?: boolean;
+  /** Changes whenever the text reflows (size, font): pages are laid out again. */
+  pageKey?: string;
+  /** Pages: the reader turned away from the spoken page (true) or back to it (false). */
+  onBrowse?: (away: boolean) => void;
 }) {
   const article = useRef<HTMLElement>(null);
   const topSentinel = useRef<HTMLDivElement>(null);
@@ -155,13 +224,29 @@ export const ReaderTextView = memo(function ReaderTextView({
     () => blockIndexBySegment(blocks, segments.length),
     [blocks, segments.length],
   );
+  /** Characters before each segment: page numbers and the percentage read. */
+  const chars = useMemo(
+    () => charOffsets(segments.map((segment) => segment.text.length)),
+    [segments],
+  );
+  const data = useRef({ blocks, blockOf, chars });
+  data.current = { blocks, blockOf, chars };
+  const pagedRef = useRef(paged);
+  pagedRef.current = paged;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const onBrowseRef = useRef(onBrowse);
+  onBrowseRef.current = onBrowse;
+  /** Pages render a smaller window: every change lays out all of its columns again. */
+  const windowFor = (index: number, total: number) =>
+    pagedRef.current ? pagedWindow(index, total) : windowAround(index, total);
   const startSegment = () =>
     Math.min(
       Math.max(0, active ? readerPlayer.getState().segment : position),
       Math.max(0, segments.length - 1),
     );
   const [range, setRange] = useState<BlockWindow>(() =>
-    windowAround(blockOf[startSegment()] ?? 0, blocks.length),
+    windowFor(blockOf[startSegment()] ?? 0, blocks.length),
   );
   const rangeRef = useRef(range);
   rangeRef.current = range;
@@ -210,9 +295,171 @@ export const ReaderTextView = memo(function ReaderTextView({
   const elementOf = (segment: number) =>
     article.current?.querySelector<HTMLElement>(`[data-seg="${segment}"]`) ?? null;
 
+  // ── Pages ──────────────────────────────────────────────────────────────────
+  const pagesRef = useRef<HTMLDivElement>(null);
+  const pager = useRef<Pager | null>(null);
+  /** Where the shown page starts (kept current), to come back to after a re-layout. */
+  const pageAnchor = useRef<PageAnchor | null>(null);
+  /** Pages before the rendered window (exact when it starts the document, else estimated). */
+  const pagesBefore = useRef(0);
+  const indicator = useRef<((info: PageInfo | null) => void) | null>(null);
+  /** Watches images of the window: one without a known size grows once loaded. */
+  const figureObserver = useRef<ResizeObserver | null>(null);
+
+  /** Where `page` starts in the text: the first item starting on it (binary search). */
+  const anchorAt = (p: Pager, page: number): PageAnchor | null => {
+    const items = Array.from(article.current?.querySelectorAll<HTMLElement>('[data-seg]') ?? []);
+    if (!items.length) return null;
+    let low = 0;
+    let high = items.length - 1;
+    let found = items.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (p.pageOf(items[mid]) >= page) {
+        found = mid;
+        high = mid - 1;
+      } else low = mid + 1;
+    }
+    // Nothing starts on the page: the sentence before runs across it.
+    if (found > 0 && p.pageOf(items[found]) > page) found -= 1;
+    const element = items[found];
+    return {
+      segment: Number(element.dataset.seg),
+      delta: page - p.pageOf(element),
+      number: pagesBefore.current + page + 1,
+    };
+  };
+
+  /** Remember where the shown page starts and update the page indicator. */
+  const settle = (p: Pager) => {
+    pageAnchor.current = anchorAt(p, p.page);
+    const { blocks, chars } = data.current;
+    const total = chars[chars.length - 1] ?? 0;
+    let done = total;
+    if (p.page + 1 < p.count) {
+      const next = anchorAt(p, p.page + 1);
+      if (next) done = chars[next.segment] ?? total;
+    } else {
+      const after = blocks[rangeRef.current.end]?.segments[0]?.i;
+      if (after !== undefined) done = chars[after] ?? total;
+    }
+    indicator.current?.({
+      number: pagesBefore.current + p.page + 1,
+      percent: percentRead(done, total),
+    });
+  };
+
+  /**
+   * Measure the window's pages and put the reader back on the same text. Page
+   * numbers carry on across a window change; a reflow (size, font) estimates them
+   * again, as every page boundary moved.
+   */
+  const relayout = (p: Pager, cause: 'window' | 'resize' | 'reflow') => {
+    const saved = pageAnchor.current;
+    const before = p.count;
+    const resized = p.fit();
+    p.measure(bottomSentinel.current);
+    const element = saved ? elementOf(saved.segment) : null;
+    let page: number;
+    if (saved && element) {
+      page = p.pageOf(element) + saved.delta;
+      // Reflowed: stay inside the sentence the page was in the middle of.
+      if (cause !== 'window' && saved.delta > 0) page = Math.min(page, p.pageOf(element, true));
+    } else {
+      const start = elementOf(startSegment());
+      page = start ? p.pageOf(start) : 0;
+    }
+    page = clampPage(page, p.count);
+    const renumber =
+      !saved ||
+      !element ||
+      cause === 'reflow' ||
+      (cause === 'resize' && (resized || p.count !== before));
+    const { chars, blocks } = data.current;
+    const { start, end } = rangeRef.current;
+    const at = (index: number) => chars[blocks[index]?.segments[0]?.i ?? chars.length - 1] ?? 0;
+    if (start === 0) pagesBefore.current = 0;
+    else if (renumber)
+      pagesBefore.current = estimatePagesBefore(at(start), at(end) - at(start), p.count);
+    else if (saved) pagesBefore.current = Math.max(0, saved.number - 1 - page);
+    p.show(page, false);
+    settle(p);
+  };
+
+  /** Show `target`, rendering more text first when it nears an edge of the window. */
+  const turnTo = (target: number, animate: boolean) => {
+    const p = pager.current;
+    if (!p) return;
+    const page = clampPage(target, p.count);
+    const motion = animate && !reducedMotion();
+    const { blocks, blockOf } = data.current;
+    const range = rangeRef.current;
+    const edge = windowEdge(page, p.count, {
+      before: range.start > 0,
+      after: range.end < blocks.length,
+    });
+    const anchorHere = edge ? anchorAt(p, page) : null;
+    if (edge && anchorHere) {
+      const next = growWindow(range, edge, blocks.length, blockOf[anchorHere.segment] ?? 0);
+      if (next.start !== range.start || next.end !== range.end) {
+        // Text added after this page leaves it in place: slide now. Text added
+        // before moves every page: the layout effect shows the anchor's page.
+        if (next.start === range.start) p.show(page, motion);
+        pageAnchor.current = anchorHere;
+        anchor.current = null;
+        setRange(next);
+        return;
+      }
+    }
+    p.show(page, motion);
+    settle(p);
+  };
+
+  /** The spoken word (or sentence) is on page `page`. */
+  const spokenOn = (p: Pager, page: number, sentence: Element, word: Element | null) =>
+    word ? p.pageOf(word) === page : p.pageOf(sentence) <= page && page <= p.pageOf(sentence, true);
+
+  /** Turn to the spoken word when it is off the page (sliding only to a neighbour). */
+  const showSpoken = (animate: boolean, sentence?: Element | null, word?: Element | null) => {
+    const p = pager.current;
+    const spoken = sentence ?? article.current?.querySelector('[data-seg][data-active]');
+    if (!p || !spoken) return;
+    const spokenWord = sentence ? (word ?? null) : spoken.querySelector('[data-w][data-active]');
+    if (spokenOn(p, p.page, spoken, spokenWord)) return;
+    const target = p.pageOf(spokenWord ?? spoken);
+    turnTo(target, animate && Math.abs(target - p.page) === 1);
+  };
+
+  /** The reader turned the page (tap zone, swipe, wheel, key). */
+  const userTurn = (delta: number) => {
+    const p = pager.current;
+    if (!p) return;
+    const target = p.page + delta;
+    if (target < 0 || target >= p.count) {
+      // First or last page of the document: settle back.
+      p.show(p.page, true);
+      return;
+    }
+    const spoken = activeRef.current
+      ? article.current?.querySelector('[data-seg][data-active]')
+      : null;
+    const back = Boolean(
+      spoken && spokenOn(p, target, spoken, spoken.querySelector('[data-w][data-active]')),
+    );
+    turnTo(target, true);
+    // Away from the voice: stop following it until "Back to current"; onto its page: follow again.
+    onBrowseRef.current?.(!back);
+  };
+
   const changeWindow = (next: BlockWindow, anchorSegment: number | null) => {
     const current = rangeRef.current;
     if (next.start === current.start && next.end === current.end) return;
+    // Pages keep their own anchor (pageAnchor).
+    if (pagedRef.current) {
+      anchor.current = null;
+      setRange(next);
+      return;
+    }
     const scrollEl = scroller.current;
     const el = anchorSegment === null ? null : elementOf(anchorSegment);
     anchor.current =
@@ -228,15 +475,96 @@ export const ReaderTextView = memo(function ReaderTextView({
   // A different document (or regrouped segments) starts from its own position.
   useEffect(() => {
     anchor.current = null;
-    setRange(windowAround(blockOf[startSegment()] ?? 0, blocks.length));
+    pageAnchor.current = null;
+    setRange(windowFor(blockOf[startSegment()] ?? 0, blocks.length));
   }, [docId, blocks, blockOf]);
+
+  // Pages: lay the window out as pages, and again whenever the page size, the
+  // fonts or an image's size change. The viewport itself never scrolls.
+  useLayoutEffect(() => {
+    const viewport = pagesRef.current;
+    const element = article.current;
+    if (!paged || !viewport || !element) return;
+    const p = new Pager(viewport, element);
+    pager.current = p;
+    pageAnchor.current = null;
+    relayout(p, 'window');
+    // A window grown while scrolling is larger than pages lay out comfortably.
+    const { start, end } = rangeRef.current;
+    if (end - start > PAGED_MAX) {
+      const { blocks, blockOf } = data.current;
+      setRange(pagedWindow(blockOf[startSegment()] ?? 0, blocks.length));
+    }
+    let frame = 0;
+    const later = (cause: 'resize' | 'reflow') => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (pager.current !== p) return;
+        relayout(p, cause);
+        if (activeRef.current && follow.current) showSpoken(false);
+      });
+    };
+    const onFonts = () => later('reflow');
+    const resize =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(() => later('resize')) : null;
+    resize?.observe(viewport);
+    const heights = new WeakMap<Element, number>();
+    const figures =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver((entries) => {
+            let changed = false;
+            for (const entry of entries) {
+              const before = heights.get(entry.target);
+              heights.set(entry.target, entry.contentRect.height);
+              if (before !== undefined && Math.abs(before - entry.contentRect.height) > 0.5)
+                changed = true;
+            }
+            if (changed) later('reflow');
+          })
+        : null;
+    figureObserver.current = figures;
+    element.querySelectorAll('.rd-figure').forEach((figure) => figures?.observe(figure));
+    document.fonts?.addEventListener?.('loadingdone', onFonts);
+    const pin = () => {
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
+    };
+    viewport.addEventListener('scroll', pin, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      resize?.disconnect();
+      figures?.disconnect();
+      figureObserver.current = null;
+      document.fonts?.removeEventListener?.('loadingdone', onFonts);
+      viewport.removeEventListener('scroll', pin);
+      if (pager.current === p) pager.current = null;
+      indicator.current?.(null);
+    };
+  }, [paged]);
+
+  // The text size or font changed: every page boundary moves.
+  const laidOutKey = useRef(pageKey);
+  useLayoutEffect(() => {
+    if (laidOutKey.current === pageKey) return;
+    laidOutKey.current = pageKey;
+    const p = pager.current;
+    if (!p) return;
+    relayout(p, 'reflow');
+    if (activeRef.current && follow.current) showSpoken(false);
+  }, [pageKey]);
 
   // Keep the anchor element where it was on screen, then refresh the highlight.
   useLayoutEffect(() => {
     const scrollEl = scroller.current;
     const saved = anchor.current;
     anchor.current = null;
-    if (saved && scrollEl) {
+    const p = pager.current;
+    if (p) {
+      relayout(p, 'window');
+      const figures = figureObserver.current;
+      figures?.disconnect();
+      article.current?.querySelectorAll('.rd-figure').forEach((figure) => figures?.observe(figure));
+    } else if (saved && scrollEl) {
       const el = elementOf(saved.segment);
       if (el)
         scrollEl.scrollTop +=
@@ -246,7 +574,10 @@ export const ReaderTextView = memo(function ReaderTextView({
     const reveal = pendingReveal.current;
     pendingReveal.current = null;
     const target = reveal === null ? null : elementOf(reveal);
-    if (target && scrollEl) {
+    if (target && p) {
+      turnTo(p.pageOf(target), false);
+      flash(target);
+    } else if (target && scrollEl) {
       scrollToSentence(scrollEl, target, true);
       flash(target);
     }
@@ -261,13 +592,15 @@ export const ReaderTextView = memo(function ReaderTextView({
       const element = elementOf(segment);
       const scrollEl = scroller.current;
       if (element && scrollEl) {
-        scrollToSentence(scrollEl, element, true);
+        const p = pager.current;
+        if (p) turnTo(p.pageOf(element), false);
+        else scrollToSentence(scrollEl, element, true);
         flash(element);
         return;
       }
       pendingReveal.current = segment;
       anchor.current = null;
-      setRange(windowAround(blockOf[segment] ?? 0, blocks.length));
+      setRange(windowFor(blockOf[segment] ?? 0, blocks.length));
     };
     window.addEventListener(REVEAL_EVENT, onReveal);
     return () => window.removeEventListener(REVEAL_EVENT, onReveal);
@@ -278,8 +611,11 @@ export const ReaderTextView = memo(function ReaderTextView({
     if (!active) return;
     const onFollow = () => {
       const segment = readerPlayer.getState().segment;
-      if (elementOf(segment)) return;
-      changeWindow(windowAround(blockOf[segment] ?? 0, blocks.length), null);
+      if (elementOf(segment)) {
+        if (pager.current) showSpoken(false);
+        return;
+      }
+      changeWindow(windowFor(blockOf[segment] ?? 0, blocks.length), null);
     };
     window.addEventListener(FOLLOW_EVENT, onFollow);
     return () => window.removeEventListener(FOLLOW_EVENT, onFollow);
@@ -290,7 +626,8 @@ export const ReaderTextView = memo(function ReaderTextView({
     const root = scroller.current;
     const top = topSentinel.current;
     const bottom = bottomSentinel.current;
-    if (!root || !top || !bottom || typeof IntersectionObserver !== 'function') return;
+    // Pages grow the window on page turns instead (turnTo).
+    if (paged || !root || !top || !bottom || typeof IntersectionObserver !== 'function') return;
     const observer = new IntersectionObserver(
       (entries) => {
         const { start, end } = rangeRef.current;
@@ -312,7 +649,7 @@ export const ReaderTextView = memo(function ReaderTextView({
     observer.observe(top);
     observer.observe(bottom);
     return () => observer.disconnect();
-  }, [blocks, scroller]);
+  }, [blocks, scroller, paged]);
 
   useEffect(() => {
     const root = article.current;
@@ -349,6 +686,8 @@ export const ReaderTextView = memo(function ReaderTextView({
     };
     const apply = (segment: number, wordIndex: number, fromWindow: boolean) => {
       lastWord = wordIndex;
+      /** Pages: bring the spoken text onto the page (a jump shows it at once). */
+      let turn: 'jump' | 'slide' | null = null;
       const block = blockOf[segment] ?? 0;
       const { start, end } = rangeRef.current;
       if (segment !== current || !sentence?.isConnected) {
@@ -366,19 +705,25 @@ export const ReaderTextView = memo(function ReaderTextView({
         if (!sentence && !fromWindow) {
           // Playback or a jump left the window: re-centre on the spoken segment,
           // unless the reader is looking elsewhere (scrolled away, a reveal).
-          if (first || follow.current) changeWindow(windowAround(block, blocks.length), null);
+          if (first || follow.current) changeWindow(windowFor(block, blocks.length), null);
           return;
         }
         const scrollEl = scroller.current;
-        if (sentence && scrollEl && !fromWindow && (first ? segment > 0 : follow.current))
-          scrollToSentence(scrollEl, sentence, first);
-        // Re-centred around a jump: bring the new position into view.
-        if (sentence && scrollEl && fromWindow && (first || follow.current))
-          scrollToSentence(scrollEl, sentence, true);
+        if (paged) {
+          // Pages: shown below, once the spoken word is known.
+          if (sentence && (first || follow.current)) turn = first || fromWindow ? 'jump' : 'slide';
+        } else {
+          if (sentence && scrollEl && !fromWindow && (first ? segment > 0 : follow.current))
+            scrollToSentence(scrollEl, sentence, first);
+          // Re-centred around a jump: bring the new position into view.
+          if (sentence && scrollEl && fromWindow && (first || follow.current))
+            scrollToSentence(scrollEl, sentence, true);
+        }
         if (sentence) first = false;
       }
       // Reading close to the window's end: extend ahead (or re-centre when following).
-      if (!fromWindow && block >= end - NEAR_EDGE && end < blocks.length) {
+      // Pages grow it on page turns instead (turnTo).
+      if (!paged && !fromWindow && block >= end - NEAR_EDGE && end < blocks.length) {
         if (follow.current && end - start > MAX_WINDOW)
           changeWindow(windowAround(block, blocks.length), segment);
         else changeWindow({ start, end: Math.min(blocks.length, end + EXTEND) }, segment);
@@ -388,11 +733,15 @@ export const ReaderTextView = memo(function ReaderTextView({
         wordIndex >= 0 && split === segment && sentence
           ? sentence.querySelector<HTMLElement>(`[data-w="${wordIndex}"]`)
           : null;
-      if (next !== word) {
+      const moved = next !== word;
+      if (moved) {
         word?.removeAttribute('data-active');
         next?.setAttribute('data-active', 'true');
         word = next;
       }
+      // Pages: the page turns when the spoken word leaves it.
+      if (paged && sentence && (turn || (moved && follow.current)))
+        showSpoken(turn !== 'jump', sentence, word);
     };
     resync.current = () => {
       if (current >= 0) apply(current, lastWord, true);
@@ -406,7 +755,7 @@ export const ReaderTextView = memo(function ReaderTextView({
       sentence?.removeAttribute('data-active');
       unsplit();
     };
-  }, [active, docId, segments, blockOf, blocks, scroller, follow]);
+  }, [active, docId, segments, blockOf, blocks, scroller, follow, paged]);
 
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     swallowClick.current = false;
@@ -504,7 +853,123 @@ export const ReaderTextView = memo(function ReaderTextView({
     else readerPlayer.seekSegment(segment, true);
   };
 
-  return (
+  // Pages: the outer quarters of the screen turn the page (the middle reads and
+  // toggles the controls as in scrolling), and so do swipes, the wheel and keys.
+  useEffect(() => {
+    const root = scroller.current;
+    if (!paged || !root) return;
+    let gesture: { id: number; x: number; y: number; at: number; dragging: boolean } | null = null;
+    let swipedAt = -Infinity;
+    let wheelAt = -Infinity;
+    let wheelSum = 0;
+    let wheelTurned = false;
+    const onDown = (event: globalThis.PointerEvent) => {
+      gesture = null;
+      // Mouse users click the edges or use the wheel: dragging a mouse selects text.
+      if (!event.isPrimary || event.pointerType === 'mouse') return;
+      if ((event.target as Element | null)?.closest?.(INTERACTIVE)) return;
+      gesture = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        at: event.timeStamp,
+        dragging: false,
+      };
+    };
+    const onMove = (event: globalThis.PointerEvent) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const dx = event.clientX - gesture.x;
+      if (!gesture.dragging) {
+        const intent = swipeIntent(dx, event.clientY - gesture.y);
+        if (intent === null) return;
+        if (intent === 'vertical') {
+          gesture = null;
+          return;
+        }
+        gesture.dragging = true;
+        longPress.cancel();
+      }
+      if (!reducedMotion()) pager.current?.drag(dx);
+    };
+    const onUp = (event: globalThis.PointerEvent) => {
+      const done = gesture;
+      if (!done || event.pointerId !== done.id) return;
+      gesture = null;
+      if (!done.dragging) return;
+      swipedAt = performance.now();
+      const turn = swipeTurn(
+        event.clientX - done.x,
+        event.clientY - done.y,
+        event.timeStamp - done.at,
+      );
+      const p = pager.current;
+      if (turn) userTurn(turn);
+      else p?.show(p.page, true);
+    };
+    const onCancel = (event: globalThis.PointerEvent) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const p = pager.current;
+      if (gesture.dragging) p?.show(p.page, true);
+      gesture = null;
+    };
+    // Capture: decided before the article reads the tap as "play from here".
+    const onClickCapture = (event: globalThis.MouseEvent) => {
+      if (performance.now() - swipedAt < SWIPE_CLICK_MS) {
+        event.stopPropagation();
+        return;
+      }
+      // A long press (pronunciation) or a selection ends in this click: the article handles it.
+      if (swallowClick.current || window.getSelection()?.toString()) return;
+      if ((event.target as Element | null)?.closest?.(INTERACTIVE)) return;
+      const box = root.getBoundingClientRect();
+      const zone = tapZone(event.clientX - box.left, box.width);
+      if (zone === 'centre') return;
+      event.stopPropagation();
+      userTurn(zone === 'next' ? 1 : -1);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return; // Pinch-zoom on a trackpad.
+      const now = performance.now();
+      if (now - wheelAt > WHEEL_IDLE_MS) {
+        wheelSum = 0;
+        wheelTurned = false;
+      }
+      wheelAt = now;
+      if (wheelTurned) return;
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? root.clientHeight : 1;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      wheelSum += delta * scale;
+      if (Math.abs(wheelSum) < WHEEL_TURN_PX) return;
+      wheelTurned = true;
+      userTurn(wheelSum > 0 ? 1 : -1);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.shiftKey || editableTarget(event.target)) return;
+      const delta = pageKeyDelta(event.key);
+      if (!delta) return;
+      event.preventDefault();
+      userTurn(delta);
+    };
+    root.addEventListener('pointerdown', onDown, { passive: true });
+    root.addEventListener('pointermove', onMove, { passive: true });
+    root.addEventListener('pointerup', onUp, { passive: true });
+    root.addEventListener('pointercancel', onCancel, { passive: true });
+    root.addEventListener('click', onClickCapture, { capture: true });
+    root.addEventListener('wheel', onWheel, { passive: true });
+    window.addEventListener('keydown', onKey);
+    return () => {
+      root.removeEventListener('pointerdown', onDown);
+      root.removeEventListener('pointermove', onMove);
+      root.removeEventListener('pointerup', onUp);
+      root.removeEventListener('pointercancel', onCancel);
+      root.removeEventListener('click', onClickCapture, { capture: true });
+      root.removeEventListener('wheel', onWheel);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [paged, scroller, longPress]);
+
+  const text = (
     <article
       ref={article}
       className="rd-article"
@@ -522,7 +987,37 @@ export const ReaderTextView = memo(function ReaderTextView({
       <div ref={bottomSentinel} aria-hidden="true" />
     </article>
   );
+  if (!paged) return text;
+  return (
+    <>
+      <div ref={pagesRef} className="rd-pages">
+        {text}
+      </div>
+      <PageIndicator bind={indicator} />
+    </>
+  );
 });
+
+/** Pages: "Page 12 · 37 %" under the text; page numbers before the rendered window are estimated. */
+function PageIndicator({ bind }: { bind: { current: ((info: PageInfo | null) => void) | null } }) {
+  const { t, i18n } = useTranslation();
+  const [info, setInfo] = useState<PageInfo | null>(null);
+  // Bound before the text view's own layout effects run (children's come first).
+  useLayoutEffect(() => {
+    bind.current = setInfo;
+    return () => {
+      bind.current = null;
+    };
+  }, [bind]);
+  if (!info) return null;
+  return (
+    <p className="rd-page-indicator">
+      {t('reader.page_number', { page: info.number })}
+      <span aria-hidden="true"> · </span>
+      {formatPercent(info.percent, i18n.language)}
+    </p>
+  );
+}
 
 /** The sentences of one paragraph, each a highlightable `.rd-sent`. */
 function sentences(block: ReaderBlock, marked: ReadonlySet<number> | undefined) {
@@ -675,10 +1170,14 @@ const ReaderFigure = memo(function ReaderFigure({
     >
       <div
         className="rd-figure-frame"
-        style={{
-          aspectRatio: width && height ? `${width} / ${height}` : undefined,
-          maxWidth: width ? `min(100%, ${width}px)` : undefined,
-        }}
+        style={
+          {
+            // Pages keep a tall image within the page height (reader.css).
+            '--rd-img-ratio': width && height ? width / height : undefined,
+            aspectRatio: width && height ? `${width} / ${height}` : undefined,
+            maxWidth: width ? `min(100%, ${width}px)` : undefined,
+          } as CSSProperties
+        }
       >
         {url ? (
           <img src={url} alt={segment.alt ?? ''} width={width} height={height} draggable={false} />

@@ -1,12 +1,13 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckIcon } from 'lucide-react';
+import { BookOpenIcon, CheckIcon, ScrollTextIcon, type LucideIcon } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import {
   BACKGROUNDS,
   FONTS,
   HIGHLIGHT_COLORS,
   HIGHLIGHTS,
+  LAYOUTS,
   resolveSurface,
   setReaderAppearance,
   SURFACES,
@@ -14,9 +15,14 @@ import {
   type ReaderBackground,
   type ReaderFont,
   type ReaderHighlight,
+  type ReaderLayout,
   type ReaderSurface,
 } from './reader-appearance';
 
+const LAYOUT_OPTIONS: Record<ReaderLayout, { label: string; icon: LucideIcon }> = {
+  scroll: { label: 'reader.layout_scroll', icon: ScrollTextIcon },
+  pages: { label: 'reader.layout_pages', icon: BookOpenIcon },
+};
 const HIGHLIGHT_LABELS: Record<ReaderHighlight, string> = {
   classic: 'reader.highlight_classic',
   amber: 'reader.highlight_amber',
@@ -142,7 +148,7 @@ function HighlightSample({
   );
 }
 
-/** Background, font and highlight pickers for the "Aa" sheet. */
+/** Layout, background, font and highlight pickers for the "Aa" sheet. */
 export function AppearanceOptions() {
   const { t } = useTranslation();
   const appearance = useReaderAppearance();
@@ -150,6 +156,32 @@ export function AppearanceOptions() {
   const surface = resolveSurface(appearance.background, theme);
   return (
     <>
+      <SheetSection id="reader-layout" title={t('reader.layout')}>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="reader-layout">
+          {LAYOUTS.map((layout) => {
+            const { label, icon: Icon } = LAYOUT_OPTIONS[layout];
+            return (
+              <button
+                key={layout}
+                type="button"
+                role="radio"
+                aria-checked={appearance.layout === layout}
+                data-active={appearance.layout === layout}
+                className="rd-chip w-full"
+                onClick={() => setReaderAppearance({ layout })}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                <span className="truncate">{t(label)}</span>
+              </button>
+            );
+          })}
+        </div>
+        {appearance.layout === 'pages' && (
+          <p className="mt-2 px-1 text-xs leading-relaxed text-muted-foreground">
+            {t('reader.layout_pages_hint')}
+          </p>
+        )}
+      </SheetSection>
       <SheetSection id="reader-background" title={t('reader.background')}>
         <div className="flex justify-between gap-2 px-1" role="radiogroup">
           {BACKGROUNDS.map((background) => {

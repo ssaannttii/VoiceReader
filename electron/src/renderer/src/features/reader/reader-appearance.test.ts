@@ -27,12 +27,27 @@ const surfaces = Object.keys(SURFACES) as ReaderSurface[];
 
 describe('parseAppearance', () => {
   it('keeps valid values and replaces unknown ones', () => {
-    expect(parseAppearance({ highlight: 'blue', font: 'dyslexic', background: 'paper' })).toEqual({
+    expect(
+      parseAppearance({
+        highlight: 'blue',
+        font: 'dyslexic',
+        background: 'paper',
+        layout: 'pages',
+      }),
+    ).toEqual({
       highlight: 'blue',
       font: 'dyslexic',
       background: 'paper',
+      layout: 'pages',
     });
-    expect(parseAppearance({ highlight: 'pink', font: 3 })).toEqual(DEFAULT_APPEARANCE);
+    expect(parseAppearance({ highlight: 'pink', font: 3, layout: 'book' })).toEqual(
+      DEFAULT_APPEARANCE,
+    );
+  });
+
+  it('keeps scrolling as the layout for stored preferences without one', () => {
+    expect(DEFAULT_APPEARANCE.layout).toBe('scroll');
+    expect(parseAppearance({ highlight: 'amber' }).layout).toBe('scroll');
     expect(parseAppearance(null)).toEqual(DEFAULT_APPEARANCE);
   });
 });
