@@ -22,6 +22,9 @@ lanzador pasa a HTTPS solo. Sin esto, las fases 1–2 funcionan igual; la 3 qued
 
 ## Fase 1 — Escucha perfecta (núcleo)
 
+**Prioridad absoluta: reproducción fiable en segundo plano** (pantalla apagada / app en segundo
+plano en Android) durante sesiones largas. Es el criterio principal de 1.1.
+
 | # | Mejora | Diseño | Aceptación |
 |---|---|---|---|
 | 1.1 | **Audio continuo sin huecos** | Nuevo motor de reproducción con Media Source Extensions: un único `<audio>` alimentado por un `SourceBuffer` (`audio/mpeg`, modo `sequence`). Cada bloque renderizado (red o IndexedDB) se añade en orden; los inicios de bloque se toman de `buffered.end` tras cada `append`, así el resaltado sigue exacto. Saltar fuera de lo cargado crea un `MediaSource` nuevo. Se mantiene el modo actual (un archivo por bloque) como alternativa si `MediaSource.isTypeSupported('audio/mpeg')` es falso. | 0 eventos `start ready=false` en reproducción continua; 0 `waiting` a mitad de bloque; prueba real de 30 min con pantalla apagada sin pausas. |
@@ -61,7 +64,6 @@ lanzador pasa a HTTPS solo. Sin esto, las fases 1–2 funcionan igual; la 3 qued
 
 | # | Mejora | Diseño |
 |---|---|---|
-| 5.1 | **Preguntar al documento** | 100 % local: Ollama (resúmenes y preguntas sobre el capítulo actual) + reconocimiento de voz de VoiceStudio para preguntar hablando + respuesta con tu voz. |
 | 5.2 | **Modo solo audio** | Oculta el texto; orbe en canvas que reacciona al audio (`AnalyserNode`). |
 | 5.3 | **Contenido rico** | El importador emite listas, citas e imágenes además de párrafos. |
 | 5.4 | **Paginado / dos columnas** | Modo alternativo de la vista de texto con zonas de toque. |
@@ -69,7 +71,8 @@ lanzador pasa a HTTPS solo. Sin esto, las fases 1–2 funcionan igual; la 3 qued
 
 ## Fuera de alcance
 
-Cuentas, cuotas, DRM, catálogo de pago, lectura de Kindle/Libby por inyección de scripts,
+Funciones de IA sobre el documento (preguntas, resúmenes): descartadas por decisión del usuario,
+el foco es el núcleo de un lector tipo ElevenLabs Reader. Cuentas, cuotas, DRM, catálogo de pago, lectura de Kindle/Libby por inyección de scripts,
 analítica de terceros, Android Auto / widgets / motor TTS del sistema (requieren app nativa;
 reconsiderar con Capacitor más adelante).
 
