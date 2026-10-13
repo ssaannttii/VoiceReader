@@ -313,6 +313,7 @@ async def delete_document(doc_id: str):
         raise _not_found() from None
     reader_render.forget_prerender(doc_id)
     reader_speech.forget(doc_id)
+    _forget_music(doc_id)
     return {"ok": True}
 
 
@@ -984,10 +985,84 @@ async def get_ambience_pack_file(name: str):
 
 
 def _after_import(doc_id: str) -> None:
-    """Background scene analysis of a new text/URL document (only once Automático has been used)."""
-    from services import reader_ambience
+    """Background scene analysis of a new text/URL document (only once Automático has been used),
+    and its music plan (only once music has been requested on this machine)."""
+    from services import reader_ambience, reader_music
 
     reader_ambience.after_import(doc_id)
+    reader_music.after_import(doc_id)
+
+
+# ── Background music (services/reader_music.py, Labs) ────────────────────────
+# One self-contained block: off until requested per document; audio is made by
+# a separate Stable Audio Open worker only while the voice is idle.
+
+
+class MusicRequest(BaseModel):
+    palette: Optional[str] = Field(None, max_length=40)
+
+
+async def _music_call(fn, *args):
+    from services import reader_music, reader_music_engine
+
+    reader_music_engine.bind_loop(asyncio.get_running_loop())
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@router.get("/reader/documents/{doc_id}/music")
+async def get_music(doc_id: str):
+    """``{status: off|queued|analyzing|generating|ready|error|unavailable, progress,
+    error, engine_available, palette, palettes, cues, spots, timeline, level_lufs}``."""
+    from services import reader_music
+
+    return await _music_call(reader_music.payload, doc_id)
+
+
+@router.post("/reader/documents/{doc_id}/music")
+async def request_music(doc_id: str, req: Optional[MusicRequest] = None):
+    """Request (or refresh) music for a document; ``palette`` overrides the automatic choice."""
+    from services import reader_music
+
+    return await _music_call(reader_music.request, doc_id, (req or MusicRequest()).palette)
+
+
+@router.delete("/reader/documents/{doc_id}/music")
+async def delete_music(doc_id: str):
+    """Remove the document's music plan and generated audio (back to ``off``)."""
+    from services import reader_music
+
+    return await _music_call(reader_music.remove, doc_id)
+
+
+@router.get("/reader/documents/{doc_id}/music/{name}")
+async def get_music_file(doc_id: str, name: str):
+    """One generated cue (``audio/ogg``); only files the plan lists."""
+    from services import reader_music
+
+    if not reader_store.valid_id(doc_id):
+        raise _not_found()
+    path = await asyncio.to_thread(reader_music.cue_file, doc_id, name)
+    if not path:
+        raise HTTPException(status_code=404, detail="No such cue")
+    return FileResponse(
+        path,
+        media_type="audio/ogg",
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+def _forget_music(doc_id: str) -> None:
+    from services import reader_music
+
+    try:
+        reader_music.forget(doc_id)
+    except Exception:  # noqa: BLE001 — never fails a document deletion
+        logger.debug("Reader music: cleanup of %s failed", doc_id, exc_info=True)
 
 # ── Prepared reading ("Lectura preparada", services/reader_speech.py) ────────
 # Kept as one block: an optional per-document layer over what the TTS says.

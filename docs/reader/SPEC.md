@@ -691,6 +691,7 @@ run from the phone. Nothing changes until the listener turns something on.
 - **Prepared reading** for this document (status and "preparing x%"), with every pause type as a
   switch; dialogue-tag pauses ("Incisos de diálogo") stay off by default and are marked experimental.
 - **Automatic ambience**: the soundscape's "Automatic" choice (off returns to no soundscape).
+- **Background music** for this document (see "Background music (Labs)").
 - **Voice quality**: Normal / High (32 steps), per device (`localStorage['voicestudio.reader.labs']`).
   High makes the player's render requests carry `num_step: 32` (`labs-prefs.ts` →
   `withLabsQuality`, the only player hook) and refreshes the rendered audio. OmniVoice only; tests
@@ -719,6 +720,132 @@ back to a pre-v2 key.
   / Same" logs `ab_vote` `{comparison, seg, choice, winner, blind, mapping, a, b}` (variant tags,
   no text) and reveals which was which. The last 20 votes stay on the device
   (`voicestudio.reader.labs.votes`) with a tally per comparison.
+
+## Background music (Labs)
+
+Optional, per document, **off by default**: subtle instrumental underscore ("film-score
+spotting") under the narration, generated on the PC with **Stable Audio Open 1.0**. Cues are
+mastered at **−24 LUFS** (`level_lufs`); the client attenuates them to the listener's level (default
+−30 LUFS under a ~−16 LUFS voice) — an `<audio>` element cannot amplify, so the 6 dB give its slider
+headroom upwards. Nothing runs for a document until the listener asks for it.
+
+### Musical direction (backend `services/reader_music.py`)
+- **Palettes** (closed list; one per book): `dark_fantasy` (low strings and drones, harp,
+  wordless choir pad, minor), `bright_fantasy` (warm strings, soft horns, harp, celesta),
+  `classic_novel` (piano and string quartet, intimate), `contemporary_thriller` (ambient synth pads,
+  soft pulse, no beat), `mystery_noir` (upright bass drone, electric piano, vibraphone),
+  `romance_warm` (legato strings, gentle piano), `scifi_space` (evolving synth pads, sub drone),
+  `historical` (low strings, viola da gamba drone, lute), `nonfiction_minimal` (felt piano, warm pad).
+  Each has a Stable Audio Open prompt per **mood** (`calm`, `wonder`, `tension`, `dread`,
+  `melancholy`, `warmth`, `resolve`): `<style>, <mood colour and key>, NN BPM`. Prompts are plain
+  descriptions with a tempo, all beatless and sustained; no negative prompt (it collapsed the
+  output into a dying drone in the spike), none of "quiet / sparse / restrained / cinematic / film
+  score", and never a composer, artist or film. Labels are translated by the client from the ids.
+- **Palette per book:** rules over the title/author, a weighted es/en palette lexicon over the
+  whole text (a term counts at most 25 times per 10 000 words), the era (`reader_ambience`:
+  pre-modern books lean to fantasy/historical/classic, present-day ones to thriller/noir), the
+  ambience tag mix when `ambience.json` is fresh (mist/cave/night → dark fantasy, city → thriller
+  and noir…), the dialogue share (< 3 %: non-fiction) and URL imports (non-fiction). When the best
+  palette does not beat the next by 1.4× a local Ollama (CPU, the prepared-reading helpers in
+  `reader_speech_llm`) picks one from the enum given the title, author and ~2 000 characters of
+  opening prose. The listener can override it (`source: "user"`; `"auto"` goes back).
+- **Mood per scene:** the ambience scene windows (`reader_ambience.split_windows`: hard cuts at
+  headings, chapter starts and scene breaks, else ~10 paragraphs), a weighted es/en mood lexicon
+  (words that are names in the document, "Fantasma", are ignored; exclamations add tension).
+  A window needs ≥ 0.9 weighted words per 100 and a 1.25× margin, else it takes its chapter's
+  mood (the whole chapter scored together, or — for up to `OMNIVOICE_READER_MUSIC_LLM_CHAPTERS`
+  (8; ~45 s per call on the CPU) chapters nearest the listening position — the Ollama answer;
+  answers are cached in `music.json`), else `calm`.
+- **Hysteresis:** a cue lasts ≥ 90 s of narration (1350 characters at 15 chars/s, like the
+  ambience); shorter runs join their neighbour; inside a section the cue changes only on strong
+  evidence (≥ 2 weighted words per 100) or after ≥ 3 min of something else; changes happen only at
+  window (scene) boundaries. At most 6 moods per book: rarer ones borrow a related cue (dread →
+  tension, resolve → warmth…).
+- **Spots** ("moments", the default mode): music enters at chapter starts (120 s), after scene
+  breaks (75 s) and at strong mood shifts between the light and dark moods (90 s); each spot ends at
+  its scene or cue end, before a dialogue-dense window (> 55 % of the characters in dialogue
+  paragraphs — those never start a spot either), with ≥ 2 min of narration between spots. Lengths
+  are scaled (60–180 s) towards **22 %** of the listening time, then the least important spots are
+  thinned until ≤ 30 %. **Timeline** ("continuous"): every scene mapped to a cue, contiguous over
+  the whole document.
+- **Cues:** per used mood, 3 variations of 47 s; each variation is the better of **2 seeds** by QC
+  metrics (penalties for percussive energy, onset density, regular pulse, sudden hits, voice-band
+  syllabic modulation, loudness range, swells, a drone dying out, ending early). Generated in order
+  of first use from the listening position (spots first), every cue's first variation before the
+  second ones. Evaluation: `scripts/reader/music-plan.py <content.json> [--ambience …] [--llm]
+  [--generate N] --out <folder>` prints the palette scores, mood shares, spots and coverage and can
+  render cues, read-only.
+
+### Engine (`services/reader_music_engine.py`, `scripts/reader/music_worker.py`)
+- The worker runs as a **subprocess** with the Python of a separate venv (torch + diffusers +
+  soundfile + scipy), so none of its dependencies enter the backend venv. It reads a JSON job
+  (`{version, model, steps: 100, guidance: 7, dtype: float16, min_free_gb, level_lufs: -24,
+  bitrate_kbps: 64, fade_in_s, fade_out_s, ffmpeg?, parent_pid, result, clips: [{id, prompt, seed,
+  seconds, out}]}`), loads the pipeline once (offline: `HF_HUB_OFFLINE=1`), renders every clip,
+  measures it, post-processes it (40 Hz high-pass, mono below 150 Hz, side × 0.7, −5 dB at 2 kHz
+  Q 0.7 ≈ 1–4 kHz, −2 dB at 7 kHz, −24 LUFS, soft limiter ≈ −6 dBFS, 2 s / 4 s equal-power fades so
+  clips crossfade) and writes Ogg Opus ~64 kb/s stereo 48 kHz (soundfile; ffmpeg as fallback). The
+  result JSON is rewritten after each clip; a crash is retried once (again whenever the previous
+  attempt made progress); exit 3 = not enough free VRAM (≥ 6 GB by default) or no CUDA, retried
+  later.
+- **GPU etiquette:** music never competes with the voice. It waits until no interactive render,
+  in-flight render, prerender job, Reader warm-up, model load or GPU-pool job exists, no Reader
+  render happened for `OMNIVOICE_MUSIC_IDLE_S` (90 s) and that has held for 10 s; then unloads the
+  TTS models through `model_lifecycle.unload` (`tts`, `engine:*`, `active-engine:*`: the path
+  behind `POST /model/unload/{id}`) and starts the worker at below-normal priority. Whenever the
+  voice needs the GPU again the worker is killed at once; finished clips are kept and the rest
+  resume when the voice is idle again. Logged on the `omnivoice.reader` logger.
+- **Configuration:** `OMNIVOICE_MUSIC_PYTHON` (the venv's python; default the spike venv
+  `E:\VoiceReaderData\engines\music-spike\ace-step-1.5\.venv` when it exists),
+  `OMNIVOICE_MUSIC_HF_HOME` (Hugging Face home with the weights; default
+  `E:\VoiceReaderData\hf_cache` when it exists, else `HF_HOME`), `OMNIVOICE_MUSIC_MODEL` (a local
+  diffusers folder instead of `stabilityai/stable-audio-open-1.0`), `OMNIVOICE_MUSIC_DIR` (cue
+  folder, default `<data dir>/reader/music`), `OMNIVOICE_MUSIC_STEPS` (100),
+  `OMNIVOICE_MUSIC_MIN_FREE_GB` (6), `OMNIVOICE_MUSIC_IDLE_S` (90), `OMNIVOICE_READER_MUSIC_LLM=0`
+  (no Ollama). `engine_available` = the python exists and the weights are in the HF cache.
+- **Performance (RTX 2070 SUPER 8 GB, fp16, 100 steps):** model load 5–16 s; ~25 s of diffusion
+  plus ~10 s of analysis and encoding per 47 s clip, so ~70 s per variation and ~20 min for a book's
+  18; 5.5 GB allocated, ~7.9 GB in use on the card during the VAE decode — it does not fit beside a
+  loaded OmniVoice, hence the unload. On "El Pozo de la Ascensión" (es, 26.5 h): `dark_fantasy`
+  by the rules (68.7 vs 16.2 for `historical`), moods tension 43 % · calm 37 % · dread 12 % ·
+  warmth 5 %, 135 spots covering 19 % of the listening time, plan in 1.3 s (+ ~45 s per Ollama
+  call on the CPU).
+
+### Storage
+`<doc>/music.json`: `{version, prompt_version, content_version, segment_count, language_hint,
+fingerprint, requested, palette_user?, palette_auto, palette_why, palette_scores, era, coverage,
+moods, timeline, spots, llm_cache, refined, computed_at}` — recomputed when the plan version,
+segmentation, segment count, language or text fingerprint changes (`requested`, the user palette
+and the LLM answers survive). Audio: `<music dir>/<doc id>/<palette>-<mood>-<n>-<hash>.ogg` plus
+`manifest.json` (prompt, seed, duration, metrics and penalties of both candidates). The hash covers
+`PROMPT_VERSION` and the prompt, so audio is regenerated only when the palette or the prompts
+change; files the plan no longer uses are deleted. Requesting music creates the marker
+`reader/music.enabled`: later imports get a plan (no audio) in the background. Deleting a document
+deletes its music.
+
+| method | path | body | returns |
+|---|---|---|---|
+| GET | `/reader/documents/{id}/music` | – | `{status, progress, error, engine_available, palette, palettes, cues, spots, timeline, level_lufs}` |
+| POST | `/reader/documents/{id}/music` | `{palette?}` | same; requests/refreshes (idempotent); `palette` = user override, `"auto"` clears it (400 if unknown) |
+| DELETE | `/reader/documents/{id}/music` | – | same (`off`); removes the plan and the audio |
+| GET | `/reader/documents/{id}/music/{name}` | – | the cue (`audio/ogg`, cached a day); 404 unless the current plan lists it |
+
+- `status`: `off` (never requested; no work done — a plan made after an import is still `off`),
+  `queued` (waiting: import, plan or the voice being idle), `analyzing`, `generating`, `ready`
+  (every file made), `error` (`error` says why; a new POST retries), `unavailable` (no engine:
+  python or weights missing; the plan is still computed). `progress` = files made / files wanted.
+- `palette`: `{id, source: "auto"|"user"}` or null until planned; `palettes`: `[{id}]` (all).
+- `cues`: `[{id, mood, files: [{name, duration}], ready}]` — `id` is the mood; `files` lists the
+  variations made so far (in order); `ready` = at least one file (playable).
+- `spots`: `[{start_segment, end_segment, cue, max_seconds}]` (non-overlapping, inclusive);
+  `timeline`: `[{start_segment, end_segment, cue}]` (contiguous over the document); `level_lufs: -24` (the mastering level).
+
+### Credits and licence
+Cues are generated with **Stable Audio Open 1.0** by Stability AI, used under the **Stability AI
+Community License** (free for research, non-commercial use and commercial use under US$1M annual
+revenue; the weights are gated on Hugging Face and must be accepted by the user, never downloaded by
+Reader). **Powered by Stability AI.** Generated audio belongs to the user and must not be used to
+train other foundation models. The model is not distributed with this repository.
 
 ## Collections and downloads
 

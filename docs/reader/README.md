@@ -105,6 +105,33 @@ queda guardada para escuchar sin conexión. Si falta alguna, suena la versión s
 autores y licencias: `scripts/reader/ambience-sources.json` y la tabla de créditos de
 [SPEC.md](SPEC.md#recorded-beds-ambience-pack).
 
+## Música de fondo (Laboratorio, opcional)
+
+Música instrumental muy suave bajo la narración (−30 LUFS por defecto, ajustable), generada en el PC con
+**Stable Audio Open 1.0** solo para los documentos en que la pidas (Laboratorio). El modelo no se
+instala en el venv de Reader: corre en un venv aparte como proceso independiente, y solo cuando la
+voz está inactiva (descarga OmniVoice antes y se detiene en cuanto vuelves a escuchar algo sin
+generar). Configuración en `%APPDATA%\OmniVoice\reader-env.ps1`:
+
+```powershell
+# Python del venv con torch + diffusers + soundfile + scipy (por defecto, el del spike si existe)
+$env:OMNIVOICE_MUSIC_PYTHON = 'E:\VoiceReaderData\engines\music-spike\ace-step-1.5\.venv\Scripts\python.exe'
+# Carpeta HF con los pesos (modelo con licencia aceptada en Hugging Face; nunca se descarga solo)
+$env:OMNIVOICE_MUSIC_HF_HOME = 'E:\VoiceReaderData\hf_cache'
+```
+
+Los cues se guardan en `%APPDATA%\OmniVoice\reader\music` (o `$env:OMNIVOICE_MUSIC_DIR`). Para
+tenerlos en E:, crea antes una unión de directorios:
+
+```powershell
+New-Item -ItemType Junction -Path "$env:APPDATA\OmniVoice\reader\music" -Target 'E:\VoiceReaderData\music'
+```
+
+Cada libro usa unos 6 estados de ánimo × 3 variaciones de 47 s (~0,4 MB cada una); cada variación
+tarda ~70 s en una RTX 2070 SUPER (dos semillas, se queda la más discreta): ~20 min por libro. Para probar el plan
+de un libro sin el backend: `scripts/reader/music-plan.py` (ver [SPEC.md](SPEC.md#background-music-labs)).
+Licencia del modelo: Stability AI Community License — *Powered by Stability AI*.
+
 ## Voces
 
 Si un documento no tiene voz elegida, Reader usa la voz por defecto de su idioma: márcala con la

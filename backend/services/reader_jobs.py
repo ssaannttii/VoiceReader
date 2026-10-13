@@ -170,9 +170,10 @@ def run_import(doc_id: str) -> None:
     except reader_store.DocumentNotFound:
         return
     if done is not None:
-        from services import reader_ambience
+        from services import reader_ambience, reader_music
 
         reader_ambience.after_import(doc_id)
+        reader_music.after_import(doc_id)
 
 
 def wait_idle(timeout: float = 30.0) -> bool:

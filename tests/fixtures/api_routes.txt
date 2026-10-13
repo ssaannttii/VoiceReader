@@ -27,6 +27,7 @@ DELETE /reader/bookmarks/{bookmark_id}
 DELETE /reader/collections/{collection_id}
 DELETE /reader/collections/{collection_id}/documents/{doc_id}
 DELETE /reader/documents/{doc_id}
+DELETE /reader/documents/{doc_id}/music
 DELETE /reader/documents/{doc_id}/prerender
 DELETE /reader/documents/{doc_id}/speech/items/{n}
 DELETE /reader/pronunciations/{entry_id}
@@ -166,6 +167,8 @@ GET /reader/documents/{doc_id}/assets/{name}
 GET /reader/documents/{doc_id}/bookmarks
 GET /reader/documents/{doc_id}/bookmarks/export
 GET /reader/documents/{doc_id}/cover
+GET /reader/documents/{doc_id}/music
+GET /reader/documents/{doc_id}/music/{name}
 GET /reader/documents/{doc_id}/prerender
 GET /reader/documents/{doc_id}/speech
 GET /reader/pronunciations
@@ -314,6 +317,7 @@ POST /reader/documents/scan
 POST /reader/documents/text
 POST /reader/documents/url
 POST /reader/documents/{doc_id}/bookmarks
+POST /reader/documents/{doc_id}/music
 POST /reader/documents/{doc_id}/prerender
 POST /reader/documents/{doc_id}/retry
 POST /reader/documents/{doc_id}/segments/{index}/render
