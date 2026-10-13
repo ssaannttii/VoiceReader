@@ -394,6 +394,13 @@ sync, in-document search, queue, soundscapes, voice picker search/recents, share
   title line right after a heading is merged ("Capítulo 1. La partida"). With fewer than two
   headings, PDFs over 10 pages get `Páginas 1–10`… chapters (labels follow the document
   language: es/pt/fr/de/it, else English) and paragraphs flow across page breaks.
+- **Broken PDF paragraphs** (`repair_segments`, `SEGMENTATION_VERSION` 4). In paginated sources a
+  paragraph is glued to the previous one when it opens with a mark that only continues a sentence
+  (`,` `.` `;` `:` `?` `!` `)` `]` `”`: italic runs and stray final stops that the extraction set
+  apart), or when the previous one stops without end punctuation and this one goes on in
+  lowercase, after an ellipsis, after a word a sentence cannot end on ("su", "que", "the"…), or
+  after a lone dialogue dash. `»` and an opening `…` after a finished sentence start paragraphs.
+  Stored documents are regrouped on their next load, keeping position and bookmarks.
 - **Warm-up** returns `{"engine", "model_state", "model_error"}` and never starts a download: the
   built-in model is warmed only when its checkpoint is cached, other engines only when
   `is_available()`. `model_state` comes from the loaded-model inventory (`/model/loaded`) and,
@@ -413,7 +420,7 @@ sync, in-document search, queue, soundscapes, voice picker search/recents, share
 ## Rich content (lists, quotes, images)
 
 Additive: documents imported before keep their `h`/`p` segments unchanged (no rich fields are
-invented, `SEGMENTATION_VERSION` stays 3).
+invented by that change).
 
 ### Segment kinds
 | kind | extra fields | rules |

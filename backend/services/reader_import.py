@@ -40,7 +40,7 @@ MAX_SEGMENT_CHARS = 300
 #: and carry the narration's intonation across sentences.
 GROUP_CHARS = 280
 #: Stored in content.json; documents saved with an older layout are regrouped on load.
-SEGMENTATION_VERSION = 3
+SEGMENTATION_VERSION = 4
 #: Upload / download caps.
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_URL_BYTES = 10 * 1024 * 1024
@@ -426,6 +426,9 @@ def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[l
 
 _TERMINAL_END_RE = re.compile(r"[.!?…:;»”\"')\]]\s*$")
 _STARTS_LOWER_RE = re.compile(r"^[\s«“\"'(¿¡—–-]*[a-zà-öø-ÿ]")
+#: Marks that only ever continue a sentence. Not "…" or a dash, which can open one, nor
+#: "»", which opens every follow-on paragraph of a quotation in Spanish.
+_CONTINUES_RE = re.compile(r"^\s*[,.;:?!)\]”]")
 
 
 def _is_shouted(text: str) -> bool:
@@ -442,6 +445,40 @@ def _join_text(left: str, right: str) -> str:
     if re.search(r"[a-zà-ÿ]-$", left) and _STARTS_LOWER_RE.match(right):
         return left[:-1] + right.lstrip()
     return f"{left} {right}"
+
+
+#: Words a sentence cannot end on: a paragraph ending in one was cut mid-sentence even
+#: when the next starts with a capital ("Había incumplido su" + "Contrato.").
+_OPEN_ENDINGS = frozenset(
+    "de del la las el los lo un una unos unas y e o u ni que a al en con por para su sus mi mis tu tus "
+    "se sin sobre entre hasta desde hacia como pero si cuando donde este esta estos estas ese esa "
+    "esos esas aquel aquella es era son fue muy más menos "
+    "the a an of to in on at and or but nor that his her its their my your with for by from as is was".split()
+)
+
+
+def _paragraph_continuation(left: str, right: str) -> Optional[str]:
+    """``left + right`` as one sentence when a paginated source split them, else None.
+
+    * ``right`` opens with a mark that only continues a sentence: an italic run set
+      apart ("No hemos prestado atención" + ", pensó.") or a stray final ".".
+    * ``left`` stops mid-sentence (no end punctuation) and ``right`` goes on in
+      lowercase, after an ellipsis ("Me pregunto" + "…"), or after a word a sentence
+      cannot end on, or ``left`` is a lone dialogue dash.
+    """
+    if _CONTINUES_RE.match(right):
+        return left.rstrip() + right.lstrip()
+    if _TERMINAL_END_RE.search(left):
+        return None
+    if _STARTS_LOWER_RE.match(right):
+        return _join_text(left, right)
+    stripped = right.lstrip()
+    if stripped.startswith("…") or left.strip() in ("—", "–", "-"):
+        return left.rstrip() + stripped
+    last = re.search(r"(\w+)\W*$", left.lower())
+    if left.rstrip().endswith(",") or (last and last.group(1) in _OPEN_ENDINGS):
+        return f"{left.rstrip()} {stripped}"
+    return None
 
 
 def is_paginated(source_type: Optional[str], source_name: Optional[str]) -> bool:
@@ -491,21 +528,17 @@ def repair_segments(
             leadins.update(prev["olds"])
             prev["olds"].extend(seg["olds"])
             continue
-        if (
-            paginated
-            and prev is not None
-            and prev["kind"] == "p"
-            and seg["kind"] == "p"
-            and prev["para"] != seg["para"]
-            and not _TERMINAL_END_RE.search(prev["text"])
-            and _STARTS_LOWER_RE.match(seg["text"])
-        ):
+        joined = (
+            _paragraph_continuation(prev["text"], seg["text"])
+            if paginated and prev is not None and prev["kind"] == "p" and seg["kind"] == "p" and prev["para"] != seg["para"]
+            else None
+        )
+        if joined is not None:
             # Broken paragraph: continue the sentence, and the rest of this paragraph
             # joins the previous one.
-            old_para = seg["para"]
-            prev["text"] = _join_text(prev["text"], seg["text"])
+            prev["text"] = joined
             prev["olds"].extend(seg["olds"])
-            prev["_absorb"] = old_para
+            prev["_absorb"] = seg["para"]
             continue
         if prev is not None and prev.get("_absorb") == seg["para"] and seg["kind"] == "p":
             seg = {**seg, "para": prev["para"]}

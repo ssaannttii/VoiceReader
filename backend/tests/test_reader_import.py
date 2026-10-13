@@ -474,6 +474,54 @@ def test_repair_reads_small_caps_openings_on_and_joins_broken_paragraphs():
     assert mapping == [0, 1, 1, 1, 2, 2, 3]
 
 
+def test_repair_glues_italic_runs_and_stray_punctuation_back_on():
+    # Italic thoughts and a lone final "." that a PDF extraction set apart as paragraphs.
+    segs = [
+        {"i": 0, "text": "No hemos prestado suficiente atención a esa amenaza", "para": 0, "kind": "p"},
+        {"i": 1, "text": ", pensó.", "para": 1, "kind": "p"},
+        {"i": 2, "text": "Tan peligroso para nuestros enemigos como para nosotros", "para": 2, "kind": "p"},
+        {"i": 3, "text": ".", "para": 3, "kind": "p"},
+        {"i": 4, "text": "Qué diligente", "para": 4, "kind": "p"},
+        {"i": 5, "text": ", pensó, estudiando el rostro de Demoux.", "para": 5, "kind": "p"},
+        {"i": 6, "text": "Siguió hablando sin parar:", "para": 6, "kind": "p"},
+        {"i": 7, "text": "»Y entonces llegó la bruma.", "para": 7, "kind": "p"},
+        {"i": 8, "text": "…y nadie volvió a verlo.", "para": 8, "kind": "p"},
+    ]
+    new, _, mapping = ri.repair_segments(segs, [], limit=0, paginated=True)
+    assert [s["text"] for s in new] == [
+        "No hemos prestado suficiente atención a esa amenaza, pensó.",
+        "Tan peligroso para nuestros enemigos como para nosotros.",
+        "Qué diligente, pensó, estudiando el rostro de Demoux.",
+        "Siguió hablando sin parar:",
+        "»Y entonces llegó la bruma.",
+        "…y nadie volvió a verlo.",
+    ]
+    assert mapping == [0, 0, 1, 1, 2, 2, 3, 4, 5]
+    # Not paginated (EPUB, HTML): paragraphs are the author's, never glued.
+    kept, _, _ = ri.repair_segments(segs[:2], [], limit=0)
+    assert [s["text"] for s in kept] == [segs[0]["text"], ", pensó."]
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "joined"),
+    [
+        ("Me pregunto", "…", "Me pregunto…"),
+        ("No pertenecemos a su mundo", "… Zane no podía saberlo.", "No pertenecemos a su mundo… Zane no podía saberlo."),
+        ("Había incumplido su", "Contrato. Por ella.", "Había incumplido su Contrato. Por ella."),
+        ("—¿De verdad crees que", "Kelsier va a protegerlos?", "—¿De verdad crees que Kelsier va a protegerlos?"),
+        ("inició con", "El camino de los reyes", "inició con El camino de los reyes"),
+        ("Su primera novela (2006),", "El Pozo de la Ascensión", "Su primera novela (2006), El Pozo de la Ascensión"),
+        ("—", "¡No!", "—¡No!"),
+        # A sentence may end without a stop (a heading-like line, a date): kept apart.
+        ("Tenía una herida en el lomo", "No, una herida no.", None),
+        ("Fecha de esta edición: Septiembre de 2021", "Traducción: Rafael Marín", None),
+        ("Fin del capítulo.", "…y nadie volvió a verlo.", None),
+    ],
+)
+def test_paragraph_continuation_across_page_and_italic_breaks(left, right, joined):
+    assert ri._paragraph_continuation(left, right) == joined
+
+
 def test_repair_keeps_real_headings_and_finished_paragraphs():
     segs = [
         {"i": 0, "text": "CAPÍTULO 3", "para": 0, "kind": "h"},
