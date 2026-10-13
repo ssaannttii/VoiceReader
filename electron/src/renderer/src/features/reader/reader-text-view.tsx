@@ -11,7 +11,10 @@ import {
   type RefObject,
 } from 'react';
 import type { ReaderSegment } from './reader-api';
+import { REVEAL_EVENT, type RevealDetail } from './reader-events';
 import { readerPlayer } from './reader-player';
+import { readerPrefs } from './reader-prefs';
+import { FOLLOW_EVENT } from './player-sheets';
 import {
   blockIndexBySegment,
   groupBlocks,
@@ -41,6 +44,26 @@ export function scrollToSentence(scroller: HTMLElement, element: HTMLElement, fo
       scroller.scrollTop += settled - box.height * 0.28;
     });
 }
+
+/** First sentence whose text is on screen (for "continue from here"), or null. */
+export function firstVisibleSegment(scroller: HTMLElement): number | null {
+  const top = scroller.getBoundingClientRect().top;
+  for (const element of scroller.querySelectorAll<HTMLElement>('.rd-sent[data-seg]')) {
+    const rect = element.getBoundingClientRect();
+    // Mostly visible: its lower half is below the top edge.
+    if (rect.bottom - rect.height / 2 > top) return Number(element.dataset.seg);
+  }
+  return null;
+}
+
+/** Briefly mark a sentence shown by search or a bookmark. */
+function flash(element: HTMLElement) {
+  element.setAttribute('data-revealed', 'true');
+  setTimeout(() => element.removeAttribute('data-revealed'), 1700);
+}
+
+/** Two taps on the same sentence within this window count as a double tap. */
+const DOUBLE_TAP_MS = 350;
 
 /**
  * The document text, rendered as a window of blocks around the reading position.
@@ -100,6 +123,9 @@ export const ReaderTextView = memo(function ReaderTextView({
   const anchor = useRef<{ segment: number; offset: number } | null>(null);
   /** Re-applies the highlight after the window changed (set by the highlight effect). */
   const resync = useRef<() => void>(() => {});
+  /** Segment to scroll to once a re-centred window has rendered (reader:reveal). */
+  const pendingReveal = useRef<number | null>(null);
+  const lastTap = useRef<{ segment: number; at: number } | null>(null);
 
   const elementOf = (segment: number) =>
     article.current?.querySelector<HTMLElement>(`[data-seg="${segment}"]`) ?? null;
@@ -137,7 +163,47 @@ export const ReaderTextView = memo(function ReaderTextView({
           el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - saved.offset;
     }
     resync.current();
+    const reveal = pendingReveal.current;
+    pendingReveal.current = null;
+    const target = reveal === null ? null : elementOf(reveal);
+    if (target && scrollEl) {
+      scrollToSentence(scrollEl, target, true);
+      flash(target);
+    }
   }, [range]);
+
+  // reader:reveal — show a segment (search, bookmarks) without playing it.
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<RevealDetail>).detail;
+      if (!detail || !Number.isFinite(detail.segment) || !segments.length) return;
+      const segment = Math.min(Math.max(0, Math.round(detail.segment)), segments.length - 1);
+      const element = elementOf(segment);
+      const scrollEl = scroller.current;
+      if (element && scrollEl) {
+        scrollToSentence(scrollEl, element, true);
+        flash(element);
+        return;
+      }
+      pendingReveal.current = segment;
+      anchor.current = null;
+      setRange(windowAround(blockOf[segment] ?? 0, blocks.length));
+    };
+    window.addEventListener(REVEAL_EVENT, onReveal);
+    return () => window.removeEventListener(REVEAL_EVENT, onReveal);
+  }, [segments, blockOf, blocks, scroller]);
+
+  // "Back to current" after a reveal moved the window away from the spoken sentence.
+  useEffect(() => {
+    if (!active) return;
+    const onFollow = () => {
+      const segment = readerPlayer.getState().segment;
+      if (elementOf(segment)) return;
+      changeWindow(windowAround(blockOf[segment] ?? 0, blocks.length), null);
+    };
+    window.addEventListener(FOLLOW_EVENT, onFollow);
+    return () => window.removeEventListener(FOLLOW_EVENT, onFollow);
+  }, [active, blockOf, blocks]);
 
   // Grow the window when the reader scrolls near either edge.
   useEffect(() => {
@@ -218,8 +284,9 @@ export const ReaderTextView = memo(function ReaderTextView({
         sentence = elementOf(segment);
         sentence?.setAttribute('data-active', 'true');
         if (!sentence && !fromWindow) {
-          // Playback or a jump left the window: re-centre on the spoken segment.
-          changeWindow(windowAround(block, blocks.length), null);
+          // Playback or a jump left the window: re-centre on the spoken segment,
+          // unless the reader is looking elsewhere (scrolled away, a reveal).
+          if (first || follow.current) changeWindow(windowAround(block, blocks.length), null);
           return;
         }
         const scrollEl = scroller.current;
@@ -262,12 +329,26 @@ export const ReaderTextView = memo(function ReaderTextView({
   }, [active, docId, segments, blockOf, blocks, scroller, follow]);
 
   const onClick = (event: MouseEvent<HTMLElement>) => {
-    if (window.getSelection()?.toString()) return;
+    // Another document is playing: the dock offers to switch first.
+    if (!active) return;
     const target = event.target as HTMLElement;
     const sentence = target.closest<HTMLElement>('[data-seg]');
     if (!sentence) return;
     const segment = Number(sentence.dataset.seg);
     const word = target.closest<HTMLElement>('[data-w]');
+    const selected = Boolean(window.getSelection()?.toString());
+    if (readerPrefs().doubleTap) {
+      // One tap only reads; a second tap on the same sentence plays from it.
+      const now = performance.now();
+      const last = lastTap.current;
+      if (!last || last.segment !== segment || now - last.at > DOUBLE_TAP_MS) {
+        lastTap.current = selected ? null : { segment, at: now };
+        return;
+      }
+      lastTap.current = null;
+      // A desktop double-click also selects the word under it.
+      window.getSelection()?.removeAllRanges();
+    } else if (selected) return;
     onSeek();
     if (word && readerPlayer.getState().segment === segment)
       readerPlayer.seekWord(segment, Number(word.dataset.w));

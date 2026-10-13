@@ -45,11 +45,17 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
 - **Biblioteca**: botón **+** → pegar texto, subir archivo o pegar un enlace. "Seguir
   escuchando" retoma el último documento donde lo dejaste (el progreso se guarda en el PC, así
   que es el mismo en móvil y escritorio).
-- **Lector**: toca cualquier frase para saltar a ella. La vista sigue la lectura; si te
-  desplazas, aparece "Volver a la posición actual".
-- **Reproductor**: velocidad 0.5–3× sin cambiar el tono, frase anterior/siguiente, ±15 s,
-  temporizador de apagado (minutos o fin de capítulo), voces, capítulos, tamaño de texto.
-  Controles en pantalla de bloqueo y auriculares (Media Session).
+- **Lector**: toca cualquier frase para saltar a ella (o, con *Doble toque para reproducir*,
+  tócala dos veces). La vista sigue la lectura; si te desplazas, aparece "Volver a la
+  lectura" y, en pausa, "Seguir desde aquí". Tras cualquier salto, "Volver a 12:34" lo deshace
+  durante 6 s; la marca de la barra y "Ir al punto más lejano" llevan a donde más lejos
+  llegaste.
+- **Reproductor**: audio continuo sin cortes entre frases (también con la pantalla apagada),
+  velocidad 0.5–3× sin cambiar el tono, saltos de 10/15/30/60 s, anterior/siguiente por frase,
+  capítulo o salto (menú → *Controles*), temporizador de apagado (minutos o fin de capítulo),
+  voces, capítulos, tamaño de texto. Controles en pantalla de bloqueo y auriculares (Media
+  Session). Si el PC no responde o la voz se está cargando, el reproductor lo dice y reintenta
+  solo.
 - **Offline**: menú del documento → *Descargar*. El PC pre-genera todo el audio y el móvil lo
   guarda; después se escucha sin conexión.
 - **Teclado (PC)**: Espacio reproducir/pausa, ←/→ frase anterior/siguiente, +/− velocidad.
@@ -67,7 +73,8 @@ selector de voces de Reader al momento.
 ## Rendimiento (RTX 2070 SUPER 8 GB, OmniVoice)
 
 - Primera frase: ~1,5 s (el modelo tarda ~30 s en cargarse la primera vez tras arrancar).
-- Generación ~4–6× más rápida que tiempo real; el reproductor pre-genera 3 frases por delante.
+- Generación ~4–6× más rápida que tiempo real; el reproductor mantiene al menos 3 frases y
+  60 s de audio preparados por delante.
 - El audio se cachea en `%APPDATA%\OmniVoice\reader\audio`: volver a escuchar es instantáneo.
 
 ## Seguridad

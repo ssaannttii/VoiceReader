@@ -10,7 +10,10 @@ import {
   EllipsisIcon,
   MonitorIcon,
   MoonIcon,
+  PlayIcon,
+  SlidersHorizontalIcon,
   SunIcon,
+  Undo2Icon,
   UserRoundIcon,
 } from 'lucide-react';
 import { describeError } from '@/lib/api/client';
@@ -25,12 +28,16 @@ import { titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderPlayer } from './reader-player';
 import { setReaderPrefs, TEXT_SIZE_MAX, TEXT_SIZE_MIN, useReaderPrefs } from './reader-prefs';
 import { ReaderSheet, SheetRow } from './reader-sheet';
-import { ReaderTextView } from './reader-text-view';
-import { minutesLeft } from './reader-text';
+import { firstVisibleSegment, ReaderTextView } from './reader-text-view';
+import { formatClock, minutesLeft } from './reader-text';
 import { useReaderDocument } from './use-reader-data';
+import { ControlsSheet } from './controls-sheet';
+import { useReaderWarmup } from './engine-status';
+import { REVEAL_EVENT, type RevealDetail } from './reader-events';
+import { UNDO_WINDOW_MS } from './reader-undo';
 import './reader.css';
 
-type Sheet = DockSheet | 'options' | 'chapters' | null;
+type Sheet = DockSheet | 'options' | 'chapters' | 'controls' | null;
 
 function OptionsSheet({
   doc,
@@ -137,11 +144,46 @@ function OptionsSheet({
             chevron
             onClick={() => onSheet('sleep')}
           />
+          <SheetRow
+            icon={SlidersHorizontalIcon}
+            label={t('reader.controls')}
+            chevron
+            onClick={() => onSheet('controls')}
+          />
           <OfflineRow id={doc.id} />
         </div>
         <DiagnosticsRows />
       </div>
     </ReaderSheet>
+  );
+}
+
+/** "Volver a 12:34": undo the latest jump (an accidental tap, a scrubber slip). */
+function UndoPill() {
+  const { t } = useTranslation();
+  const { undo, rate } = useReaderPlayer();
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const left = undo ? UNDO_WINDOW_MS - (Date.now() - undo.at) : 0;
+    setVisible(left > 0);
+    if (left <= 0) return;
+    const timer = setTimeout(() => setVisible(false), left);
+    return () => clearTimeout(timer);
+  }, [undo]);
+  if (!undo || !visible) return null;
+  const seconds = (readerPlayer.secondsAt(undo.segment) + undo.offset) / rate;
+  return (
+    <button
+      type="button"
+      className="rd-press rd-pill rd-pill-primary"
+      onClick={() => {
+        readerPlayer.undoJump();
+        window.dispatchEvent(new Event(FOLLOW_EVENT));
+      }}
+    >
+      <Undo2Icon className="size-4" aria-hidden="true" />
+      {t('reader.undo_jump', { time: formatClock(seconds) })}
+    </button>
   );
 }
 
@@ -175,7 +217,11 @@ export function ReaderDocumentPage() {
   const [following, setFollowing] = useState(true);
   const [scrolled, setScrolled] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
+  /** Segment last shown by reader:reveal; "continue from here" starts there. */
+  const revealed = useRef<number | null>(null);
   const active = Boolean(doc && player.doc?.id === doc.id);
+  const playing = player.status === 'playing' || player.status === 'buffering';
+  useReaderWarmup();
   const otherPlaying =
     Boolean(doc && player.doc && player.doc.id !== doc.id) &&
     (player.status === 'playing' || player.status === 'buffering');
@@ -189,8 +235,31 @@ export function ReaderDocumentPage() {
 
   const resumeFollowing = useCallback(() => {
     follow.current = true;
+    revealed.current = null;
     setFollowing(true);
   }, []);
+
+  // Search results and bookmarks reveal a segment: stop following the voice there.
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const segment = (event as CustomEvent<RevealDetail>).detail?.segment;
+      follow.current = false;
+      setFollowing(false);
+      revealed.current = typeof segment === 'number' ? segment : null;
+    };
+    window.addEventListener(REVEAL_EVENT, onReveal);
+    return () => window.removeEventListener(REVEAL_EVENT, onReveal);
+  }, []);
+
+  /** Paused and scrolled away: play from what is on screen. */
+  const continueHere = () => {
+    const element = scroller.current;
+    const segment = revealed.current ?? (element ? firstVisibleSegment(element) : null);
+    if (segment === null) return;
+    readerPlayer.unlockFromGesture();
+    resumeFollowing();
+    readerPlayer.seekSegment(segment, true);
+  };
 
   useEffect(() => {
     const onFollow = () => {
@@ -216,6 +285,7 @@ export function ReaderDocumentPage() {
     const element = scroller.current;
     if (!element) return;
     const stop = () => {
+      revealed.current = null;
       if (!follow.current) return;
       follow.current = false;
       setFollowing(false);
@@ -371,15 +441,35 @@ export function ReaderDocumentPage() {
             </div>
           )}
         </main>
-        {!following && active && (
-          <button
-            type="button"
-            className="rd-press rd-follow-pill inline-flex h-11 items-center gap-2 rounded-full bg-foreground px-4 text-sm font-semibold whitespace-nowrap text-background shadow-lg"
-            onClick={() => window.dispatchEvent(new Event(FOLLOW_EVENT))}
-          >
-            <ArrowDownToLineIcon className="size-4" aria-hidden="true" />
-            {t('reader.back_to_current')}
-          </button>
+        {active && (
+          <div className="rd-pills">
+            <UndoPill />
+            {!following && (
+              <div className="flex max-w-full flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  className={cn(
+                    'rd-press rd-pill',
+                    playing ? 'rd-pill-primary' : 'rd-pill-secondary',
+                  )}
+                  onClick={() => window.dispatchEvent(new Event(FOLLOW_EVENT))}
+                >
+                  <ArrowDownToLineIcon className="size-4" aria-hidden="true" />
+                  {t('reader.back_to_current')}
+                </button>
+                {!playing && (
+                  <button
+                    type="button"
+                    className="rd-press rd-pill rd-pill-primary"
+                    onClick={continueHere}
+                  >
+                    <PlayIcon className="size-4 fill-current" aria-hidden="true" />
+                    {t('reader.continue_here')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -397,6 +487,7 @@ export function ReaderDocumentPage() {
           <VoiceSheet doc={doc} open={sheet === 'voice'} onOpenChange={closeSheet} />
           <SleepSheet doc={doc} open={sheet === 'sleep'} onOpenChange={closeSheet} />
           <ChaptersSheet doc={doc} open={sheet === 'chapters'} onOpenChange={closeSheet} />
+          <ControlsSheet open={sheet === 'controls'} onOpenChange={closeSheet} />
         </>
       )}
     </div>

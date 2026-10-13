@@ -18,6 +18,8 @@ export interface ReaderDocumentSummary {
   voice_id: string | null;
   engine: string | null;
   position_segment: number;
+  /** Furthest segment ever reached (v2 contract); older backends omit it. */
+  furthest_segment?: number;
   progress: number;
   est_duration_s: number;
   created_at: number;
@@ -79,11 +81,16 @@ export interface ReaderVoice {
   description: string | null;
 }
 
+export type ReaderModelState = 'unloaded' | 'loading' | 'ready' | 'error';
+
 export interface ReaderStatus {
   engine: string;
   engine_ready: boolean;
   audio_format: 'mp3' | 'wav';
   lan_url: string | null;
+  /** v2 contract; older backends omit it (treat as ready). */
+  model_state?: ReaderModelState;
+  model_error?: string | null;
 }
 
 /** Voice/engine/language for synthesis; omitted fields use the backend defaults. */
@@ -180,6 +187,8 @@ export const readerApi = {
       body: JSON.stringify({ language, voice_id: voiceId }),
     }),
   status: (signal?: AbortSignal) => apiJson<ReaderStatus>('/reader/status', { signal }),
+  /** Start loading the TTS engine (idempotent; 404 on backends without it). */
+  warmup: () => apiJson<ReaderStatus>('/reader/warmup', { method: 'POST' }),
 };
 
 export const READER_ACCEPTED_FILES = '.txt,.md,.html,.htm,.pdf,.epub,.docx';

@@ -129,6 +129,8 @@
     hyphens: auto;
     text-rendering: optimizeLegibility;
     color: color-mix(in srgb, var(--foreground) 92%, var(--background));
+    /* Double tap plays from a sentence (option); it must never zoom. */
+    touch-action: manipulation;
   }
   .rd-article h1.rd-doc-title {
     font-size: 1.45em;
@@ -194,6 +196,91 @@
       opacity: 0;
       transform: translateY(8px) scale(0.98);
     }
+  }
+
+  /* Floating pills above the dock: "Volver a 12:34", "back to current", "continue here". */
+  .rd-pills {
+    position: absolute;
+    inset-inline: 1rem;
+    bottom: 0.75rem;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+  .rd-pills > * {
+    pointer-events: auto;
+  }
+  .rd-pill {
+    display: inline-flex;
+    height: 2.75rem;
+    max-width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    padding-inline: 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 10px 28px -12px rgb(0 0 0 / 0.55);
+    animation: rd-rise 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  .rd-pill-primary {
+    background: var(--foreground);
+    color: var(--background);
+  }
+  .rd-pill-secondary {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 10px 28px -12px rgb(0 0 0 / 0.45);
+  }
+
+  /* A segment shown by search/bookmarks (reader:reveal) flashes once. */
+  .rd-sent[data-revealed='true'] {
+    animation: rd-reveal 1.6s ease-out both;
+  }
+  @keyframes rd-reveal {
+    0%,
+    35% {
+      background: color-mix(in oklab, var(--rd-accent) 28%, transparent);
+      box-shadow: 0 0 0 0.12em color-mix(in oklab, var(--rd-accent) 28%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rd-pill,
+    .rd-sent[data-revealed='true'] {
+      animation-duration: 1ms;
+    }
+  }
+
+  /* Skip buttons show their seconds inside the arrow. */
+  .rd-skip-num {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding-top: 0.06rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  /* Furthest point reached, on the dock scrubber (thumb travels 0.5rem in from each edge). */
+  .rd-furthest-tick {
+    position: absolute;
+    top: 50%;
+    left: calc(0.5rem + (100% - 1rem) * var(--rd-at, 0));
+    width: 2px;
+    height: 0.7rem;
+    translate: -50% -50%;
+    border-radius: 1px;
+    background: var(--rd-accent);
+    pointer-events: none;
   }
 
   /* Player dock and mini player. */
