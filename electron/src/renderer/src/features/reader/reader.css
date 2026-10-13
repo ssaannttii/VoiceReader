@@ -1,12 +1,17 @@
 /* Reader: phone-first, full-screen listening workspace. */
 /* In the components layer so Tailwind utilities on the same element win. */
 @layer components {
-  /* Tokens on :root so portaled sheets share them. */
+  /* Tokens on :root so portaled sheets share them. Reading appearance
+     (reader-appearance.ts) overrides the highlight, font and surface tokens
+     inline on `.rd-root` and on every sheet. */
   :root {
     --rd-serif: 'Source Serif 4 Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
     --rd-accent: var(--primary);
     --rd-sentence: color-mix(in oklab, var(--rd-accent) 11%, transparent);
     --rd-word: color-mix(in oklab, var(--rd-accent) 32%, transparent);
+    --rd-word-text: inherit;
+    --rd-ok: #047857;
+    --rd-warn: #92400e;
     --rd-safe-top: env(safe-area-inset-top, 0px);
     --rd-safe-bottom: env(safe-area-inset-bottom, 0px);
     --rd-safe-left: env(safe-area-inset-left, 0px);
@@ -25,6 +30,16 @@
     background: var(--background);
     color: var(--foreground);
     -webkit-tap-highlight-color: transparent;
+  }
+  [data-rd-surface='dark'] {
+    --rd-ok: #34d399;
+    --rd-warn: #fde68a;
+  }
+  .rd-ok {
+    color: var(--rd-ok);
+  }
+  .rd-warn {
+    color: var(--rd-warn);
   }
 
   /* Electron window chrome: macOS traffic lights on the left, native controls on the right. */
@@ -120,9 +135,9 @@
 
   /* Reading view. */
   .rd-article {
-    font-family: var(--rd-serif);
-    font-size: var(--rd-text-size, 20px);
-    line-height: 1.68;
+    font-family: var(--rd-reading-font, var(--rd-serif));
+    font-size: calc(var(--rd-text-size, 20px) * var(--rd-font-scale, 1));
+    line-height: var(--rd-leading, 1.68);
     font-optical-sizing: auto;
     letter-spacing: 0.002em;
     overflow-wrap: break-word;
@@ -171,6 +186,7 @@
   .rd-word[data-active='true'] {
     background: var(--rd-word);
     box-shadow: 0 0 0 0.08em var(--rd-word);
+    color: var(--rd-word-text);
   }
   @media (hover: hover) {
     .rd-sent:not([data-active='true']):hover {
@@ -179,6 +195,78 @@
   }
   .rd-article ::selection {
     background: color-mix(in oklab, var(--rd-accent) 35%, transparent);
+  }
+
+  /* Search matches use the word highlight so they read like the player's. */
+  .rd-mark {
+    border-radius: 0.2em;
+    padding: 0 0.08em;
+    background: var(--rd-word);
+    color: var(--rd-word-text);
+  }
+
+  /* Live preview of the reading appearance in the options sheet. */
+  .rd-preview {
+    border-radius: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--background);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 90%, transparent);
+  }
+  .rd-preview .rd-article p {
+    margin: 0;
+  }
+
+  /* Option cards (highlight, font, background): a swatch over a label. */
+  .rd-swatch-btn {
+    display: flex;
+    min-height: 4.25rem;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.25rem;
+    border-radius: 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 560;
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+    box-shadow: inset 0 0 0 1px transparent;
+    touch-action: manipulation;
+    transition:
+      box-shadow 120ms ease,
+      transform 120ms ease;
+  }
+  .rd-swatch-btn > span:last-child {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rd-swatch-btn:active {
+    transform: scale(0.96);
+  }
+  .rd-swatch-btn[aria-pressed='true'] {
+    box-shadow: inset 0 0 0 2px var(--foreground);
+  }
+  .rd-swatch-btn:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .rd-swatch {
+    display: inline-flex;
+    width: 2.25rem;
+    height: 1.6rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 14%, transparent);
+  }
+
+  /* Tall sheets (search) keep their height while results change. */
+  .rd-sheet.rd-sheet-tall {
+    height: calc(100dvh - var(--rd-safe-top) - 1.5rem);
   }
 
   /* Floating "back to current" pill. */
@@ -546,6 +634,11 @@
     border-color: var(--ring);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent);
   }
+  /* Search fields draw their own 44px clear button. */
+  .rd-input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   .rd-input::placeholder {
     color: var(--muted-foreground);
   }
@@ -582,6 +675,19 @@
     border-radius: inherit;
     background: var(--foreground);
     transform-origin: left;
+  }
+  /* Import with no progress figure yet. */
+  .rd-progress[data-indeterminate] > span {
+    width: 35%;
+    animation: rd-indeterminate 1.3s ease-in-out infinite;
+  }
+  @keyframes rd-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(290%);
+    }
   }
 
   .rd-skeleton {

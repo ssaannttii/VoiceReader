@@ -57,6 +57,12 @@ export function AddDocumentSheet({
           ? readerApi.createFromFile(input.file)
           : readerApi.createFromUrl(normalizeUrl(input.url)),
     onSuccess: (doc) => {
+      // Background imports (file, scan) show up in the library at once and
+      // report progress there; the list polls until they finish.
+      if (doc.import_status === 'importing')
+        queryClient.setQueryData<ReaderDocumentSummary[]>(readerKeys.documents, (list) =>
+          list && !list.some((item) => item.id === doc.id) ? [doc, ...list] : list,
+        );
       void queryClient.invalidateQueries({ queryKey: readerKeys.documents });
       setText('');
       setTitle('');

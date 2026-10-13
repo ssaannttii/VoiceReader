@@ -12,6 +12,8 @@ import { offlineDocument, offlineDocuments } from './offline-state';
 /** A library entry; `offlineOnly` marks entries served from downloads while the PC is unreachable. */
 export type ReaderListItem = ReaderDocumentSummary & { offlineOnly?: boolean };
 
+export const IMPORT_POLL_MS = 2000;
+
 const unreachable = (error: unknown) => error instanceof ApiError && error.status === 0;
 
 function summary(doc: ReaderDocument): ReaderListItem {
@@ -32,6 +34,9 @@ export function useReaderDocuments() {
         return offline.map(summary);
       }
     },
+    // Background imports report progress through the list (docs/reader/SPEC.md v2).
+    refetchInterval: (query) =>
+      query.state.data?.some((doc) => doc.import_status === 'importing') ? IMPORT_POLL_MS : false,
   });
 }
 

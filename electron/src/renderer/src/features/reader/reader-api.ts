@@ -1,7 +1,7 @@
 /** Typed client for the backend `/reader` router (see docs/reader/SPEC.md). */
 import { apiFetch, apiJson } from '@/lib/api/client';
 
-export type ReaderSourceType = 'text' | 'file' | 'url';
+export type ReaderSourceType = 'text' | 'file' | 'url' | 'scan';
 
 export interface ReaderDocumentSummary {
   id: string;
@@ -18,14 +18,23 @@ export interface ReaderDocumentSummary {
   voice_id: string | null;
   engine: string | null;
   position_segment: number;
-  /** Furthest segment ever reached (v2 contract); older backends omit it. */
-  furthest_segment?: number;
   progress: number;
   est_duration_s: number;
   created_at: number;
   updated_at: number;
   last_opened_at: number | null;
+  // v2 fields (docs/reader/SPEC.md); absent on servers that predate them.
+  /** Furthest segment ever reached. */
+  furthest_segment?: number;
+  archived?: boolean;
+  completed?: boolean;
+  import_status?: ReaderImportStatus;
+  /** 0–1 while importing. */
+  import_progress?: number | null;
+  import_error?: string | null;
 }
+
+export type ReaderImportStatus = 'ready' | 'importing' | 'error';
 
 export interface ReaderSegment {
   i: number;
@@ -142,7 +151,12 @@ export const readerApi = {
     }),
   update: (
     id: string,
-    patch: Partial<Pick<ReaderDocumentSummary, 'title' | 'voice_id' | 'engine' | 'language'>>,
+    patch: Partial<
+      Pick<
+        ReaderDocumentSummary,
+        'title' | 'voice_id' | 'engine' | 'language' | 'archived' | 'completed'
+      >
+    >,
   ) =>
     apiJson<ReaderDocumentSummary>(doc(id), {
       method: 'PATCH',
