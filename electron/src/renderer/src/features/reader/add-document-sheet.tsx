@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ClipboardTypeIcon, FileUpIcon, LinkIcon, Loader2Icon } from 'lucide-react';
+import { ClipboardTypeIcon, FileUpIcon, LinkIcon, Loader2Icon, ScanTextIcon } from 'lucide-react';
 import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import {
@@ -11,11 +11,13 @@ import {
   type ReaderDocumentSummary,
 } from './reader-api';
 import { ReaderSheet } from './reader-sheet';
+import { ScanPanel } from './scan-panel';
 
-type Mode = 'text' | 'file' | 'url';
+type Mode = 'text' | 'file' | 'url' | 'scan';
 type Input =
   | { mode: 'text'; text: string; title: string }
   | { mode: 'file'; file: File }
+  | { mode: 'scan'; files: File[]; title: string }
   | {
       mode: 'url';
       url: string;
@@ -25,6 +27,7 @@ const modes: { mode: Mode; icon: typeof LinkIcon; label: string }[] = [
   { mode: 'text', icon: ClipboardTypeIcon, label: 'reader.add_text' },
   { mode: 'file', icon: FileUpIcon, label: 'reader.add_file' },
   { mode: 'url', icon: LinkIcon, label: 'reader.add_url' },
+  { mode: 'scan', icon: ScanTextIcon, label: 'reader.add_scan' },
 ];
 
 function normalizeUrl(value: string): string {
@@ -55,7 +58,9 @@ export function AddDocumentSheet({
         ? readerApi.createFromText(input.text, input.title)
         : input.mode === 'file'
           ? readerApi.createFromFile(input.file)
-          : readerApi.createFromUrl(normalizeUrl(input.url)),
+          : input.mode === 'scan'
+            ? readerApi.createFromScan(input.files, input.title)
+            : readerApi.createFromUrl(normalizeUrl(input.url)),
     onSuccess: (doc) => {
       // Background imports (file, scan) show up in the library at once and
       // report progress there; the list polls until they finish.
@@ -97,7 +102,7 @@ export function AddDocumentSheet({
       keyboard
     >
       <div
-        className="mb-4 grid grid-cols-3 gap-1 rounded-full bg-foreground/[0.06] p-1"
+        className="mb-4 grid grid-cols-4 gap-1 rounded-full bg-foreground/[0.06] p-1"
         role="group"
         aria-label={t('reader.add_title')}
       >
@@ -111,17 +116,24 @@ export function AddDocumentSheet({
               create.reset();
             }}
             className={cn(
-              'rd-press flex min-h-11 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-medium text-muted-foreground',
+              'rd-press flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-full px-1.5 text-xs font-medium text-muted-foreground min-[420px]:flex-row min-[420px]:gap-1.5 min-[420px]:text-sm',
               mode === value && 'bg-background text-foreground shadow-sm ring-1 ring-border/70',
             )}
           >
             <Icon className="size-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">{t(label)}</span>
+            <span className="max-w-full truncate">{t(label)}</span>
           </button>
         ))}
       </div>
 
-      {mode === 'file' ? (
+      {mode === 'scan' ? (
+        <ScanPanel
+          pending={pending}
+          onSubmit={(files, scanTitle) =>
+            create.mutateAsync({ mode: 'scan', files, title: scanTitle })
+          }
+        />
+      ) : mode === 'file' ? (
         <div>
           <input
             ref={fileInput}

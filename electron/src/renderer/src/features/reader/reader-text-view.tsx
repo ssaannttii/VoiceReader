@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -14,6 +15,7 @@ import type { ReaderSegment } from './reader-api';
 import { REVEAL_EVENT, type RevealDetail } from './reader-events';
 import { readerPlayer } from './reader-player';
 import { readerPrefs } from './reader-prefs';
+import { createLongPress, wordAtPoint } from './reader-long-press';
 import { FOLLOW_EVENT } from './player-sheets';
 import {
   blockIndexBySegment,
@@ -65,6 +67,14 @@ function flash(element: HTMLElement) {
 /** Two taps on the same sentence within this window count as a double tap. */
 const DOUBLE_TAP_MS = 350;
 
+/** A word picked by a long press or a right-click (pronunciation sheet). */
+export interface WordPress {
+  term: string;
+  segment: number;
+  /** Character offset of the word in the segment text. */
+  offset: number;
+}
+
 /**
  * The document text, rendered as a window of blocks around the reading position.
  *
@@ -88,6 +98,8 @@ export const ReaderTextView = memo(function ReaderTextView({
   onSeek,
   header,
   lang,
+  marked,
+  onWordPress,
 }: {
   docId: string;
   segments: ReaderSegment[];
@@ -100,6 +112,10 @@ export const ReaderTextView = memo(function ReaderTextView({
   onSeek: () => void;
   header: ReactNode;
   lang?: string;
+  /** Bookmarked segments, drawn with a small mark. */
+  marked?: ReadonlySet<number>;
+  /** Long press (touch) or right-click (mouse) on a word. */
+  onWordPress?: (press: WordPress) => void;
 }) {
   const article = useRef<HTMLElement>(null);
   const topSentinel = useRef<HTMLDivElement>(null);
@@ -126,6 +142,36 @@ export const ReaderTextView = memo(function ReaderTextView({
   /** Segment to scroll to once a re-centred window has rendered (reader:reveal). */
   const pendingReveal = useRef<number | null>(null);
   const lastTap = useRef<{ segment: number; at: number } | null>(null);
+  const onWordPressRef = useRef(onWordPress);
+  onWordPressRef.current = onWordPress;
+  /** Element under the pointer when the current press started. */
+  const pressTarget = useRef<Element | null>(null);
+  /** The click that ends a long press must not also play. */
+  const swallowClick = useRef(false);
+
+  /** Open the pronunciation sheet for the word at a viewport point. */
+  const pressWord = (x: number, y: number, target: Element | null): boolean => {
+    const handler = onWordPressRef.current;
+    const sentence = target?.closest<HTMLElement>('.rd-sent[data-seg]');
+    if (!handler || !sentence) return false;
+    const found = wordAtPoint(sentence, x, y);
+    if (!found) return false;
+    handler({ term: found.word, segment: Number(sentence.dataset.seg), offset: found.offset });
+    return true;
+  };
+  const longPress = useMemo(
+    () =>
+      createLongPress({
+        onPress: ({ x, y }) => {
+          swallowClick.current = true;
+          if (!pressWord(x, y, pressTarget.current)) return;
+          // The platform may have started selecting the word under the finger.
+          window.getSelection()?.removeAllRanges();
+        },
+      }),
+    [],
+  );
+  useEffect(() => () => longPress.cancel(), [longPress]);
 
   const elementOf = (segment: number) =>
     article.current?.querySelector<HTMLElement>(`[data-seg="${segment}"]`) ?? null;
@@ -328,7 +374,42 @@ export const ReaderTextView = memo(function ReaderTextView({
     };
   }, [active, docId, segments, blockOf, blocks, scroller, follow]);
 
+  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
+    swallowClick.current = false;
+    longPress.consume();
+    // Mouse users right-click instead; holding a mouse button starts a selection.
+    if (!onWordPress || event.pointerType === 'mouse' || !event.isPrimary) {
+      longPress.cancel();
+      return;
+    }
+    pressTarget.current = event.target as Element;
+    longPress.down({ x: event.clientX, y: event.clientY });
+  };
+  const onPointerMove = (event: PointerEvent<HTMLElement>) =>
+    longPress.move({ x: event.clientX, y: event.clientY });
+  const onPointerEnd = () => longPress.up();
+
+  const onContextMenu = (event: MouseEvent<HTMLElement>) => {
+    if (!onWordPress) return;
+    // Touch: our timer already handled the press (Android fires contextmenu too).
+    if (longPress.fired) {
+      event.preventDefault();
+      return;
+    }
+    // A selection keeps the native menu (copy, search…).
+    if (window.getSelection()?.toString()) return;
+    longPress.cancel();
+    if (pressWord(event.clientX, event.clientY, event.target as Element)) {
+      event.preventDefault();
+      swallowClick.current = true;
+    }
+  };
+
   const onClick = (event: MouseEvent<HTMLElement>) => {
+    if (swallowClick.current) {
+      swallowClick.current = false;
+      return;
+    }
     // Another document is playing: the dock offers to switch first.
     if (!active) return;
     const target = event.target as HTMLElement;
@@ -356,13 +437,27 @@ export const ReaderTextView = memo(function ReaderTextView({
   };
 
   return (
-    <article ref={article} className="rd-article" onClick={onClick} lang={lang}>
+    <article
+      ref={article}
+      className="rd-article"
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+      onContextMenu={onContextMenu}
+      lang={lang}
+    >
       {range.start === 0 && header}
       <div ref={topSentinel} aria-hidden="true" />
       {blocks.slice(range.start, range.end).map((block) =>
         block.kind === 'h' ? (
           <h2 key={block.key} className="rd-heading">
-            <span className="rd-sent" data-seg={block.segments[0].i}>
+            <span
+              className="rd-sent"
+              data-seg={block.segments[0].i}
+              data-bookmark={marked?.has(block.segments[0].i) ? '' : undefined}
+            >
               {block.segments[0].text}
             </span>
           </h2>
@@ -371,7 +466,11 @@ export const ReaderTextView = memo(function ReaderTextView({
             {block.segments.map((segment, index) => (
               <Fragment key={segment.i}>
                 {index > 0 && ' '}
-                <span className="rd-sent" data-seg={segment.i}>
+                <span
+                  className="rd-sent"
+                  data-seg={segment.i}
+                  data-bookmark={marked?.has(segment.i) ? '' : undefined}
+                >
                   {segment.text}
                 </span>
               </Fragment>

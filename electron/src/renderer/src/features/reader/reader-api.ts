@@ -90,6 +90,23 @@ export interface ReaderVoice {
   description: string | null;
 }
 
+/** A respelling from VoiceStudio's dictionary; `language` is `*` for every language. */
+export interface ReaderPronunciation {
+  id: string;
+  term: string;
+  replacement: string;
+  language: string;
+}
+
+export interface ReaderBookmark {
+  id: string;
+  doc_id?: string;
+  segment: number;
+  word: number | null;
+  note: string | null;
+  created_at: number;
+}
+
 export type ReaderModelState = 'unloaded' | 'loading' | 'ready' | 'error';
 
 export interface ReaderStatus {
@@ -116,6 +133,9 @@ export const readerKeys = {
   voices: ['reader', 'voices'] as const,
   defaultVoices: ['reader', 'default-voices'] as const,
   status: ['reader', 'status'] as const,
+  pronunciations: (language: string | null) =>
+    ['reader', 'pronunciations', language ?? '*'] as const,
+  bookmarks: (id: string) => ['reader', 'bookmarks', id] as const,
 };
 
 const doc = (id: string) => `/reader/documents/${encodeURIComponent(id)}`;
@@ -144,6 +164,21 @@ export const readerApi = {
       body: form,
     });
   },
+  /** Page photos, in page order, read by OCR on the PC (background import). */
+  createFromScan: (files: readonly File[], title?: string) => {
+    const form = new FormData();
+    files.forEach((file, index) =>
+      form.append('files', file, file.name || `page-${index + 1}.jpg`),
+    );
+    if (title?.trim()) form.append('title', title.trim());
+    return apiJson<ReaderDocumentSummary>('/reader/documents/scan', {
+      method: 'POST',
+      body: form,
+    });
+  },
+  /** Re-queue a failed background import (409 when its upload is gone). */
+  retryImport: (id: string) =>
+    apiJson<ReaderDocumentSummary>(`${doc(id)}/retry`, { method: 'POST' }),
   createFromUrl: (url: string) =>
     apiJson<ReaderDocumentSummary>('/reader/documents/url', {
       method: 'POST',
@@ -201,6 +236,44 @@ export const readerApi = {
       body: JSON.stringify({ language, voice_id: voiceId }),
     }),
   status: (signal?: AbortSignal) => apiJson<ReaderStatus>('/reader/status', { signal }),
+  pronunciations: (language: string | null, signal?: AbortSignal) =>
+    apiJson<ReaderPronunciation[]>(
+      language
+        ? `/reader/pronunciations?language=${encodeURIComponent(language)}`
+        : '/reader/pronunciations',
+      { signal },
+    ),
+  /** Upsert on (term, language); the term matches case-insensitively. */
+  savePronunciation: (term: string, replacement: string, language: string | null) =>
+    apiJson<ReaderPronunciation>('/reader/pronunciations', {
+      method: 'POST',
+      body: JSON.stringify({ term, replacement, language }),
+    }),
+  deletePronunciation: (id: string) =>
+    apiJson<{ ok: boolean }>(`/reader/pronunciations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  bookmarks: (id: string, signal?: AbortSignal) =>
+    apiJson<ReaderBookmark[]>(`${doc(id)}/bookmarks`, { signal }),
+  addBookmark: (
+    id: string,
+    mark: { segment: number; word?: number | null; note?: string | null },
+  ) =>
+    apiJson<ReaderBookmark>(`${doc(id)}/bookmarks`, {
+      method: 'POST',
+      body: JSON.stringify(mark),
+    }),
+  updateBookmark: (bookmarkId: string, note: string | null) =>
+    apiJson<ReaderBookmark>(`/reader/bookmarks/${encodeURIComponent(bookmarkId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ note }),
+    }),
+  deleteBookmark: (bookmarkId: string) =>
+    apiJson<{ ok: boolean }>(`/reader/bookmarks/${encodeURIComponent(bookmarkId)}`, {
+      method: 'DELETE',
+    }),
+  /** Markdown export (title, then chapter, sentence and note per bookmark). */
+  exportBookmarks: async (id: string) => (await apiFetch(`${doc(id)}/bookmarks/export`)).blob(),
   /** Start loading the TTS engine (idempotent; 404 on backends without it). */
   warmup: () => apiJson<ReaderStatus>('/reader/warmup', { method: 'POST' }),
 };

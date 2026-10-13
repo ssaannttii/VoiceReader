@@ -74,6 +74,13 @@ export const readerRoute = createRoute({
   component: ReaderLibraryPage,
 });
 
+/** Android share sheet → Reader (the service worker forwards shared links and text here). */
+export const readerShareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reader/share',
+  component: lazyRouteComponent(() => import('@/features/reader/share-page'), 'ReaderSharePage'),
+});
+
 export const readerDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reader/$docId',
@@ -303,6 +310,7 @@ export const routeTree = rootRoute.addChildren([
   projectsRoute,
   indexRoute,
   readerRoute,
+  readerShareRoute,
   readerDocumentRoute,
   cloneRoute,
   savedVoicesRoute,
