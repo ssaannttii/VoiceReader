@@ -5,6 +5,7 @@ import {
   BookMarkedIcon,
   BookmarkPlusIcon,
   EyeOffIcon,
+  FlaskConicalIcon,
   GaugeIcon,
   HeadphonesIcon,
   ListIcon,
@@ -52,7 +53,8 @@ export type MenuSheet =
   | 'controls'
   | 'soundscape'
   | 'queue'
-  | 'speech';
+  | 'speech'
+  | 'labs';
 
 const SOUND_LABELS = {
   off: 'reader.soundscape_off',
@@ -218,6 +220,13 @@ export function ActionsSheet({
         />
         <Divider />
         <OfflineRow id={doc.id} />
+        <SheetRow
+          icon={FlaskConicalIcon}
+          label={t('reader.labs')}
+          detail={t('reader.labs_hint')}
+          chevron
+          onClick={() => onSheet('labs')}
+        />
       </div>
       <DiagnosticsRows />
     </ReaderSheet>

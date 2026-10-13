@@ -47,6 +47,7 @@ import {
 import { readOfflineSegment } from './offline-store';
 import { offlineBackend, offlineDocument, offlineSnapshot, refreshOffline } from './offline-state';
 import { readerPrefs, setReaderPrefs } from './reader-prefs';
+import { withLabsQuality } from './labs-prefs';
 import {
   nextAfter,
   queueStartSegment,
@@ -678,7 +679,7 @@ class ReaderPlayer {
         return ready(local.render, local.blob, true);
       }
       try {
-        const render = await readerApi.render(doc.id, index, choice);
+        const render = await readerApi.render(doc.id, index, withLabsQuality(choice));
         const t1 = performance.now();
         this.adoptAutoVoice(doc.id, render.voice);
         const blob = await readerApi.audio(render.audio_url);
