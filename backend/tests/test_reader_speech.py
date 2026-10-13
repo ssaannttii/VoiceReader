@@ -263,6 +263,13 @@ def test_enable_prepares_and_renders_prepared_text_under_its_own_keys(speech):
     plain = client.post(f"/reader/documents/{doc_id}/segments/1/render").json()
     state = client.post(f"/reader/documents/{doc_id}/speech/enable", json={"enabled": True}).json()
     assert state["enabled"] is True
+    # Dialogue pauses split a sentence and change its contour: opt-in, everything else on.
+    assert state["pause_rules"]["dialogue"] is False
+    assert all(on for reason, on in state["pause_rules"].items() if reason != "dialogue")
+    state = client.post(
+        f"/reader/documents/{doc_id}/speech/enable", json={"pause_rules": {"dialogue": True}}
+    ).json()
+    assert state["pause_rules"]["dialogue"] is True
     assert reader_speech.wait_idle(10)
     state = client.get(f"/reader/documents/{doc_id}/speech").json()
     assert state["ready"] and state["complete"] and state["status"] == "ready"

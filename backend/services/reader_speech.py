@@ -17,7 +17,7 @@ Storage, beside ``content.json``::
       "complete": true, "prepared_at": 1760000000.0,
       "llm": {"status": "used"|"unavailable"|"disabled"|"none"|"pending", "model": "llama3.1:8b",
               "candidates": 12, "resolved": 12, "seconds": 41.2},
-      "pause_rules": {"dialogue": true, ...},
+      "pause_rules": {"dialogue": false, ...},
       "items": [{"n", "segment", "c0", "c1", "original", "spoken", "kind",
                  "source": "rule"|"llm", "state": "applied"|"suggested"|"reverted",
                  "scope": "here"|"doc", "count", "edited"?}],
@@ -66,6 +66,12 @@ class SpeechItemNotFound(LookupError):
 # ── Files ────────────────────────────────────────────────────────────────────
 
 
+
+#: Pauses inside a dialogue sentence ("—Pero tú… —dijo Elend—. Tú…") split it into separate
+#: synthesis calls, and the first piece ends on a rising, question-like contour. Listening
+#: tests preferred the unsplit sentence, so they are opt-in; every other pause is on.
+DEFAULT_PAUSE_RULES = {reason: reason != "dialogue" for reason in rules.PAUSE_REASONS}
+
 def _doc_dir(doc_id: str) -> str:
     from services.reader_store import document_dir
 
@@ -95,7 +101,7 @@ def _default_state() -> dict:
         "complete": False,
         "prepared_at": None,
         "llm": {"status": "none", "model": None, "candidates": 0, "resolved": 0, "seconds": 0.0},
-        "pause_rules": {reason: True for reason in rules.PAUSE_REASONS},
+        "pause_rules": dict(DEFAULT_PAUSE_RULES),
         "items": [],
         "pauses": [],
         "overrides": {},
@@ -131,7 +137,8 @@ def load_state(doc_id: str) -> dict:
             except (OSError, ValueError):
                 logger.warning("Reader: unreadable %s; preparing again", path)
         state["pause_rules"] = {
-            reason: bool((state.get("pause_rules") or {}).get(reason, True)) for reason in rules.PAUSE_REASONS
+            reason: bool((state.get("pause_rules") or {}).get(reason, DEFAULT_PAUSE_RULES[reason]))
+            for reason in rules.PAUSE_REASONS
         }
         _memo[doc_id] = {"mtime": mtime, "state": state, "index": None, "spoken": None}
         return state
