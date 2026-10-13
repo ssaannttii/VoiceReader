@@ -56,12 +56,22 @@ SQLite table `reader_documents` (in `_BASE_SCHEMA` **and** alembic `0014_reader_
 | engine | TEXT | last engine used, nullable (null = active engine) |
 | position_segment | INTEGER NOT NULL DEFAULT 0 | |
 | created_at, updated_at, last_opened_at | REAL | unix seconds; last_opened nullable |
+| furthest_segment | INTEGER NOT NULL DEFAULT 0 | v2 (alembic `0015_reader_v2`) |
+| archived, completed | INTEGER NOT NULL DEFAULT 0 | v2 |
+| import_status | TEXT NOT NULL DEFAULT 'ready' | v2: `ready` \| `importing` \| `error` |
+| import_progress, import_error | REAL, TEXT | v2, nullable |
+
+`reader_bookmarks` (v2): `id TEXT PK, doc_id TEXT NOT NULL (indexed), segment INTEGER NOT NULL,
+word INTEGER, note TEXT, created_at REAL NOT NULL`; rows are deleted with their document.
 
 Content file: `<DATA_DIR>/reader/<id>/content.json`; optional `cover.(jpg|png|webp)` beside it.
+A background import keeps its upload in `<id>/source/` and its options in `<id>/import.json`
+until it succeeds.
 Audio cache: `<DATA_DIR>/reader/audio/<render_key>.mp3` (or `.wav` when no encoder) plus
-`<render_key>.json` holding timings. `render_key = sha1(engine|voice|language|segment_text)` —
-content-addressed, so identical sentences are shared across documents. Speed is applied
-client-side (`playbackRate`), never baked into audio.
+`<render_key>.json` holding timings. `render_key = sha1(engine|voice|language|final_text)`, where
+`final_text` is what the engine synthesizes (display text → `normalize_for_tts` → pronunciation
+dictionary) — content-addressed, so identical sentences are shared across documents. Speed is
+applied client-side (`playbackRate`), never baked into audio.
 
 ## API (FastAPI router, prefix `/reader`)
 
@@ -101,7 +111,7 @@ clause punctuation/whitespace. `text` is the display text (not normalized); norm
 |---|---|---|---|
 | GET | `/reader/documents` | – | `DocumentSummary[]` ordered by `coalesce(last_opened_at, created_at)` desc |
 | POST | `/reader/documents/text` | `{"text": str, "title"?: str, "language"?: str}` | `DocumentSummary` |
-| POST | `/reader/documents/file` | multipart `file`, optional form `language` | `DocumentSummary` |
+| POST | `/reader/documents/file` | multipart `file`, optional form `language` | `DocumentSummary` (`import_status: "importing"`; see v2) |
 | POST | `/reader/documents/url` | `{"url": str, "language"?: str}` | `DocumentSummary` |
 | GET | `/reader/documents/{id}` | – | `Document` (also sets `last_opened_at`) |
 | PATCH | `/reader/documents/{id}` | any of `title, voice_id, engine, language` | `DocumentSummary` |
@@ -115,7 +125,7 @@ clause punctuation/whitespace. `text` is the display text (not normalized); norm
 | GET | `/reader/audio/{render_key}` | – | audio bytes (`audio/mpeg` or `audio/wav`), `Cache-Control: public, max-age=31536000, immutable`, supports Range |
 | GET | `/reader/voices` | optional `?engine=` | `Voice[]` |
 | GET / PUT | `/reader/default-voices` | PUT `{"language": "es", "voice_id": str\|null}` | `{lang: voice_id}`: the listener's chosen voice per document language |
-| GET | `/reader/status` | – | `{"engine": str, "engine_ready": bool, "audio_format": "mp3"\|"wav", "lan_url": str\|null}` |
+| GET | `/reader/status` | – | `{"engine": str, "engine_ready": bool, "audio_format": "mp3"\|"wav", "lan_url": str\|null, "model_state", "model_error"}` |
 
 `RenderResult`:
 ```json
@@ -228,3 +238,47 @@ status). Clients call it when Reader opens.
 ### Client-only (no API)
 Continuous MSE playback, undo seek, configurable controls, reading themes, double-tap, reading
 sync, in-document search, queue, soundscapes, voice picker search/recents, share target.
+
+### v2 as built (backend notes and additive extensions)
+- **409s.** While a document imports, every content route answers 409 `{"detail": "importing"}`:
+  `GET` document, render, prerender (start/status/cancel), `PUT .../progress`, `POST .../bookmarks`,
+  bookmark export. After a failed import the same routes answer 409 `{"detail": "import_error"}`.
+  `DELETE` works in any state (an import in flight is discarded).
+- **`completed`** is set when `PUT .../progress` reaches `segment_count - 1` (or `segment_count`;
+  a one-segment document needs `segment_count`). Progress never clears it; `PATCH` does.
+- **Background worker.** One import at a time on a dedicated thread (`services/reader_jobs.py`).
+  `import_progress`: PDF pages (0–0.8) then segmentation; EPUB 0.3 after extraction, then per
+  chapter; scans per image. **Restart:** the upload stays in `<id>/source/` until the import
+  succeeds, so rows left `importing` are **resumed** on the first `GET /reader/documents` after
+  start-up; a row whose upload is gone becomes `error` ("…add the file again").
+- **Extension:** `POST /reader/documents/{id}/retry` re-queues a failed import whose upload is still
+  stored (409 otherwise) → `DocumentSummary` with `import_status: "importing"`.
+- **Scan.** `source_type: "scan"` (new value), `source_name: "N images"`; placeholder title
+  `Scan (N pages)` (or the form `title`), replaced by the first detected heading unless a title
+  was given. Chapters are named `Página N` / `Page N` by document language. OCR runs locally
+  (`services/reader_ocr.py`): PaddleOCR PP-OCRv3 mobile detection + PP-OCRv5 Latin recognition
+  (accents, ñ, ¿¡) as ONNX on `onnxruntime` (CPU; already a VoiceStudio dependency), ~10 MB
+  downloaded from Hugging Face (`monkt/paddleocr-onnx`, pinned revision, Apache-2.0) on the first
+  scan; tilted photos are straightened first. Without network on that first scan, or without
+  onnxruntime, the document ends in `error` with a message saying so. Limits: 50 images,
+  25 MB each.
+- **PDF chapters.** Running headers/footers and page numbers are removed first; a heading needs
+  to start a line after a sentence end; bare numbers count only in sequence (1, 2, 3…); a short
+  title line right after a heading is merged ("Capítulo 1. La partida"). With fewer than two
+  headings, PDFs over 10 pages get `Páginas 1–10`… chapters (labels follow the document
+  language: es/pt/fr/de/it, else English) and paragraphs flow across page breaks.
+- **Warm-up** returns `{"engine", "model_state", "model_error"}` and never starts a download: the
+  built-in model is warmed only when its checkpoint is cached, other engines only when
+  `is_available()`. `model_state` comes from the loaded-model inventory (`/model/loaded`) and,
+  for OmniVoice, `/model/status`; a model unloaded by the idle timeout reads `unloaded` again.
+- **Pronunciation.** `language` may be null / `"*"` (global entry; picker names like `Spanish`
+  are stored as their code). `GET ?language=` lists global + that language's respelling entries
+  (IPA/CMU rows stay in Settings → Pronunciation). `POST` upserts on (term, language), matching
+  the term case-insensitively. Entries live in VoiceStudio's `pronunciation_entries` table, so
+  they also apply to Studio generation.
+- **Render cache compatibility.** Pre-v2 entries (keyed by the display text) stay valid while the
+  dictionary changes nothing in the segment (final text == its normalization), and are found
+  through that legacy key; entries now store `synth_text`, the display `text` and the voiced
+  `span`, and word timings are recomputed when one final text serves another display text.
+- **Bookmarks** also carry `doc_id`; a `word` of a regrouped (segmentation-upgraded) document is
+  cleared because it indexed the old segment.

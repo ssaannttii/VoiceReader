@@ -8,9 +8,11 @@ an ``<audio src>``.
 from __future__ import annotations
 
 import asyncio
+import functools
 import gzip
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -18,7 +20,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from services import reader_debug, reader_import, reader_render, reader_store
+from services import reader_debug, reader_engine, reader_import, reader_jobs, reader_render, reader_store
 
 router = APIRouter()
 logger = logging.getLogger("omnivoice.reader")
@@ -42,6 +44,8 @@ class DocumentPatch(BaseModel):
     voice_id: Optional[str] = Field(None, max_length=200)
     engine: Optional[str] = Field(None, max_length=100)
     language: Optional[str] = Field(None, max_length=16)
+    archived: Optional[bool] = None
+    completed: Optional[bool] = None
 
 
 class ProgressRequest(BaseModel):
@@ -62,11 +66,27 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Document not found")
 
 
+def _not_ready(exc: reader_store.DocumentImporting) -> HTTPException:
+    """409 ``{"detail": "importing"}`` (or ``"import_error"`` for a failed import)."""
+    return HTTPException(status_code=409, detail=str(exc.args[0] if exc.args else "importing"))
+
+
 def _summary(doc_id: str) -> dict:
     try:
         return reader_store.get_summary(doc_id)
     except reader_store.DocumentNotFound:
         raise _not_found() from None
+
+
+def _ready_content(doc_id: str) -> tuple[dict, dict]:
+    """``(summary, content)`` of a document whose import finished; 404/409 otherwise."""
+    try:
+        doc = reader_store.require_ready(reader_store.get_summary(doc_id))
+        return doc, reader_store.load_content(doc_id)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except reader_store.DocumentImporting as exc:
+        raise _not_ready(exc) from None
 
 
 def _save(doc: reader_import.ImportedDocument) -> dict:
@@ -101,6 +121,8 @@ def _clean_lang(value: Optional[str]) -> Optional[str]:
 
 @router.get("/reader/documents")
 async def list_documents():
+    # First library listing after a restart: resume interrupted imports.
+    await asyncio.to_thread(reader_jobs.resume_pending)
     return await asyncio.to_thread(reader_store.list_documents)
 
 
@@ -111,14 +133,101 @@ async def import_text(req: TextImportRequest):
     )
 
 
+def _check_file_type(name: str) -> None:
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in reader_import.FILE_EXTENSIONS + (".xhtml", ".text", ".markdown", ""):
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported file type {ext}; use "
+            + ", ".join(e.lstrip(".") for e in reader_import.FILE_EXTENSIONS[:-1]) + " or docx",
+        )
+
+
+async def _start_import(*, title: str, source_type: str, files: list, source_name: str, language, meta: dict) -> dict:
+    summary = await asyncio.to_thread(
+        functools.partial(
+            reader_store.create_pending,
+            title=title,
+            source_type=source_type,
+            files=files,
+            source_name=source_name,
+            language=language,
+            meta=meta,
+        )
+    )
+    reader_jobs.enqueue(summary["id"])
+    return summary
+
+
 @router.post("/reader/documents/file")
 async def import_file(file: UploadFile = File(...), language: Optional[str] = Form(None)):
+    """Store the upload and import it in the background (``import_status``)."""
     data = await file.read(reader_import.MAX_FILE_BYTES + 1)
     if len(data) > reader_import.MAX_FILE_BYTES:
         raise HTTPException(status_code=400, detail="the file is too large (max 64 MB)")
-    return await _import(
-        reader_import.import_file, file.filename or "document.txt", data, language=_clean_lang(language)
+    if not data:
+        raise HTTPException(status_code=400, detail="the file is empty")
+    name = os.path.basename(file.filename or "document.txt")
+    _check_file_type(name)
+    lang = _clean_lang(language)
+    stem = os.path.splitext(name)[0].replace("_", " ").strip() or name
+    return await _start_import(
+        title=reader_import._short_title(stem) or "Document",
+        source_type="file",
+        files=[(name, data)],
+        source_name=name,
+        language=lang,
+        meta={"kind": reader_jobs.KIND_FILE, "language": lang},
     )
+
+
+@router.post("/reader/documents/scan")
+async def import_scan(
+    files: list[UploadFile] = File(...),
+    language: Optional[str] = Form(None),
+    title: Optional[str] = Form(None, max_length=500),
+):
+    """Page photos (1–50, in page order) → OCR → a document, in the background."""
+    if not files:
+        raise HTTPException(status_code=400, detail="add at least one image")
+    if len(files) > reader_import.MAX_SCAN_IMAGES:
+        raise HTTPException(status_code=400, detail=f"too many images (max {reader_import.MAX_SCAN_IMAGES})")
+    stored: list[tuple[str, bytes]] = []
+    total = 0
+    for index, upload in enumerate(files):
+        data = await upload.read(reader_import.MAX_SCAN_IMAGE_BYTES + 1)
+        if not data:
+            raise HTTPException(status_code=400, detail=f"image {index + 1} is empty")
+        if len(data) > reader_import.MAX_SCAN_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail=f"image {index + 1} is too large (max 25 MB)")
+        total += len(data)
+        if total > reader_import.MAX_FILE_BYTES * 4:
+            raise HTTPException(status_code=400, detail="the images are too large together (max 256 MB)")
+        stored.append((upload.filename or f"page-{index + 1}.jpg", data))
+    lang = _clean_lang(language)
+    clean_title = " ".join((title or "").split()) or None
+    count = len(stored)
+    return await _start_import(
+        title=clean_title or f"Scan ({count} page{'s' if count != 1 else ''})",
+        source_type="scan",
+        files=stored,
+        source_name=f"{count} image{'s' if count != 1 else ''}",
+        language=lang,
+        meta={"kind": reader_jobs.KIND_SCAN, "language": lang, "title": clean_title},
+    )
+
+
+@router.post("/reader/documents/{doc_id}/retry")
+async def retry_import(doc_id: str):
+    """Re-queue a failed background import whose upload is still stored."""
+    try:
+        summary = await asyncio.to_thread(reader_store.restart_import, doc_id)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    reader_jobs.enqueue(doc_id)
+    return summary
 
 
 @router.post("/reader/documents/url")
@@ -146,6 +255,8 @@ async def get_document(doc_id: str, request: Request):
         doc = await asyncio.to_thread(reader_store.open_document, doc_id)
     except reader_store.DocumentNotFound:
         raise _not_found() from None
+    except reader_store.DocumentImporting as exc:
+        raise _not_ready(exc) from None
     return await asyncio.to_thread(_json_response, request, doc)
 
 
@@ -162,6 +273,9 @@ async def update_document(doc_id: str, req: DocumentPatch):
     for key in ("voice_id", "engine"):
         if key in fields:
             fields[key] = (fields[key] or "").strip() or None
+    for key in ("archived", "completed"):
+        if key in fields and fields[key] is None:
+            raise HTTPException(status_code=422, detail=f"{key} must be true or false")
     try:
         return await asyncio.to_thread(reader_store.update_document, doc_id, fields)
     except reader_store.DocumentNotFound:
@@ -174,6 +288,8 @@ async def set_progress(doc_id: str, req: ProgressRequest):
         await asyncio.to_thread(reader_store.set_progress, doc_id, req.segment)
     except reader_store.DocumentNotFound:
         raise _not_found() from None
+    except reader_store.DocumentImporting as exc:
+        raise _not_ready(exc) from None
     return {"ok": True}
 
 
@@ -313,11 +429,7 @@ def _render_error(exc: Exception) -> HTTPException:
 @router.post("/reader/documents/{doc_id}/segments/{index}/render")
 async def render_segment(doc_id: str, index: int, req: Optional[RenderRequest] = None):
     req = req or RenderRequest()
-    try:
-        doc = await asyncio.to_thread(reader_store.get_summary, doc_id)
-        content = await asyncio.to_thread(reader_store.load_content, doc_id)
-    except reader_store.DocumentNotFound:
-        raise _not_found() from None
+    doc, content = await asyncio.to_thread(_ready_content, doc_id)
     segments = content["segments"]
     if index < 0 or index >= len(segments):
         raise HTTPException(status_code=404, detail="Segment not found")
@@ -357,11 +469,7 @@ async def render_segment(doc_id: str, index: int, req: Optional[RenderRequest] =
 @router.post("/reader/documents/{doc_id}/prerender")
 async def start_prerender(doc_id: str, req: Optional[PrerenderRequest] = None):
     req = req or PrerenderRequest()
-    try:
-        doc = await asyncio.to_thread(reader_store.get_summary, doc_id)
-        content = await asyncio.to_thread(reader_store.load_content, doc_id)
-    except reader_store.DocumentNotFound:
-        raise _not_found() from None
+    doc, content = await asyncio.to_thread(_ready_content, doc_id)
     voice, engine, language = _render_settings(doc, req)
     try:
         return reader_render.start_prerender(
@@ -377,8 +485,8 @@ async def start_prerender(doc_id: str, req: Optional[PrerenderRequest] = None):
 
 
 async def _idle_status(doc_id: str) -> dict:
-    doc = await asyncio.to_thread(reader_store.get_summary, doc_id)
-    texts = [s["text"] for s in (await asyncio.to_thread(reader_store.load_content, doc_id))["segments"]]
+    doc, content = await asyncio.to_thread(_ready_content, doc_id)
+    texts = [s["text"] for s in content["segments"]]
     engine = doc.get("engine")
     try:
         engine = reader_render.resolve_engine_id(engine)
@@ -527,8 +635,209 @@ async def reader_status():
     from services import tts_backend
 
     engine_id = tts_backend.active_backend_id()
-    ready, fmt = await asyncio.gather(
+    ready, fmt, model = await asyncio.gather(
         asyncio.to_thread(_engine_ready, engine_id),
         asyncio.to_thread(reader_render.audio_format),
+        asyncio.to_thread(reader_engine.model_status, engine_id),
     )
-    return {"engine": engine_id, "engine_ready": ready, "audio_format": fmt, "lan_url": _lan_url()}
+    return {
+        "engine": engine_id,
+        "engine_ready": ready,
+        "audio_format": fmt,
+        "lan_url": _lan_url(),
+        **model,
+    }
+
+
+@router.post("/reader/warmup")
+async def warmup():
+    """Start loading the active TTS engine in the background (idempotent).
+
+    Returns ``{"engine", "model_state", "model_error"}``. Never downloads a
+    model: an engine that is not installed stays ``unloaded``.
+    """
+    from services import tts_backend
+
+    engine_id = tts_backend.active_backend_id()
+    return {"engine": engine_id, **(await reader_engine.warmup(engine_id))}
+
+
+# ── Pronunciation (user-level wrappers over VoiceStudio's dictionary) ────────
+
+
+class PronunciationRequest(BaseModel):
+    term: str = Field(..., min_length=1, max_length=200)
+    replacement: str = Field(..., max_length=500)
+    language: Optional[str] = Field(None, max_length=32)
+
+
+def _pron_entry(row) -> dict:
+    return {
+        "id": row["id"],
+        "term": row["term"],
+        "replacement": row["replacement"],
+        "language": row["language"] or "*",
+    }
+
+
+def _list_pronunciations(language: Optional[str]) -> list[dict]:
+    from services.pronunciation import load_entries_from_db, language_scope_key
+
+    rows = [r for r in load_entries_from_db() if (r.get("type") or "respelling") == "respelling"]
+    if language:
+        wanted = language_scope_key(language)
+        rows = [r for r in rows if (r["language"] or "*") == "*" or language_scope_key(r["language"]) == wanted]
+    rows.sort(key=lambda r: (r["term"] or "").casefold())
+    return [_pron_entry(r) for r in rows]
+
+
+def _save_pronunciation(term: str, replacement: str, language: Optional[str]) -> dict:
+    """Upsert: one respelling per (term, scope); the term matches case-insensitively."""
+    import uuid
+
+    from core.db import db_conn
+    from services.pronunciation import language_scope_key
+
+    scope = language_scope_key(language) or "*"
+    with db_conn() as conn:
+        existing = [
+            row for row in conn.execute(
+                "SELECT id, term FROM pronunciation_entries WHERE language=? AND type='respelling'", (scope,)
+            ).fetchall()
+            if (row["term"] or "").strip().casefold() == term.casefold()
+        ]
+        if existing:
+            entry_id = existing[0]["id"]
+            conn.execute(
+                "UPDATE pronunciation_entries SET term=?, replacement=?, enabled=1 WHERE id=?",
+                (term, replacement, entry_id),
+            )
+        else:
+            entry_id = str(uuid.uuid4())[:12]
+            conn.execute(
+                "INSERT INTO pronunciation_entries (id, term, replacement, type, language, enabled, created_at)"
+                " VALUES (?, ?, ?, 'respelling', ?, 1, ?)",
+                (entry_id, term, replacement, scope, time.time()),
+            )
+        row = conn.execute(
+            "SELECT id, term, replacement, language FROM pronunciation_entries WHERE id=?", (entry_id,)
+        ).fetchone()
+    return _pron_entry(row)
+
+
+def _delete_pronunciation(entry_id: str) -> bool:
+    from core.db import db_conn
+
+    with db_conn() as conn:
+        deleted = conn.execute("DELETE FROM pronunciation_entries WHERE id=?", (entry_id,)).rowcount
+    return bool(deleted)
+
+
+@router.get("/reader/pronunciations")
+async def list_pronunciations(language: Optional[str] = None):
+    """Respelling entries (``[{id, term, replacement, language}]``); with
+    ``?language=``, those that apply to it (global ``*`` + that language)."""
+    return await asyncio.to_thread(_list_pronunciations, (language or "").strip() or None)
+
+
+@router.post("/reader/pronunciations")
+async def add_pronunciation(req: PronunciationRequest):
+    term = " ".join(req.term.split())
+    if not term:
+        raise HTTPException(status_code=400, detail="A pronunciation entry needs a term.")
+    if "[[" in term or "]]" in term or "[[" in req.replacement or "]]" in req.replacement:
+        raise HTTPException(status_code=400, detail="Remove the double brackets.")
+    return await asyncio.to_thread(_save_pronunciation, term, req.replacement.strip(), req.language)
+
+
+@router.delete("/reader/pronunciations/{entry_id}")
+async def delete_pronunciation(entry_id: str):
+    if not await asyncio.to_thread(_delete_pronunciation, entry_id):
+        raise HTTPException(status_code=404, detail="No such pronunciation entry.")
+    return {"ok": True}
+
+
+# ── Bookmarks ────────────────────────────────────────────────────────────────
+
+
+class BookmarkRequest(BaseModel):
+    segment: int = Field(..., ge=0)
+    word: Optional[int] = Field(None, ge=0)
+    note: Optional[str] = Field(None, max_length=10_000)
+
+
+class BookmarkPatch(BaseModel):
+    note: Optional[str] = Field(None, max_length=10_000)
+
+
+def _public_bookmark(mark: dict) -> dict:
+    return {k: mark[k] for k in ("id", "doc_id", "segment", "word", "note", "created_at")}
+
+
+def _clean_note(note: Optional[str]) -> Optional[str]:
+    note = (note or "").strip()
+    return note or None
+
+
+@router.get("/reader/documents/{doc_id}/bookmarks")
+async def list_bookmarks(doc_id: str):
+    try:
+        marks = await asyncio.to_thread(reader_store.list_bookmarks, doc_id)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    return [_public_bookmark(m) for m in marks]
+
+
+@router.post("/reader/documents/{doc_id}/bookmarks")
+async def add_bookmark(doc_id: str, req: BookmarkRequest):
+    try:
+        mark = await asyncio.to_thread(
+            reader_store.add_bookmark, doc_id, req.segment, req.word, _clean_note(req.note)
+        )
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except reader_store.DocumentImporting as exc:
+        raise _not_ready(exc) from None
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Segment not found") from None
+    return _public_bookmark(mark)
+
+
+@router.get("/reader/documents/{doc_id}/bookmarks/export")
+async def export_bookmarks(doc_id: str):
+    try:
+        doc = await asyncio.to_thread(reader_store.get_summary, doc_id)
+        text = await asyncio.to_thread(reader_store.bookmarks_markdown, doc_id)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except reader_store.DocumentImporting as exc:
+        raise _not_ready(exc) from None
+    from urllib.parse import quote
+
+    filename = f"{doc['title'][:80].strip() or 'bookmarks'} - bookmarks.md"
+    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "") or "bookmarks.md"
+    return Response(
+        text.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+        },
+    )
+
+
+@router.patch("/reader/bookmarks/{bookmark_id}")
+async def update_bookmark(bookmark_id: str, req: BookmarkPatch):
+    try:
+        mark = await asyncio.to_thread(reader_store.update_bookmark, bookmark_id, _clean_note(req.note))
+    except reader_store.BookmarkNotFound:
+        raise HTTPException(status_code=404, detail="Bookmark not found") from None
+    return _public_bookmark(mark)
+
+
+@router.delete("/reader/bookmarks/{bookmark_id}")
+async def delete_bookmark(bookmark_id: str):
+    try:
+        await asyncio.to_thread(reader_store.delete_bookmark, bookmark_id)
+    except reader_store.BookmarkNotFound:
+        raise HTTPException(status_code=404, detail="Bookmark not found") from None
+    return {"ok": True}

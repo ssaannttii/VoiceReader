@@ -42,6 +42,12 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(reader_render, "_interactive", {"active": 0})
     monkeypatch.setattr(reader_render, "ffmpeg_path", lambda: None)
     monkeypatch.setattr(reader_render, "resolve_engine_id", lambda engine: engine or "fake-engine")
+    from services import reader_engine, reader_jobs
+
+    reader_jobs.wait_idle()
+    monkeypatch.setitem(reader_jobs._resumed, "done", True)
+    monkeypatch.setattr(reader_engine, "_state", {"engine": None, "task": None, "error": None, "ready_at": None})
+    reader_render.clear_text_cache()
 
     state = SimpleNamespace(calls=[], delay=0.05, fail=None)
 
@@ -58,6 +64,15 @@ def env(tmp_path, monkeypatch):
     state.app = app
     state.data_dir = tmp_path
     return state
+
+
+def _imported(client, summary, timeout=30.0):
+    """The summary of a background import once it has finished."""
+    from services import reader_jobs
+
+    assert summary["import_status"] == "importing", summary
+    assert reader_jobs.wait_idle(timeout)
+    return next(d for d in client.get("/reader/documents").json() if d["id"] == summary["id"])
 
 
 def _create(client, text=None, **extra):
@@ -130,18 +145,21 @@ def test_file_upload_and_epub_cover(env):
     from .test_reader_import import _epub
 
     client = TestClient(env.app)
-    md = client.post(
+    md = _imported(client, client.post(
         "/reader/documents/file",
         files={"file": ("notes.md", b"# Notes\n\nSome body text to read aloud.", "text/markdown")},
-    ).json()
+    ).json())
     assert md["title"] == "Notes" and md["source_name"] == "notes.md"
+    assert md["import_status"] == "ready" and md["import_progress"] is None and md["import_error"] is None
     assert client.get(f"/reader/documents/{md['id']}/cover").status_code == 404
+    # The stored upload is gone once the import succeeded.
+    assert not (env.data_dir / "reader" / md["id"] / "source").exists()
 
-    book = client.post(
+    book = _imported(client, client.post(
         "/reader/documents/file",
         files={"file": ("book.epub", _epub(), "application/epub+zip")},
         data={"language": "EN"},
-    ).json()
+    ).json())
     assert book["has_cover"] is True and book["author"] == "A. Author"
     assert book["language"] == "en" and book["chapter_count"] == 2
     cover = client.get(f"/reader/documents/{book['id']}/cover")
@@ -153,8 +171,14 @@ def test_bad_imports_are_400(env):
     client = TestClient(env.app)
     assert client.post("/reader/documents/text", json={"text": "  "}).status_code == 400
     assert client.post("/reader/documents/url", json={"url": "ftp://example.com/x"}).status_code == 400
-    bad = client.post("/reader/documents/file", files={"file": ("x.docx", b"nope", "application/octet-stream")})
-    assert bad.status_code == 400 and bad.json()["detail"]
+    assert client.post("/reader/documents/file", files={"file": ("x.exe", b"MZ", "application/x")}).status_code == 400
+    assert client.post("/reader/documents/file", files={"file": ("x.txt", b"", "text/plain")}).status_code == 400
+    # A corrupt file of a supported type fails in the background, readably.
+    accepted = client.post("/reader/documents/file", files={"file": ("x.docx", b"nope", "application/octet-stream")})
+    assert accepted.status_code == 200
+    bad = _imported(client, accepted.json())
+    assert bad["import_status"] == "error" and bad["import_error"] and bad["import_progress"] is None
+    assert client.get(f"/reader/documents/{bad['id']}").json() == {"detail": "import_error"}
 
 
 # ── Render ───────────────────────────────────────────────────────────────────
@@ -353,8 +377,12 @@ def test_status_reports_engine_format_and_lan_url(env, monkeypatch):
     monkeypatch.setattr(tts_backend, "get_backend_class", lambda engine_id: FakeEngine)
     client = TestClient(env.app)
     monkeypatch.setattr(network_share, "get_state", lambda: network_share.ShareState())
+    from services import model_lifecycle
+
+    monkeypatch.setattr(model_lifecycle, "list_loaded", lambda: {"models": [], "count": 0})
     assert client.get("/reader/status").json() == {
         "engine": "fake-engine", "engine_ready": True, "audio_format": "wav", "lan_url": None,
+        "model_state": "unloaded", "model_error": None,
     }
     monkeypatch.setattr(reader_render, "ffmpeg_path", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(

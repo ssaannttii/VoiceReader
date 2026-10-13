@@ -230,8 +230,27 @@ _BASE_SCHEMA = """
         position_segment INTEGER NOT NULL DEFAULT 0,
         created_at REAL,
         updated_at REAL,
-        last_opened_at REAL
+        last_opened_at REAL,
+        -- v2 (alembic 0015_reader_v2): furthest point reached, library state
+        -- and the background file/scan import state.
+        furthest_segment INTEGER NOT NULL DEFAULT 0,
+        archived INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0,
+        import_status TEXT NOT NULL DEFAULT 'ready',
+        import_progress REAL,
+        import_error TEXT
     );
+
+    -- Reader bookmarks (alembic 0015_reader_v2); deleted with their document.
+    CREATE TABLE IF NOT EXISTS reader_bookmarks (
+        id TEXT NOT NULL PRIMARY KEY,
+        doc_id TEXT NOT NULL,
+        segment INTEGER NOT NULL,
+        word INTEGER,
+        note TEXT,
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reader_bookmarks_doc ON reader_bookmarks(doc_id);
 
     -- Legacy tables kept for existing installs; the feature moved to VoiceStudio Pro.
     CREATE TABLE IF NOT EXISTS remote_workers (
