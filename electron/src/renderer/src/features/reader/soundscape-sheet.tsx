@@ -24,6 +24,9 @@ import { ambiencePack, useAmbiencePack } from './ambience-pack';
 import { useAmbienceInfo, type AmbienceInfo } from './reader-ambience';
 import { soundscapePlayer, useSoundscapeStatus } from './reader-soundscape';
 import { ReaderSheet, SheetRow } from './reader-sheet';
+import { useLabsPrefs } from './labs-prefs';
+import { MusicSection } from './music-section';
+import { useReaderPlayer } from './reader-player';
 
 const SOUND_ICONS: Record<SoundscapeId, LucideIcon> = {
   rain: CloudRainIcon,
@@ -95,6 +98,8 @@ export function SoundscapeSheet({
   const recordings = pack.status === 'ready' && pack.beds.length > 0;
   const volume = prefs.soundscapeVolume;
   const auto = prefs.soundscape === 'auto';
+  const labs = useLabsPrefs();
+  const musicDoc = useReaderPlayer().doc?.id ?? null;
   // Opening the sheet asks the PC again which recordings it has (cheap; at most every 10 min).
   useEffect(() => {
     if (open) void ambiencePack.refresh();
@@ -201,6 +206,12 @@ export function SoundscapeSheet({
           className={cn(!recordings && 'opacity-50')}
           onClick={() => setListeningPrefs({ soundscapeRecorded: !prefs.soundscapeRecorded })}
         />
+        {labs.music && musicDoc && (
+          <>
+            <div className="rd-sheet-divider" role="separator" />
+            <MusicSection docId={musicDoc} />
+          </>
+        )}
       </div>
     </ReaderSheet>
   );

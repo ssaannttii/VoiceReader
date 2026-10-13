@@ -17,6 +17,7 @@ import {
   GaugeIcon,
   Loader2Icon,
   LocateFixedIcon,
+  Music2Icon,
   PlayIcon,
   ShuffleIcon,
   SparklesIcon,
@@ -215,6 +216,24 @@ function AutoAmbience() {
       checked={on}
       busy={on && (info.status === 'loading' || info.status === 'computing')}
       onToggle={() => soundscapePlayer.choose(on ? 'off' : 'auto')}
+    />
+  );
+}
+
+function BackgroundMusic() {
+  const { t } = useTranslation();
+  const labs = useLabsPrefs();
+  return (
+    <LabSwitch
+      icon={Music2Icon}
+      label={t('reader.labs_music')}
+      detail={t('reader.labs_music_hint')}
+      badge
+      checked={labs.music}
+      onToggle={() => {
+        setLabsPrefs({ music: !labs.music });
+        dlog('labs_music', { on: !labs.music });
+      }}
     />
   );
 }
@@ -914,6 +933,7 @@ export function LabSheet({ doc, open, onOpenChange }: SheetProps & { doc: Reader
           <div className="space-y-0.5">
             <PreparedReading doc={doc} />
             <AutoAmbience />
+            <BackgroundMusic />
             <VoiceQualityPicker />
             <Diagnostics />
           </div>
