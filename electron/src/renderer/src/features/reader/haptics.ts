@@ -23,6 +23,20 @@ export function hapticsOn(): boolean {
   return enabled();
 }
 
+/** The device can vibrate at all (decides whether the setting is shown). */
+export function hapticsSupported(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+}
+
+/** The stored preference, independent of device support and reduced motion. */
+export function hapticsPref(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
 export function setHaptics(on: boolean) {
   try {
     localStorage.setItem(KEY, on ? 'on' : 'off');

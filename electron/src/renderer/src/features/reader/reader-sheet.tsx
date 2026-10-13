@@ -1,6 +1,6 @@
 import { Drawer } from '@base-ui/react/drawer';
 import type { ComponentProps, ReactNode } from 'react';
-import { CheckIcon, ChevronRightIcon, type LucideIcon } from 'lucide-react';
+import { CheckIcon, ChevronRightIcon, XIcon, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppearanceProps } from './reader-appearance';
 
@@ -13,6 +13,8 @@ export function ReaderSheet({
   children,
   keyboard = false,
   className,
+  headerStart,
+  closeLabel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -22,23 +24,42 @@ export function ReaderSheet({
   /** Track the software keyboard for sheets with text fields. */
   keyboard?: boolean;
   className?: string;
+  /** Control before the title (a back button in multi-step sheets). */
+  headerStart?: ReactNode;
+  /** Shows a 44px close button with this accessible name. */
+  closeLabel?: string;
 }) {
   // Sheets are portaled out of `.rd-root`, so they carry the Reader appearance themselves.
   const appearance = useAppearanceProps();
+  const heading = (
+    <>
+      <Drawer.Title className="text-base font-semibold tracking-tight">{title}</Drawer.Title>
+      {description && (
+        <Drawer.Description className="mt-0.5 text-sm text-muted-foreground">
+          {description}
+        </Drawer.Description>
+      )}
+    </>
+  );
   const popup = (
     <Drawer.Portal>
       <Drawer.Backdrop className="rd-sheet-backdrop" />
       <Drawer.Viewport className="rd-sheet-viewport">
         <Drawer.Popup className={cn('rd-sheet', className)} {...appearance}>
           <div className="rd-sheet-handle" aria-hidden="true" />
-          <div className="px-5 pb-2 pt-1">
-            <Drawer.Title className="text-base font-semibold tracking-tight">{title}</Drawer.Title>
-            {description && (
-              <Drawer.Description className="mt-0.5 text-sm text-muted-foreground">
-                {description}
-              </Drawer.Description>
-            )}
-          </div>
+          {headerStart || closeLabel ? (
+            <div className="flex items-center gap-1 pb-2 pl-2 pr-2">
+              {headerStart ?? <span className="w-3 shrink-0" />}
+              <div className="min-w-0 flex-1 py-1">{heading}</div>
+              {closeLabel && (
+                <Drawer.Close className="rd-icon-btn text-muted-foreground" aria-label={closeLabel}>
+                  <XIcon className="size-5" aria-hidden="true" />
+                </Drawer.Close>
+              )}
+            </div>
+          ) : (
+            <div className="px-5 pb-2 pt-1">{heading}</div>
+          )}
           <Drawer.Content className="rd-sheet-body">{children}</Drawer.Content>
         </Drawer.Popup>
       </Drawer.Viewport>

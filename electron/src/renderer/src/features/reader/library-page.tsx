@@ -1,105 +1,102 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+  type UIEvent,
+} from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  AlertCircleIcon,
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   ArrowDownUpIcon,
-  BookOpenTextIcon,
-  CheckCircle2Icon,
+  ChevronDownIcon,
+  CircleCheckIcon,
+  CircleIcon,
+  CloudDownloadIcon,
   CloudOffIcon,
-  DownloadIcon,
+  EllipsisIcon,
   HouseIcon,
   Loader2Icon,
-  MoreHorizontalIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
-  RotateCcwIcon,
+  SearchIcon,
   SmartphoneIcon,
+  SquareCheckIcon,
+  Trash2Icon,
+  VibrateIcon,
+  XIcon,
+  type LucideIcon,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ApiError, describeError } from '@/lib/api/client';
+import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { AddDocumentSheet } from './add-document-sheet';
 import { CoverTile } from './cover-tile';
 import { DocumentActionsSheet } from './document-actions-sheet';
+import { hapticsPref, hapticsSupported, setHaptics, tick } from './haptics';
+import {
+  deleteMany,
+  setFlagsWithUndo,
+  startDownloads,
+  useHiddenDocuments,
+} from './library-actions';
+import { DocumentRow, durationLabel, sourceLabel } from './library-row';
+import {
+  bulkFinishedTarget,
+  NO_SELECTION,
+  selectionReducer,
+  type LibrarySelection,
+} from './library-selection';
+import { CoverWall, EmptyState, LibrarySkeleton, StackedCards } from './library-states';
 import {
   arrangeLibrary,
+  coverArt,
+  coverShape,
   isFinished,
   isReady,
   LIBRARY_FILTERS,
   LIBRARY_SORTS,
+  matchesQuery,
+  rowStatus,
   setLibrarySort,
   useLibrarySort,
   type LibraryFilter,
   type LibrarySort,
 } from './library-view';
 import { MiniPlayer } from './mini-player';
-import { useOffline } from './offline-state';
 import { PhoneSheet } from './phone-sheet';
 import { fetchReaderDocument } from './reader-actions';
-import { readerApi, readerKeys, type ReaderDocumentSummary } from './reader-api';
+import type { ReaderDocumentSummary } from './reader-api';
 import { useAppearanceProps } from './reader-appearance';
-import { isTouchDevice, searchKey, titlebarChrome } from './reader-chrome';
+import { isTouchDevice, titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderPlayer } from './reader-player';
 import { ReaderSheet, SheetRow } from './reader-sheet';
-import { minutesLeft } from './reader-text';
 import { SearchField } from './search-field';
 import { useReaderDocuments, type ReaderListItem } from './use-reader-data';
 import './reader.css';
+import './library.css';
 
 const SORT_LABELS: Record<LibrarySort, string> = {
   recent: 'reader.sort_recent',
+  least_recent: 'reader.lib_sort_least_recent',
   progress: 'reader.sort_progress',
   title: 'reader.sort_title',
+  title_desc: 'reader.lib_sort_title_desc',
   added: 'reader.sort_added',
+  oldest: 'reader.lib_sort_oldest',
 };
 const FILTER_LABELS: Record<LibraryFilter, string> = {
   library: 'reader.library',
   archived: 'reader.filter_archived',
   finished: 'reader.filter_finished',
 };
-const FILTER_EMPTY: Record<LibraryFilter, string> = {
-  library: 'reader.no_results',
-  archived: 'reader.empty_archived',
-  finished: 'reader.empty_finished',
-};
-
-function useProgressLabel() {
-  const { t } = useTranslation();
-  return (doc: ReaderDocumentSummary) => {
-    if (isFinished(doc)) return t('reader.finished');
-    const remaining = doc.est_duration_s * (1 - Math.min(1, Math.max(0, doc.progress)));
-    if (doc.position_segment <= 0)
-      return t('reader.minutes_total', { minutes: minutesLeft(doc.est_duration_s) });
-    return t('reader.progress_left', {
-      percent: Math.max(1, Math.round(doc.progress * 100)),
-      minutes: minutesLeft(remaining),
-    });
-  };
-}
-
-function sourceLabel(doc: ReaderDocumentSummary, pasted: string): string {
-  return doc.author || doc.source_name || pasted;
-}
-
-/** `value` null draws an indeterminate bar (import with no progress figure yet). */
-function ProgressBar({ value, className }: { value: number | null; className?: string }) {
-  return (
-    <div
-      className={cn('rd-progress', className)}
-      data-indeterminate={value === null ? '' : undefined}
-      aria-hidden="true"
-    >
-      <span
-        style={
-          value === null ? undefined : { transform: `scaleX(${Math.min(1, Math.max(0, value))})` }
-        }
-      />
-    </div>
-  );
-}
 
 /** Play from the library without opening the reader; unlocks audio inside the tap. */
 function usePlayFromLibrary() {
@@ -109,6 +106,7 @@ function usePlayFromLibrary() {
     activeId: player.doc?.id ?? null,
     playing: player.status === 'playing' || player.status === 'buffering',
     play: (id: string) => {
+      tick();
       if (player.doc?.id === id) {
         readerPlayer.toggle();
         return;
@@ -144,11 +142,51 @@ function useImportNotices(docs: readonly ReaderListItem[], onOpen: (id: string) 
         });
       else
         toast.success(t('reader.import_ready', { title: doc.title }), {
+          duration: 6000,
           action: { label: t('reader.open'), onClick: () => onOpen(doc.id) },
         });
     }
     importing.current = now;
   }, [docs, onOpen, t]);
+}
+
+/**
+ * Header chrome driven by the list scroll: the large title collapsing into the
+ * bar, the bar hairline, and the mini player hiding while scrolling down.
+ */
+function useScrollChrome() {
+  const scroller = useRef<HTMLElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const [miniHidden, setMiniHidden] = useState(false);
+  const last = useRef(0);
+  useEffect(() => {
+    const root = scroller.current;
+    const node = title.current;
+    if (!root || !node || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => setCompact(!entry.isIntersecting), {
+      root,
+      rootMargin: '-4px 0px 0px 0px',
+      threshold: 0,
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const onScroll = (event: UIEvent<HTMLElement>) => {
+    const el = event.currentTarget;
+    const top = el.scrollTop;
+    setScrolled(top > 4);
+    const delta = top - last.current;
+    if (top <= 8 || el.scrollHeight - el.clientHeight - top < 8) {
+      setMiniHidden(false);
+      last.current = top;
+    } else if (Math.abs(delta) > 10) {
+      setMiniHidden(delta > 0);
+      last.current = top;
+    }
+  };
+  return { scroller, title, scrolled, compact, miniHidden, onScroll };
 }
 
 function ContinueCard({
@@ -161,226 +199,102 @@ function ContinueCard({
   playing: boolean;
 }) {
   const { t } = useTranslation();
-  const label = useProgressLabel();
+  const status = rowStatus(doc);
   return (
-    <section aria-labelledby="reader-continue" className="mb-7">
-      <h2
-        id="reader-continue"
-        className="mb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-      >
+    <section aria-labelledby="reader-continue" className="rd-continue">
+      <h2 id="reader-continue" className="rd-section-label">
         {t('reader.continue')}
       </h2>
-      <div className="relative overflow-hidden rounded-[1.6rem] bg-card p-4 shadow-[0_18px_40px_-28px_rgb(0_0_0/0.6)] ring-1 ring-border/70">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.16] blur-2xl"
-          style={{
-            background: 'radial-gradient(circle at 20% 10%, var(--primary), transparent 60%)',
-          }}
-          aria-hidden="true"
-        />
-        <div className="relative flex items-center gap-4">
-          <Link
-            to="/reader/$docId"
-            params={{ docId: doc.id }}
-            className="rd-press flex min-w-0 flex-1 items-center gap-4 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+      <div className="rd-continue-card">
+        <Link to="/reader/$docId" params={{ docId: doc.id }} className="rd-continue-open rd-press">
+          <span className="rd-cover-slot" data-size="lg">
             <CoverTile
               id={doc.id}
               title={doc.title}
               hasCover={doc.has_cover}
+              shape={coverShape(doc)}
+              art={coverArt(doc)}
               size="lg"
-              className="h-28 w-20 text-4xl"
             />
-            <span className="min-w-0 flex-1">
-              <span className="line-clamp-3 font-[family-name:var(--rd-serif)] text-lg font-semibold leading-snug tracking-tight">
-                {doc.title}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="rd-continue-title">{doc.title}</span>
+            <span className="rd-row-meta">{sourceLabel(doc, t)}</span>
+            {status.kind === 'progress' && (
+              <span className="rd-row-meta">
+                {t('reader.search_position', { percent: status.percent })} ·{' '}
+                {durationLabel(t, status.minutes, true)}
               </span>
-              <span className="mt-1.5 block text-[13px] leading-snug text-muted-foreground">
-                {label(doc)}
-              </span>
-              <ProgressBar value={doc.progress} className="mt-3" />
-            </span>
-          </Link>
-          <button
-            type="button"
-            className="rd-play size-14 shrink-0"
-            onClick={onPlay}
-            aria-label={t(playing ? 'reader.pause' : 'reader.play')}
-          >
-            {playing ? (
-              <PauseIcon className="size-6 fill-current" aria-hidden="true" />
-            ) : (
-              <PlayIcon className="ml-0.5 size-6 fill-current" aria-hidden="true" />
             )}
-          </button>
-        </div>
+            <span className="rd-continue-progress" aria-hidden="true">
+              <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, doc.progress))})` }} />
+            </span>
+          </span>
+        </Link>
+        <button
+          type="button"
+          className="rd-continue-play rd-press"
+          onClick={onPlay}
+          aria-label={t(playing ? 'reader.pause' : 'reader.play')}
+        >
+          {playing ? (
+            <PauseIcon className="size-5 fill-current" strokeWidth={0} aria-hidden="true" />
+          ) : (
+            <PlayIcon className="ml-0.5 size-5 fill-current" strokeWidth={0} aria-hidden="true" />
+          )}
+        </button>
       </div>
     </section>
   );
 }
 
-function OfflineBadge({ id }: { id: string }) {
+/** Text tabs with an underline that slides (and stretches a little) between them. */
+function LibraryTabs({
+  value,
+  onChange,
+}: {
+  value: LibraryFilter;
+  onChange: (value: LibraryFilter) => void;
+}) {
   const { t } = useTranslation();
-  const offline = useOffline();
-  if (offline.active[id])
-    return (
-      <Loader2Icon
-        className="size-4 shrink-0 animate-spin text-muted-foreground"
-        aria-label={t('reader.downloading', {
-          percent: Math.round(
-            (offline.active[id].stored / Math.max(1, offline.active[id].total)) * 100,
-          ),
-        })}
-      />
-    );
-  if (offline.downloaded[id]?.complete)
-    return <DownloadIcon className="rd-ok size-4 shrink-0" aria-label={t('reader.downloaded')} />;
-  return null;
-}
-
-const rowClass =
-  'rd-press -ml-2 flex min-w-0 flex-1 items-center gap-3.5 rounded-2xl p-2 outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-foreground/[0.05]';
-
-/** A document still importing in the background, or whose import failed. */
-function PendingRow({ doc, onMore }: { doc: ReaderListItem; onMore: () => void }) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [retrying, setRetrying] = useState(false);
-  const failed = doc.import_status === 'error';
-  const progress = typeof doc.import_progress === 'number' ? doc.import_progress : null;
-  const retry = () => {
-    setRetrying(true);
-    readerApi
-      .retryImport(doc.id)
-      .then((summary) => {
-        // The list polls while a row is importing.
-        queryClient.setQueryData<ReaderListItem[]>(readerKeys.documents, (list) =>
-          list?.map((item) => (item.id === summary.id ? { ...item, ...summary } : item)),
-        );
-        void queryClient.invalidateQueries({ queryKey: readerKeys.documents });
-      })
-      .catch((error: unknown) =>
-        toast.error(t('reader.import_retry_failed'), {
-          // 409: the upload is gone; the file has to be added again.
-          description:
-            error instanceof ApiError && error.status === 409
-              ? t('reader.import_error_hint')
-              : describeError(error),
-        }),
-      )
-      .finally(() => setRetrying(false));
-  };
+  const list = useRef<HTMLDivElement>(null);
+  const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const tab = list.current?.querySelector<HTMLElement>(`[data-tab='${value}']`);
+      if (tab) setBar({ left: tab.offsetLeft, width: tab.offsetWidth });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    void document.fonts?.ready.then(measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [value, t]);
   return (
-    <li className="flex items-center gap-1">
-      <div
-        className={cn(rowClass, 'cursor-default active:bg-transparent')}
-        aria-disabled={failed ? undefined : 'true'}
-      >
-        <CoverTile
-          id={doc.id}
-          title={doc.title}
-          hasCover={false}
-          className={cn(!failed && 'opacity-60')}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-2 text-[15px] font-semibold leading-snug">{doc.title}</span>
-          {failed ? (
-            <>
-              <span className="mt-1 flex items-start gap-1.5 text-[13px] text-destructive">
-                <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                <span className="line-clamp-2">
-                  {doc.import_error || t('reader.import_failed')}
-                </span>
-              </span>
-              <button
-                type="button"
-                className="rd-press -ml-1 mt-1 inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-sm font-semibold"
-                disabled={retrying}
-                onClick={retry}
-              >
-                {retrying ? (
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <RotateCcwIcon className="size-4" aria-hidden="true" />
-                )}
-                {t('reader.import_retry')}
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
-                <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-                {progress === null
-                  ? t('reader.importing')
-                  : t('reader.importing_percent', { percent: Math.round(progress * 100) })}
-              </span>
-              <ProgressBar value={progress} className="mt-2 max-w-48" />
-            </>
-          )}
-        </span>
-      </div>
-      <button
-        type="button"
-        className="rd-icon-btn -mr-2 text-muted-foreground"
-        aria-label={t('reader.more_actions', { title: doc.title })}
-        onClick={onMore}
-      >
-        <MoreHorizontalIcon className="size-5" aria-hidden="true" />
-      </button>
-    </li>
-  );
-}
-
-function DocumentRow({ doc, onMore }: { doc: ReaderListItem; onMore: () => void }) {
-  const { t } = useTranslation();
-  const label = useProgressLabel();
-  if (!isReady(doc)) return <PendingRow doc={doc} onMore={onMore} />;
-  const finished = isFinished(doc);
-  return (
-    <li className="flex items-center gap-1">
-      <Link to="/reader/$docId" params={{ docId: doc.id }} className={rowClass}>
-        <CoverTile id={doc.id} title={doc.title} hasCover={doc.has_cover} />
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-2 text-[15px] font-semibold leading-snug">{doc.title}</span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
-            <span className="truncate">{sourceLabel(doc, t('reader.source_text'))}</span>
-            <span aria-hidden="true">·</span>
-            <span className="shrink-0">{label(doc)}</span>
-            {finished && <CheckCircle2Icon className="size-3.5 shrink-0" aria-hidden="true" />}
-          </span>
-          {doc.progress > 0 && !finished && (
-            <ProgressBar value={doc.progress} className="mt-2 max-w-48" />
-          )}
-        </span>
-        <OfflineBadge id={doc.id} />
-      </Link>
-      {!doc.offlineOnly && (
+    <div ref={list} className="rd-tabs" role="tablist" aria-label={t('reader.filter')}>
+      {LIBRARY_FILTERS.map((option) => (
         <button
+          key={option}
           type="button"
-          className="rd-icon-btn -mr-2 text-muted-foreground"
-          aria-label={t('reader.more_actions', { title: doc.title })}
-          onClick={onMore}
+          role="tab"
+          data-tab={option}
+          aria-selected={value === option}
+          className="rd-tab"
+          onClick={() => {
+            if (option !== value) tick();
+            onChange(option);
+          }}
         >
-          <MoreHorizontalIcon className="size-5" aria-hidden="true" />
+          {t(FILTER_LABELS[option])}
         </button>
-      )}
-    </li>
-  );
-}
-
-function LibrarySkeleton() {
-  return (
-    <div className="space-y-5 pt-2" aria-hidden="true">
-      <div className="rd-skeleton h-40 rounded-[1.6rem]" />
-      {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="flex items-center gap-3.5">
-          <div className="rd-skeleton h-[4.5rem] w-14 rounded-[0.7rem]" />
-          <div className="flex-1 space-y-2">
-            <div className="rd-skeleton h-4 w-3/4" />
-            <div className="rd-skeleton h-3 w-1/2" />
-          </div>
-        </div>
       ))}
+      {bar && (
+        <span
+          key={value}
+          className="rd-tabs-bar"
+          aria-hidden="true"
+          style={{ transform: `translateX(${bar.left}px)`, width: bar.width }}
+        />
+      )}
     </div>
   );
 }
@@ -403,6 +317,7 @@ function SortSheet({
             label={t(SORT_LABELS[option])}
             checked={sort === option}
             onClick={() => {
+              tick();
               setLibrarySort(option);
               onOpenChange(false);
             }}
@@ -413,6 +328,218 @@ function SortSheet({
   );
 }
 
+/** The header ••• menu: select, sort, phone, vibration. */
+function LibraryMenu({
+  open,
+  onOpenChange,
+  onSelect,
+  onSort,
+  onPhone,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: () => void;
+  onSort: () => void;
+  onPhone?: () => void;
+}) {
+  const { t } = useTranslation();
+  const sort = useLibrarySort();
+  const [vibrate, setVibrate] = useState(hapticsPref);
+  return (
+    <ReaderSheet open={open} onOpenChange={onOpenChange} title={t('reader.options')}>
+      <div className="space-y-0.5 pb-1">
+        <SheetRow icon={SquareCheckIcon} label={t('reader.lib_select')} onClick={onSelect} />
+        <SheetRow
+          icon={ArrowDownUpIcon}
+          label={t('reader.sort_by')}
+          detail={t(SORT_LABELS[sort])}
+          chevron
+          onClick={onSort}
+        />
+        {onPhone && (
+          <SheetRow icon={SmartphoneIcon} label={t('reader.phone_title')} onClick={onPhone} />
+        )}
+        {hapticsSupported() && isTouchDevice() && (
+          <SheetRow
+            icon={VibrateIcon}
+            label={t('reader.lib_haptics')}
+            detail={t('reader.lib_haptics_hint')}
+            role="switch"
+            aria-checked={vibrate}
+            trailing={
+              <span className="rd-switch" data-on={vibrate || undefined} aria-hidden="true" />
+            }
+            onClick={() => {
+              const next = !vibrate;
+              setHaptics(next);
+              setVibrate(next);
+              if (next) tick();
+            }}
+          />
+        )}
+      </div>
+    </ReaderSheet>
+  );
+}
+
+function BarAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  danger,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="rd-selbar-btn rd-press"
+      data-danger={danger || undefined}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/** Bottom bar in select mode (replaces the mini player). */
+function SelectionBar({
+  docs,
+  onDone,
+  onDelete,
+}: {
+  docs: readonly ReaderListItem[];
+  onDone: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation();
+  const ready = docs.filter((doc) => isReady(doc) && !doc.offlineOnly);
+  const archivedAll = docs.length > 0 && docs.every((doc) => doc.archived);
+  const finishTarget = bulkFinishedTarget(ready.map(isFinished));
+  return (
+    <div
+      className="rd-selbar"
+      role="toolbar"
+      aria-label={t('reader.lib_selected', { count: docs.length })}
+    >
+      <BarAction
+        icon={archivedAll ? ArchiveRestoreIcon : ArchiveIcon}
+        label={t(archivedAll ? 'reader.unarchive' : 'reader.archive')}
+        disabled={!ready.length}
+        onClick={() => {
+          const targets = ready.filter((doc) => Boolean(doc.archived) === archivedAll);
+          void setFlagsWithUndo(
+            targets,
+            { archived: !archivedAll },
+            t(archivedAll ? 'reader.unarchived' : 'reader.archived'),
+          );
+          onDone();
+        }}
+      />
+      <BarAction
+        icon={finishTarget ? CircleCheckIcon : CircleIcon}
+        label={t(finishTarget ? 'reader.finished' : 'reader.lib_unread_short')}
+        disabled={!ready.length}
+        onClick={() => {
+          void setFlagsWithUndo(
+            ready.filter((doc) => isFinished(doc) !== finishTarget),
+            { completed: finishTarget },
+            t(finishTarget ? 'reader.marked_finished' : 'reader.marked_unread'),
+          );
+          onDone();
+        }}
+      />
+      <BarAction
+        icon={CloudDownloadIcon}
+        label={t('reader.lib_download_short')}
+        disabled={!ready.length}
+        onClick={() => {
+          startDownloads(ready);
+          onDone();
+        }}
+      />
+      <BarAction
+        icon={Trash2Icon}
+        label={t('reader.delete')}
+        danger
+        disabled={!docs.filter((doc) => !doc.offlineOnly).length}
+        onClick={onDelete}
+      />
+    </div>
+  );
+}
+
+function DeleteManySheet({
+  docs,
+  onClose,
+  onDeleted,
+}: {
+  docs: readonly ReaderListItem[] | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const count = docs?.length ?? 0;
+  return (
+    <ReaderSheet
+      open={docs !== null}
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+      title={t('reader.lib_delete_many_title', { count })}
+    >
+      <div className="space-y-4 pb-1">
+        <p className="text-[15px] leading-relaxed text-muted-foreground">
+          {t('reader.lib_delete_many_body')}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            className="rd-pill-btn rd-press"
+            data-tone="secondary"
+            onClick={onClose}
+          >
+            {t('reader.cancel')}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rd-pill-btn rd-press"
+            data-tone="danger"
+            onClick={() => {
+              if (!docs) return;
+              setBusy(true);
+              void deleteMany(docs).finally(() => {
+                setBusy(false);
+                onDeleted();
+              });
+            }}
+          >
+            {busy && <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />}
+            {t('reader.delete')}
+          </button>
+        </div>
+      </div>
+    </ReaderSheet>
+  );
+}
+
+function IconArt({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="rd-icon-art" aria-hidden="true">
+      <Icon />
+    </span>
+  );
+}
+
 export function ReaderLibraryPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -420,25 +547,40 @@ export function ReaderLibraryPage() {
   const documents = useReaderDocuments();
   const playback = usePlayFromLibrary();
   const sort = useLibrarySort();
+  const hidden = useHiddenDocuments();
+  const chrome = useScrollChrome();
   const [filter, setFilter] = useState<LibraryFilter>('library');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [sorting, setSorting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ReaderListItem | null>(null);
-  const [scrolled, setScrolled] = useState(false);
-  const docs = useMemo(() => documents.data ?? [], [documents.data]);
+  const [confirmDelete, setConfirmDelete] = useState<ReaderListItem[] | null>(null);
+  const [selection, dispatch] = useReducer(selectionReducer, NO_SELECTION as LibrarySelection);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const touch = isTouchDevice();
+
+  const docs = useMemo(
+    () => (documents.data ?? []).filter((doc) => !hidden.has(doc.id)),
+    [documents.data, hidden],
+  );
   const offlineOnly = docs.some((doc) => doc.offlineOnly);
-  const filtered = useMemo(() => {
-    const needle = searchKey(query.trim());
-    const arranged = arrangeLibrary(docs, sort, filter);
-    if (!needle) return arranged;
-    return arranged.filter((doc) =>
-      searchKey(`${doc.title} ${doc.author ?? ''} ${doc.source_name ?? ''}`).includes(needle),
-    );
-  }, [docs, query, sort, filter]);
+  const searching = query.trim().length > 0;
+  const visible = useMemo(() => {
+    if (!searching) return arrangeLibrary(docs, sort, filter);
+    // Search looks everywhere: the library first, then the archive.
+    return [
+      ...arrangeLibrary(docs, sort, 'library'),
+      ...arrangeLibrary(docs, sort, 'archived'),
+    ].filter((doc) => matchesQuery(doc, query));
+  }, [docs, query, searching, sort, filter]);
+  const visibleIds = useMemo(() => visible.map((doc) => doc.id), [visible]);
+  useEffect(() => dispatch({ type: 'prune', ids: visibleIds }), [visibleIds]);
+
   const resume =
-    query.trim() || filter !== 'library'
+    searching || filter !== 'library'
       ? undefined
       : docs.find(
           (doc) =>
@@ -453,149 +595,305 @@ export function ReaderLibraryPage() {
     [navigate],
   );
   useImportNotices(docs, open);
-  const touch = isTouchDevice();
-  return (
-    <div className="rd-root" data-slot="reader-library" {...appearance}>
-      <header className={cn('rd-topbar', titlebarChrome())} data-scrolled={scrolled}>
-        <Link to="/" className="rd-icon-btn" aria-label={t('reader.studio')}>
-          <HouseIcon className="size-5" aria-hidden="true" />
-        </Link>
-        <h1 className="min-w-0 flex-1 truncate px-1 text-lg font-semibold tracking-tight">
-          {t('reader.title')}
-        </h1>
-        {!touch && (
-          <button
-            type="button"
-            className="rd-icon-btn"
-            aria-label={t('reader.phone_title')}
-            onClick={() => setPhoneOpen(true)}
-          >
-            <SmartphoneIcon className="size-5" aria-hidden="true" />
-          </button>
-        )}
-        <button
-          type="button"
-          className="rd-press ml-1 inline-flex h-10 items-center gap-1.5 rounded-full bg-foreground px-4 text-sm font-semibold text-background"
-          onClick={() => setAdding(true)}
-        >
-          <PlusIcon className="size-4" aria-hidden="true" />
-          {t('reader.add')}
-        </button>
-      </header>
 
-      <main
-        className="rd-scroll"
-        onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 4)}
+  const openSearch = () => {
+    setSearchOpen(true);
+    requestAnimationFrame(() => searchInput.current?.focus());
+  };
+  const closeSearch = () => {
+    setQuery('');
+    setSearchOpen(false);
+  };
+  const exitSelection = useCallback(() => dispatch({ type: 'exit' }), []);
+  useEffect(() => {
+    if (!selection.active) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) exitSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selection.active, exitSelection]);
+
+  const selectedDocs = useMemo(
+    () => docs.filter((doc) => selection.ids.includes(doc.id)),
+    [docs, selection.ids],
+  );
+  const mode = selection.active ? 'select' : searchOpen ? 'search' : 'default';
+  const hasDocs = docs.length > 0;
+  const loaded = !documents.isPending && !documents.isError;
+
+  let content: ReactNode;
+  let contentKey: string;
+  if (documents.isPending) {
+    contentKey = 'loading';
+    content = <LibrarySkeleton label={t('reader.lib_loading')} />;
+  } else if (documents.isError) {
+    contentKey = 'error';
+    content = (
+      <EmptyState
+        role="alert"
+        art={<IconArt icon={CloudOffIcon} />}
+        title={t('reader.load_failed')}
+        body={describeError(documents.error)}
+        primary={{ label: t('reader.retry'), onClick: () => void documents.refetch() }}
+      />
+    );
+  } else if (!hasDocs) {
+    contentKey = 'empty';
+    content = (
+      <EmptyState
+        art={<CoverWall />}
+        title={t('reader.empty_title')}
+        body={t('reader.empty_body')}
+        primary={{ label: t('reader.add_first'), icon: PlusIcon, onClick: () => setAdding(true) }}
+        secondary={
+          touch
+            ? undefined
+            : {
+                label: t('reader.phone_title'),
+                icon: SmartphoneIcon,
+                onClick: () => setPhoneOpen(true),
+              }
+        }
+      />
+    );
+  } else {
+    contentKey = 'list';
+    const swipeHint = touch ? 'rd-swipe-hint' : undefined;
+    content = (
+      <>
+        {resume && !selection.active && (
+          <ContinueCard
+            doc={resume}
+            playing={playback.activeId === resume.id && playback.playing}
+            onPlay={() => playback.play(resume.id)}
+          />
+        )}
+        {!searching && (
+          <div className="rd-lib-controls">
+            <LibraryTabs
+              value={filter}
+              onChange={(next) => {
+                setFilter(next);
+                chrome.scroller.current?.scrollTo({ top: 0 });
+              }}
+            />
+            <button
+              type="button"
+              className="rd-sort-label"
+              aria-label={t('reader.sort_by_current', { sort: t(SORT_LABELS[sort]) })}
+              onClick={() => setSorting(true)}
+            >
+              {t(SORT_LABELS[sort])}
+              <ChevronDownIcon aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {swipeHint && (
+          <span id={swipeHint} className="sr-only">
+            {t('reader.lib_swipe_hint')}
+          </span>
+        )}
+        {visible.length ? (
+          <ul
+            className="rd-lib-list"
+            aria-label={t(searching ? 'reader.search' : FILTER_LABELS[filter])}
+          >
+            {visible.map((doc) => (
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                onMore={() => setActionsFor(doc)}
+                onLongPress={() => dispatch({ type: 'enter', id: doc.id })}
+                swipeHintId={swipeHint}
+                selection={{
+                  active: selection.active,
+                  selected: selection.ids.includes(doc.id),
+                  onToggle: () => {
+                    tick();
+                    dispatch({ type: 'toggle', id: doc.id });
+                  },
+                }}
+              />
+            ))}
+          </ul>
+        ) : searching ? (
+          <EmptyState
+            compact
+            role="status"
+            art={<StackedCards icon={SearchIcon} />}
+            title={t('reader.lib_search_empty_title')}
+            body={t('reader.no_results')}
+          />
+        ) : filter === 'archived' ? (
+          <EmptyState
+            compact
+            art={<StackedCards icon={ArchiveIcon} />}
+            title={t('reader.empty_archived')}
+            body={t('reader.lib_empty_archived_hint')}
+          />
+        ) : filter === 'finished' ? (
+          <EmptyState
+            compact
+            art={<StackedCards icon={CircleCheckIcon} />}
+            title={t('reader.empty_finished')}
+            body={t('reader.lib_empty_finished_hint')}
+          />
+        ) : (
+          <EmptyState
+            compact
+            art={<StackedCards icon={PlusIcon} />}
+            title={t('reader.empty_title')}
+            primary={{
+              label: t('reader.add_first'),
+              icon: PlusIcon,
+              onClick: () => setAdding(true),
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="rd-root rd-lib" data-slot="reader-library" {...appearance}>
+      <header
+        className={cn('rd-topbar rd-lib-bar', titlebarChrome())}
+        data-scrolled={chrome.scrolled || mode !== 'default'}
+        data-mode={mode}
       >
-        <div className="rd-column pb-[calc(7rem+env(safe-area-inset-bottom,0px))] pt-3">
-          {docs.length > 0 && (
+        {mode === 'select' ? (
+          <>
+            <button
+              type="button"
+              className="rd-icon-btn"
+              aria-label={t('reader.lib_exit_select')}
+              onClick={exitSelection}
+            >
+              <XIcon className="size-5" aria-hidden="true" />
+            </button>
+            <p className="rd-bar-title" data-shown="" aria-live="polite">
+              {selection.ids.length
+                ? t('reader.lib_selected', { count: selection.ids.length })
+                : t('reader.lib_select_none')}
+            </p>
+            <button
+              type="button"
+              className="rd-text-btn rd-press"
+              onClick={() => {
+                tick();
+                dispatch({ type: 'toggle-all', ids: visibleIds });
+              }}
+            >
+              {t('reader.lib_select_all')}
+            </button>
+          </>
+        ) : mode === 'search' ? (
+          <>
             <SearchField
+              ref={searchInput}
               value={query}
               onChange={setQuery}
               label={t('reader.search')}
               clearLabel={t('reader.clear_search')}
-              className="mb-5"
+              className="rd-bar-search"
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                if (query) setQuery('');
+                else closeSearch();
+              }}
             />
-          )}
+            <button type="button" className="rd-text-btn rd-press" onClick={closeSearch}>
+              {t('reader.cancel')}
+            </button>
+          </>
+        ) : (
+          <>
+            <Link to="/" className="rd-icon-btn" aria-label={t('reader.studio')}>
+              <HouseIcon className="size-5" aria-hidden="true" />
+            </Link>
+            <span
+              className="rd-bar-title"
+              data-shown={chrome.compact || undefined}
+              aria-hidden="true"
+            >
+              {t('reader.title')}
+            </span>
+            {!touch && (
+              <button
+                type="button"
+                className="rd-icon-btn"
+                aria-label={t('reader.phone_title')}
+                onClick={() => setPhoneOpen(true)}
+              >
+                <SmartphoneIcon className="size-5" aria-hidden="true" />
+              </button>
+            )}
+            {hasDocs && (
+              <button
+                type="button"
+                className="rd-icon-btn"
+                aria-label={t('reader.search')}
+                onClick={openSearch}
+              >
+                <SearchIcon className="size-[22px]" aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="rd-icon-btn md:hidden"
+              aria-label={t('reader.add_title')}
+              onClick={() => setAdding(true)}
+            >
+              <PlusIcon className="size-6" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="rd-press rd-add-pill hidden md:inline-flex"
+              onClick={() => setAdding(true)}
+            >
+              <PlusIcon className="size-4" aria-hidden="true" />
+              {t('reader.add')}
+            </button>
+            <button
+              type="button"
+              className="rd-icon-btn"
+              aria-label={t('reader.lib_menu')}
+              onClick={() => setMenuOpen(true)}
+            >
+              <EllipsisIcon className="size-[22px]" aria-hidden="true" />
+            </button>
+          </>
+        )}
+      </header>
 
+      <main ref={chrome.scroller} className="rd-scroll" onScroll={chrome.onScroll}>
+        <div className="rd-column rd-lib-column">
+          <h1 ref={chrome.title} className="rd-lib-title" hidden={mode === 'search'}>
+            {t('reader.title')}
+          </h1>
           {offlineOnly && (
-            <p className="rd-warn mb-5 flex items-center gap-2 rounded-2xl bg-amber-500/10 px-4 py-3 text-sm">
+            <p className="rd-lib-banner">
               <CloudOffIcon className="size-4 shrink-0" aria-hidden="true" />
               {t('reader.offline_banner')}
             </p>
           )}
-
-          {documents.isPending ? (
-            <LibrarySkeleton />
-          ) : documents.isError ? (
-            <div className="flex flex-col items-center gap-3 py-20 text-center" role="alert">
-              <CloudOffIcon className="size-9 text-muted-foreground" aria-hidden="true" />
-              <p className="text-base font-semibold">{t('reader.load_failed')}</p>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                {describeError(documents.error)}
-              </p>
-              <button
-                type="button"
-                className="rd-press mt-2 h-11 rounded-full bg-foreground px-6 text-sm font-semibold text-background"
-                onClick={() => void documents.refetch()}
-              >
-                {t('reader.retry')}
-              </button>
-            </div>
-          ) : docs.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-20 text-center">
-              <div className="mb-2 flex size-20 items-center justify-center rounded-[1.6rem] bg-foreground/[0.06]">
-                <BookOpenTextIcon className="size-9 text-muted-foreground" aria-hidden="true" />
-              </div>
-              <p className="text-lg font-semibold tracking-tight">{t('reader.empty_title')}</p>
-              <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
-                {t('reader.empty_body')}
-              </p>
-              <button
-                type="button"
-                className="rd-press mt-3 inline-flex h-12 items-center gap-2 rounded-full bg-foreground px-6 text-[15px] font-semibold text-background"
-                onClick={() => setAdding(true)}
-              >
-                <PlusIcon className="size-4" aria-hidden="true" />
-                {t('reader.add_first')}
-              </button>
-            </div>
-          ) : (
-            <>
-              {resume && (
-                <ContinueCard
-                  doc={resume}
-                  playing={playback.activeId === resume.id && playback.playing}
-                  onPlay={() => playback.play(resume.id)}
-                />
-              )}
-              <section aria-label={t(FILTER_LABELS[filter])}>
-                <div className="mb-2 flex items-center gap-2">
-                  <div
-                    className="-mx-1 flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1 py-0.5"
-                    role="group"
-                    aria-label={t('reader.filter')}
-                  >
-                    {LIBRARY_FILTERS.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        className="rd-chip shrink-0"
-                        aria-pressed={filter === option}
-                        onClick={() => setFilter(option)}
-                      >
-                        {t(FILTER_LABELS[option])}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="rd-icon-btn text-muted-foreground"
-                    aria-label={t('reader.sort_by_current', { sort: t(SORT_LABELS[sort]) })}
-                    title={t(SORT_LABELS[sort])}
-                    onClick={() => setSorting(true)}
-                  >
-                    <ArrowDownUpIcon className="size-5" aria-hidden="true" />
-                  </button>
-                </div>
-                {filtered.length ? (
-                  <ul className="space-y-0.5">
-                    {filtered.map((doc) => (
-                      <DocumentRow key={doc.id} doc={doc} onMore={() => setActionsFor(doc)} />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    {t(query.trim() ? 'reader.no_results' : FILTER_EMPTY[filter])}
-                  </p>
-                )}
-              </section>
-            </>
-          )}
+          <div key={contentKey} className="rd-fade" aria-busy={documents.isPending || undefined}>
+            {content}
+          </div>
         </div>
       </main>
 
-      <MiniPlayer />
+      {selection.active ? (
+        <SelectionBar
+          docs={selectedDocs}
+          onDone={exitSelection}
+          onDelete={() => setConfirmDelete(selectedDocs.filter((doc) => !doc.offlineOnly))}
+        />
+      ) : (
+        loaded && <MiniPlayer hidden={chrome.miniHidden} />
+      )}
       <AddDocumentSheet
         open={adding}
         onOpenChange={setAdding}
@@ -603,6 +901,7 @@ export function ReaderLibraryPage() {
           setAdding(false);
           if (doc.import_status === 'importing') {
             setFilter('library');
+            closeSearch();
             toast(t('reader.import_started', { title: doc.title }));
             return;
           }
@@ -610,7 +909,36 @@ export function ReaderLibraryPage() {
         }}
       />
       <SortSheet open={sorting} onOpenChange={setSorting} />
+      <LibraryMenu
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        onSelect={() => {
+          setMenuOpen(false);
+          tick();
+          dispatch({ type: 'enter' });
+        }}
+        onSort={() => {
+          setMenuOpen(false);
+          setSorting(true);
+        }}
+        onPhone={
+          touch
+            ? undefined
+            : () => {
+                setMenuOpen(false);
+                setPhoneOpen(true);
+              }
+        }
+      />
       <DocumentActionsSheet doc={actionsFor} onClose={() => setActionsFor(null)} />
+      <DeleteManySheet
+        docs={confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onDeleted={() => {
+          setConfirmDelete(null);
+          exitSelection();
+        }}
+      />
       {!touch && <PhoneSheet open={phoneOpen} onOpenChange={setPhoneOpen} />}
     </div>
   );

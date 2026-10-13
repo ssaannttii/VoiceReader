@@ -3,8 +3,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GenerationProvider } from '@/hooks/use-generate';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { RouterProvider } from '@tanstack/react-router';
-import { Toaster } from '@/components/ui/sonner';
+import { RouterProvider, useRouterState } from '@tanstack/react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { queryClient } from '@/lib/query';
 import { router } from './router';
@@ -21,6 +20,7 @@ import { GenerateBudgetSync } from '@/hooks/use-generate-budget-sync';
 import { runRendererTask } from '@/lib/global-error-recovery';
 import { WebAuthGate } from '@/components/web-auth-gate';
 import { ModelLicenceGate } from '@/features/settings/model-licence-acceptance';
+import { AppToaster } from '@/features/reader/reader-toaster';
 
 const notifiedUpdates = new Set<string>();
 
@@ -52,6 +52,11 @@ function UpdateNotifier() {
 }
 
 export function App() {
+  // Reader routes get their own toast placement and style (features/reader/reader-toaster.tsx).
+  const onReader = useRouterState({
+    router,
+    select: (state) => state.location.pathname.startsWith('/reader'),
+  });
   const { t } = useTranslation();
   useEffect(() => {
     const record = () => recordRouteBreadcrumb();
@@ -127,7 +132,7 @@ export function App() {
             <TooltipProvider>
               <RouterProvider router={router} />
               <ModelLicenceGate />
-              <Toaster richColors position="bottom-right" />
+              <AppToaster reader={onReader} />
             </TooltipProvider>
           </GenerationProvider>
         </WebAuthGate>
