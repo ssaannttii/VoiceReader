@@ -61,7 +61,7 @@ it('turns music on for the document and asks the PC to prepare it', async () => 
     'aria-checked',
     'true',
   );
-  expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', '−3 dB');
+  expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', '0 dB');
 });
 
 it('explains a PC without a music engine and picks a style', async () => {

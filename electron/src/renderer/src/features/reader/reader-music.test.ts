@@ -125,7 +125,7 @@ const PLAN = {
   ],
   spots: [{ start_segment: 10, end_segment: 20, cue: 'tension', max_seconds: 60 }],
   timeline: [],
-  level_lufs: -30,
+  level_lufs: -24,
 };
 
 const flush = async () => {
@@ -179,7 +179,7 @@ describe('background music controller', () => {
     expect(musicController.getInfo()).toMatchObject({ docId: 'doc1', cue: 'tension' });
 
     listen(6000);
-    const full = 10 ** (-3 / 20); // default volume, clips at the designed loudness
+    const full = 10 ** (-6 / 20); // default volume (the design level), clips mastered 6 dB hotter
     expect(deck!.volume).toBeCloseTo(full, 3);
     // The ambience sits lower while the music is present.
     expect(musicPresence()).toBeCloseTo(1, 2);
