@@ -29,7 +29,7 @@ export function DebugHud() {
     .connection;
   const rows: [string, string][] = [
     ['seg', `${snap.segment + 1}/${snap.total} · ${snap.status}`],
-    ['ready ahead', String(snap.readyAhead)],
+    ['ready ahead', `${snap.readyAhead} · ${snap.engine}`],
     ['load ms', `${stats.lastLoadMs ?? '–'} (avg ${stats.avgLoadMs ?? '–'})`],
     ['misses/stalls', `${stats.misses}/${stats.stalls}`],
     ['fps · worst', `${stats.fps || '–'} · ${stats.worstFrameMs || '–'} ms`],

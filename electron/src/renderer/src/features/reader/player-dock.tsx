@@ -12,18 +12,24 @@ import {
   SkipBackIcon,
   SkipForwardIcon,
   UserRoundIcon,
+  ChevronsRightIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { readerApi, readerKeys, type ReaderDocument } from './reader-api';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
-import { SleepLabel } from './player-sheets';
+import { FOLLOW_EVENT, SleepLabel } from './player-sheets';
+import { useReaderPrefs } from './reader-prefs';
 import { formatClock, formatSpeed } from './reader-text';
+import { EngineBanner, useEngineView } from './engine-status';
 
 export type DockSheet = 'speed' | 'voice' | 'sleep';
 
+/** Furthest point reached: offered when it is well ahead of the playhead. */
+const FURTHEST_MIN_SECONDS = 30;
+
 function Scrubber({ doc }: { doc: ReaderDocument }) {
   const { t } = useTranslation();
-  const { segment, rate } = useReaderPlayer();
+  const { segment, rate, furthest } = useReaderPlayer();
   const clock = useReaderClock();
   const [preview, setPreview] = useState<number | null>(null);
   const count = Math.max(1, doc.segments.length);
@@ -32,10 +38,12 @@ function Scrubber({ doc }: { doc: ReaderDocument }) {
   const previewSegment = preview === null ? null : Math.min(count - 1, Math.floor(preview));
   const elapsed = previewSegment === null ? clock.elapsed : readerPlayer.secondsAt(previewSegment);
   const total = clock.total || doc.est_duration_s;
+  const furthestAt = readerPlayer.secondsAt(furthest);
+  const behind = furthest > segment && furthestAt - clock.elapsed >= FURTHEST_MIN_SECONDS;
   const commit = () => {
     if (previewSegment !== null) {
       readerPlayer.seekSegment(previewSegment);
-      window.dispatchEvent(new Event('reader:follow'));
+      window.dispatchEvent(new Event(FOLLOW_EVENT));
     }
     setPreview(null);
   };
@@ -48,23 +56,47 @@ function Scrubber({ doc }: { doc: ReaderDocument }) {
           </p>
         </div>
       )}
-      <input
-        type="range"
-        className="rd-range -my-2 block"
-        min={0}
-        max={count}
-        step="any"
-        value={value}
-        aria-label={t('reader.position')}
-        aria-valuetext={`${formatClock(elapsed / rate)} / ${formatClock(total / rate)}`}
-        style={{ '--rd-fill': `${(value / count) * 100}%` } as CSSProperties}
-        onChange={(event) => setPreview(Number(event.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={() => setPreview(null)}
-      />
-      <div className="flex justify-between text-[11px] font-medium tabular-nums text-muted-foreground">
+      <div className="relative -my-2">
+        <input
+          type="range"
+          className="rd-range block"
+          min={0}
+          max={count}
+          step="any"
+          value={value}
+          aria-label={t('reader.position')}
+          aria-valuetext={`${formatClock(elapsed / rate)} / ${formatClock(total / rate)}`}
+          style={{ '--rd-fill': `${(value / count) * 100}%` } as CSSProperties}
+          onChange={(event) => setPreview(Number(event.target.value))}
+          onPointerUp={commit}
+          onKeyUp={commit}
+          onBlur={() => setPreview(null)}
+        />
+        {furthest > 0 && (
+          <span
+            className="rd-furthest-tick"
+            style={{ '--rd-at': Math.min(1, furthest / count) } as CSSProperties}
+            aria-hidden="true"
+          />
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 text-[11px] font-medium tabular-nums text-muted-foreground">
         <span>{formatClock(elapsed / rate)}</span>
+        {behind && previewSegment === null && (
+          <button
+            type="button"
+            className="rd-press -my-1 inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-1 font-semibold text-foreground"
+            onClick={() => {
+              readerPlayer.goFurthest();
+              window.dispatchEvent(new Event(FOLLOW_EVENT));
+            }}
+          >
+            <ChevronsRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {t('reader.go_furthest', { time: formatClock(furthestAt / rate) })}
+            </span>
+          </button>
+        )}
         <span>−{formatClock(Math.max(0, total - elapsed) / rate)}</span>
       </div>
     </div>
@@ -86,6 +118,8 @@ export function PlayerDock({
 }) {
   const { t } = useTranslation();
   const player = useReaderPlayer();
+  const prefs = useReaderPrefs();
+  const engineView = useEngineView(doc.id);
   const voices = useQuery({
     queryKey: readerKeys.voices,
     queryFn: ({ signal }) => readerApi.voices(signal),
@@ -116,9 +150,13 @@ export function PlayerDock({
   const busy = player.status === 'buffering';
   const playing = player.status === 'playing' || busy;
   const last = doc.segments.length - 1;
+  const seconds = prefs.skipSeconds;
+  const byChapter = prefs.trackAction === 'chapter' && doc.chapters.length > 0;
+  const showTrack = prefs.trackAction !== 'skip';
   return (
     <div className="rd-dock" data-slot="reader-dock">
       <div className="mx-auto max-w-xl">
+        {player.status !== 'error' && <EngineBanner view={engineView} />}
         {player.status === 'error' && (
           <div
             className="mb-2 flex items-center gap-2 rounded-2xl bg-destructive/10 py-1.5 pl-3 pr-1.5 text-sm text-destructive"
@@ -139,21 +177,26 @@ export function PlayerDock({
         <div className="mt-1 flex items-center justify-center gap-[clamp(0.25rem,3vw,1.25rem)]">
           <button
             type="button"
-            className="rd-icon-btn"
-            aria-label={t('reader.back_15')}
-            onClick={() => readerPlayer.skip(-15)}
+            className="rd-icon-btn relative"
+            aria-label={t('reader.back_seconds', { seconds })}
+            onClick={() => readerPlayer.skip(-seconds)}
           >
-            <RotateCcwIcon className="size-[1.35rem]" aria-hidden="true" />
+            <RotateCcwIcon className="size-[1.6rem]" strokeWidth={1.6} aria-hidden="true" />
+            <span className="rd-skip-num" aria-hidden="true">
+              {seconds}
+            </span>
           </button>
-          <button
-            type="button"
-            className="rd-icon-btn"
-            aria-label={t('reader.previous')}
-            disabled={player.segment <= 0 && !playing}
-            onClick={() => readerPlayer.previous()}
-          >
-            <SkipBackIcon className="size-6 fill-current" aria-hidden="true" />
-          </button>
+          {showTrack && (
+            <button
+              type="button"
+              className="rd-icon-btn"
+              aria-label={t(byChapter ? 'reader.previous_chapter' : 'reader.previous')}
+              disabled={player.segment <= 0 && !playing}
+              onClick={() => readerPlayer.trackPrevious()}
+            >
+              <SkipBackIcon className="size-6 fill-current" aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
             className="rd-play mx-1"
@@ -168,22 +211,27 @@ export function PlayerDock({
               <PlayIcon className="ml-1 size-7 fill-current" aria-hidden="true" />
             )}
           </button>
+          {showTrack && (
+            <button
+              type="button"
+              className="rd-icon-btn"
+              aria-label={t(byChapter ? 'reader.next_chapter' : 'reader.next')}
+              disabled={player.segment >= last}
+              onClick={() => readerPlayer.trackNext()}
+            >
+              <SkipForwardIcon className="size-6 fill-current" aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
-            className="rd-icon-btn"
-            aria-label={t('reader.next')}
-            disabled={player.segment >= last}
-            onClick={() => readerPlayer.next()}
+            className="rd-icon-btn relative"
+            aria-label={t('reader.forward_seconds', { seconds })}
+            onClick={() => readerPlayer.skip(seconds)}
           >
-            <SkipForwardIcon className="size-6 fill-current" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="rd-icon-btn"
-            aria-label={t('reader.forward_15')}
-            onClick={() => readerPlayer.skip(15)}
-          >
-            <RotateCwIcon className="size-[1.35rem]" aria-hidden="true" />
+            <RotateCwIcon className="size-[1.6rem]" strokeWidth={1.6} aria-hidden="true" />
+            <span className="rd-skip-num" aria-hidden="true">
+              {seconds}
+            </span>
           </button>
         </div>
         <div className="mt-1 flex items-center justify-center gap-2">
