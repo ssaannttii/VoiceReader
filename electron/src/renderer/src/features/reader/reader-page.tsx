@@ -1,39 +1,45 @@
 import '@fontsource-variable/source-serif-4';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type RefObject,
+} from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowDownToLineIcon,
-  BookMarkedIcon,
-  BookmarkIcon,
-  BookmarkPlusIcon,
+  ALargeSmallIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
+  ChevronsRightIcon,
   CloudOffIcon,
   EllipsisIcon,
-  HeadphonesIcon,
-  MoonIcon,
+  LocateFixedIcon,
   PlayIcon,
-  SearchIcon,
-  SlidersHorizontalIcon,
-  SpeechIcon,
   Undo2Icon,
-  UserRoundIcon,
 } from 'lucide-react';
 import { ApiError, describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
-import { AppearanceOptions, AppearancePreview } from './appearance-options';
-import { DebugHud, DiagnosticsRows } from './debug-hud';
-import { OfflineRow } from './document-actions-sheet';
+import { DebugHud } from './debug-hud';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
 import type { ReaderDocument } from './reader-api';
 import { useAppearanceProps } from './reader-appearance';
 import { titlebarChrome } from './reader-chrome';
-import { readerPlayer, useReaderPlayer } from './reader-player';
-import { setReaderPrefs, TEXT_SIZE_MAX, TEXT_SIZE_MIN, useReaderPrefs } from './reader-prefs';
-import { ReaderSheet, SheetRow } from './reader-sheet';
-import { firstVisibleSegment, ReaderTextView } from './reader-text-view';
-import { formatClock, minutesLeft } from './reader-text';
+import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
+import { autoHideOn, useReaderPrefs } from './reader-prefs';
+import {
+  firstVisibleSegment,
+  ReaderTextView,
+  scrollToSentence,
+  type WordPress,
+} from './reader-text-view';
+import { chapterIndexAt, formatClock, minutesLeft } from './reader-text';
 import { SearchSheet } from './search-sheet';
 import { useReaderDocument } from './use-reader-data';
 import { ControlsSheet } from './controls-sheet';
@@ -48,149 +54,24 @@ import {
   pressTarget,
   type PronounceTarget,
 } from './pronunciation-sheet';
-import type { WordPress } from './reader-text-view';
 import { AudioOnlyView } from './audio-only-view';
-import { setListeningPrefs, useListeningPrefs } from './listening-prefs';
-import { ListeningOptionRows } from './listening-rows';
+import { useListeningPrefs } from './listening-prefs';
 import { QueueSheet } from './queue-sheet';
 import { SoundscapeSheet } from './soundscape-sheet';
+import { ActionsSheet, AppearanceSheet, type MenuSheet } from './reader-menus';
+import { canHideChrome, distinctSource } from './player-chrome';
+import { useChromeFocus, useReaderChrome } from './use-reader-chrome';
+import { confirm as confirmHaptic } from './haptics';
 import './reader.css';
+import './player-chrome.css';
 
-type Sheet =
-  | DockSheet
-  | 'options'
-  | 'chapters'
-  | 'controls'
-  | 'search'
-  | 'bookmarks'
-  | 'pronunciations'
-  | null;
+type Sheet = DockSheet | MenuSheet | 'actions' | 'appearance' | null;
 
-function OptionsSheet({
-  doc,
-  active,
-  open,
-  onOpenChange,
-  onSheet,
-  onAddBookmark,
-}: {
-  doc: ReaderDocument;
-  active: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSheet: (sheet: Sheet) => void;
-  onAddBookmark: () => void;
-}) {
-  const { t } = useTranslation();
-  const prefs = useReaderPrefs();
-  const fill = ((prefs.textSize - TEXT_SIZE_MIN) / (TEXT_SIZE_MAX - TEXT_SIZE_MIN)) * 100;
-  return (
-    <ReaderSheet open={open} onOpenChange={onOpenChange} title={doc.title}>
-      <div className="space-y-4 pb-1">
-        <AppearancePreview textSize={prefs.textSize} />
-        <section aria-labelledby="reader-text-size">
-          <h3
-            id="reader-text-size"
-            className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-          >
-            {t('reader.text_size')}
-          </h3>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rd-icon-btn font-[family-name:var(--rd-serif)] text-sm"
-              aria-label={t('reader.text_smaller')}
-              disabled={prefs.textSize <= TEXT_SIZE_MIN}
-              onClick={() => setReaderPrefs({ textSize: prefs.textSize - 1 })}
-            >
-              A
-            </button>
-            <input
-              type="range"
-              className="rd-range flex-1"
-              min={TEXT_SIZE_MIN}
-              max={TEXT_SIZE_MAX}
-              step={1}
-              value={prefs.textSize}
-              aria-label={t('reader.text_size')}
-              style={{ '--rd-fill': `${fill}%` } as CSSProperties}
-              onChange={(event) => setReaderPrefs({ textSize: Number(event.target.value) })}
-            />
-            <button
-              type="button"
-              className="rd-icon-btn font-[family-name:var(--rd-serif)] text-xl"
-              aria-label={t('reader.text_larger')}
-              disabled={prefs.textSize >= TEXT_SIZE_MAX}
-              onClick={() => setReaderPrefs({ textSize: prefs.textSize + 1 })}
-            >
-              A
-            </button>
-          </div>
-        </section>
-        <AppearanceOptions />
-        <div className="-mx-1 space-y-0.5 border-t border-border/60 pt-2">
-          <SheetRow
-            icon={SearchIcon}
-            label={t('reader.search_document')}
-            chevron
-            onClick={() => onSheet('search')}
-          />
-          {doc.chapters.length > 0 && (
-            <SheetRow
-              icon={BookmarkIcon}
-              label={t('reader.chapters')}
-              chevron
-              onClick={() => onSheet('chapters')}
-            />
-          )}
-          <SheetRow
-            icon={BookmarkPlusIcon}
-            label={t('reader.bookmark_add')}
-            disabled={!doc.segments.length}
-            onClick={onAddBookmark}
-          />
-          <SheetRow
-            icon={BookMarkedIcon}
-            label={t('reader.bookmarks')}
-            chevron
-            onClick={() => onSheet('bookmarks')}
-          />
-          <SheetRow
-            icon={SpeechIcon}
-            label={t('reader.pronunciations')}
-            detail={t('reader.pronunciations_hint')}
-            chevron
-            onClick={() => onSheet('pronunciations')}
-          />
-          <SheetRow
-            icon={UserRoundIcon}
-            label={t('reader.voice')}
-            chevron
-            onClick={() => onSheet('voice')}
-          />
-          <SheetRow
-            icon={MoonIcon}
-            label={t('reader.sleep_timer')}
-            chevron
-            onClick={() => onSheet('sleep')}
-          />
-          <SheetRow
-            icon={SlidersHorizontalIcon}
-            label={t('reader.controls')}
-            chevron
-            onClick={() => onSheet('controls')}
-          />
-          <OfflineRow id={doc.id} />
-        </div>
-        <ListeningOptionRows doc={doc} active={active} onSheet={onSheet} />
-        <DiagnosticsRows />
-      </div>
-    </ReaderSheet>
-  );
-}
+/** Furthest point reached: offered when it is well ahead of the playhead. */
+const FURTHEST_MIN_SECONDS = 30;
 
 /** "Volver a 12:34": undo the latest jump (an accidental tap, a scrubber slip). */
-function UndoPill() {
+function UndoButton() {
   const { t } = useTranslation();
   const { undo, rate } = useReaderPlayer();
   const [visible, setVisible] = useState(false);
@@ -206,21 +87,45 @@ function UndoPill() {
   return (
     <button
       type="button"
-      className="rd-press rd-pill rd-pill-primary"
+      className="rd-press rd-float-btn"
       onClick={() => {
         readerPlayer.undoJump();
         window.dispatchEvent(new Event(FOLLOW_EVENT));
       }}
     >
-      <Undo2Icon className="size-4" aria-hidden="true" />
-      {t('reader.undo_jump', { time: formatClock(seconds) })}
+      <Undo2Icon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="truncate">{t('reader.undo_jump', { time: formatClock(seconds) })}</span>
+    </button>
+  );
+}
+
+/** "Ir al punto más lejano": shown while the furthest point is well ahead. */
+function FurthestButton() {
+  const { t } = useTranslation();
+  const { segment, furthest, rate } = useReaderPlayer();
+  const clock = useReaderClock();
+  const furthestAt = readerPlayer.secondsAt(furthest);
+  if (furthest <= segment || furthestAt - clock.elapsed < FURTHEST_MIN_SECONDS) return null;
+  return (
+    <button
+      type="button"
+      className="rd-press rd-float-btn"
+      onClick={() => {
+        readerPlayer.goFurthest();
+        window.dispatchEvent(new Event(FOLLOW_EVENT));
+      }}
+    >
+      <ChevronsRightIcon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="truncate">
+        {t('reader.go_furthest', { time: formatClock(furthestAt / rate) })}
+      </span>
     </button>
   );
 }
 
 function ReaderSkeleton() {
   return (
-    <div className="rd-column space-y-4 pt-8" aria-hidden="true">
+    <div className="rd-column rd-reading space-y-4" aria-hidden="true">
       <div className="rd-skeleton h-8 w-3/4" />
       <div className="rd-skeleton h-4 w-1/3" />
       {[92, 100, 84, 97, 70, 100, 88].map((width, index) => (
@@ -236,6 +141,58 @@ const editable = (target: EventTarget | null) =>
     target.matches('input, textarea, select') ||
     Boolean(target.closest('.rd-sheet')));
 
+/** Desktop layout (wide window): the header keeps a "back" chevron instead of "minimise". */
+function useWide(): boolean {
+  const query = '(min-width: 1024px)';
+  const [wide, setWide] = useState(
+    () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia(query);
+    const update = () => setWide(media.matches);
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+  return wide;
+}
+
+/** Keep `--rd-top-h` / `--rd-dock-h` on the root equal to the floating chrome's heights. */
+function useChromeInsets(
+  root: RefObject<HTMLElement | null>,
+  top: RefObject<HTMLElement | null>,
+  bottom: RefObject<HTMLElement | null>,
+  ready: boolean,
+) {
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const update = () => {
+      element.style.setProperty('--rd-top-h', `${top.current?.offsetHeight ?? 0}px`);
+      element.style.setProperty('--rd-dock-h', `${bottom.current?.offsetHeight ?? 0}px`);
+    };
+    update();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(update);
+    if (top.current) observer.observe(top.current);
+    if (bottom.current) observer.observe(bottom.current);
+    return () => observer.disconnect();
+  }, [root, top, bottom, ready]);
+}
+
+function HeaderSubtitle({ doc, active }: { doc: ReaderDocument; active: boolean }) {
+  const { t } = useTranslation();
+  const { segment } = useReaderPlayer();
+  const chapter =
+    doc.chapters[chapterIndexAt(doc.chapters, active ? segment : doc.position_segment)]?.title;
+  const text =
+    doc.author ||
+    chapter ||
+    distinctSource(doc.title, doc.source_name) ||
+    t('reader.minutes_total', { minutes: minutesLeft(doc.est_duration_s) });
+  return <span className="rd-head-sub">{text}</span>;
+}
+
 export function ReaderDocumentPage() {
   const { t } = useTranslation();
   const { docId } = useParams({ from: '/reader/$docId' });
@@ -244,10 +201,13 @@ export function ReaderDocumentPage() {
   const player = useReaderPlayer();
   const prefs = useReaderPrefs();
   const appearance = useAppearanceProps();
+  const wide = useWide();
+  const root = useRef<HTMLDivElement>(null);
+  const topbar = useRef<HTMLElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLElement>(null);
   const follow = useRef(true);
   const [following, setFollowing] = useState(true);
-  const [scrolled, setScrolled] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [pronounce, setPronounce] = useState<PronounceTarget | null>(null);
   /** Bookmark whose note the bookmarks sheet is editing. */
@@ -260,10 +220,24 @@ export function ReaderDocumentPage() {
   const importing = query.error instanceof ApiError && query.error.status === 409;
   const active = Boolean(doc && player.doc?.id === doc.id);
   const playing = player.status === 'playing' || player.status === 'buffering';
+  const listening = useListeningPrefs();
   useReaderWarmup();
   const otherPlaying =
     Boolean(doc && player.doc && player.doc.id !== doc.id) &&
     (player.status === 'playing' || player.status === 'buffering');
+
+  // Floating chrome: fades out while this document plays (see player-chrome.ts).
+  const chromeFocused = useChromeFocus(root);
+  const canHide = canHideChrome({
+    enabled: autoHideOn(prefs),
+    playing: active && playing,
+    sheetOpen: sheet !== null || pronounce !== null,
+    attention: player.status === 'error' || player.blocked !== null,
+    focused: chromeFocused,
+    audioOnly: listening.audioOnly,
+  });
+  const chrome = useReaderChrome({ canHide, scroller, chrome: root });
+  useChromeInsets(root, topbar, bottom, Boolean(doc));
 
   useEffect(() => {
     if (!doc || otherPlaying) return;
@@ -275,7 +249,6 @@ export function ReaderDocumentPage() {
   // The queue moved on from this document: show the next one. Playback never
   // waits for this (it may run much later, when a locked phone wakes up).
   const navigate = useNavigate();
-  const listening = useListeningPrefs();
   const playerDocId = player.doc?.id ?? null;
   const shownPlayerDoc = useRef(playerDocId);
   useEffect(() => {
@@ -318,16 +291,7 @@ export function ReaderDocumentPage() {
     const onFollow = () => {
       resumeFollowing();
       const sentence = scroller.current?.querySelector<HTMLElement>('.rd-sent[data-active]');
-      if (sentence && scroller.current) {
-        scroller.current.scrollTo({
-          top:
-            scroller.current.scrollTop +
-            sentence.getBoundingClientRect().top -
-            scroller.current.getBoundingClientRect().top -
-            scroller.current.clientHeight * 0.28,
-          behavior: 'smooth',
-        });
-      }
+      if (sentence && scroller.current) scrollToSentence(scroller.current, sentence, true);
     };
     window.addEventListener(FOLLOW_EVENT, onFollow);
     return () => window.removeEventListener(FOLLOW_EVENT, onFollow);
@@ -392,7 +356,8 @@ export function ReaderDocumentPage() {
 
   const addBookmark = useCallback(() => {
     if (!doc) return;
-    setSheet((open) => (open === 'options' ? null : open));
+    setSheet((open) => (open === 'actions' ? null : open));
+    confirmHaptic();
     void addBookmarkHere(doc, (id) => {
       setNoteFor(id);
       setSheet('bookmarks');
@@ -416,6 +381,19 @@ export function ReaderDocumentPage() {
     setSheet(null);
     setPronounce(pressTarget(press));
   }, []);
+
+  const dispatchChrome = chrome.dispatch;
+  const onChrome = useCallback(
+    (event: 'toggle' | 'interact') => dispatchChrome({ type: event }),
+    [dispatchChrome],
+  );
+  /** Taps beside the article (margins, padding, audio-only background) toggle the controls. */
+  const onSurfaceClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as Element;
+    if (target.closest('.rd-article, button, a, input, [role="button"]')) return;
+    if (window.getSelection()?.toString()) return;
+    onChrome('toggle');
+  };
 
   const activate = () => {
     if (!doc) return;
@@ -448,167 +426,173 @@ export function ReaderDocumentPage() {
     );
   }, [doc, t]);
 
+  const BackIcon = wide ? ChevronLeftIcon : ChevronDownIcon;
   return (
-    <div className="rd-root" data-slot="reader-document" {...appearance}>
-      <header className={cn('rd-topbar', titlebarChrome())} data-scrolled={scrolled}>
-        <Link to="/reader" className="rd-icon-btn" aria-label={t('reader.back_to_library')}>
-          <ChevronLeftIcon className="size-6" aria-hidden="true" />
-        </Link>
-        <p
-          className={cn(
-            'min-w-0 flex-1 truncate px-1 text-center text-sm font-semibold transition-opacity duration-200',
-            scrolled ? 'opacity-100' : 'opacity-0',
+    <div
+      ref={root}
+      className="rd-root"
+      data-slot="reader-document"
+      data-chrome={chrome.hidden ? 'hidden' : 'shown'}
+      {...appearance}
+    >
+      <header ref={topbar} className={cn('rd-topbar rd-chrome', titlebarChrome())}>
+        <div className="rd-topbar-side">
+          <Link
+            to="/reader"
+            className="rd-icon-btn"
+            aria-label={t(wide ? 'reader.back_to_library' : 'reader.minimize')}
+          >
+            <BackIcon className="size-6" aria-hidden="true" />
+          </Link>
+        </div>
+        <div className="rd-head-text">
+          <span className="rd-head-title">{doc?.title}</span>
+          {doc && <HeaderSubtitle doc={doc} active={active} />}
+        </div>
+        <div className="rd-topbar-side justify-end">
+          {player.offline && active && (
+            <CloudOffIcon
+              className="mx-1 size-4 shrink-0 text-muted-foreground"
+              aria-label={t('reader.playing_offline')}
+            />
           )}
-          aria-hidden={!scrolled}
-        >
-          {doc?.title}
-        </p>
-        {player.offline && active && (
-          <CloudOffIcon
-            className="size-4 shrink-0 text-muted-foreground"
-            aria-label={t('reader.playing_offline')}
-          />
-        )}
-        <button
-          type="button"
-          className={cn('rd-icon-btn', listening.audioOnly && 'bg-foreground/[0.08]')}
-          aria-label={t('reader.audio_only')}
-          aria-pressed={listening.audioOnly}
-          disabled={!doc}
-          onClick={() => setListeningPrefs({ audioOnly: !listening.audioOnly })}
-        >
-          <HeadphonesIcon className="size-5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="rd-icon-btn"
-          aria-label={t('reader.search_document')}
-          disabled={!doc}
-          onClick={() => openSheet('search')}
-        >
-          <SearchIcon className="size-5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="rd-icon-btn"
-          aria-label={t('reader.options')}
-          disabled={!doc}
-          onClick={() => openSheet('options')}
-        >
-          <EllipsisIcon className="size-6" aria-hidden="true" />
-        </button>
+          <button
+            type="button"
+            className="rd-icon-btn"
+            aria-label={t('reader.appearance')}
+            disabled={!doc}
+            onClick={() => openSheet('appearance')}
+          >
+            <ALargeSmallIcon className="size-6" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="rd-icon-btn"
+            aria-label={t('reader.options')}
+            disabled={!doc}
+            onClick={() => openSheet('actions')}
+          >
+            <EllipsisIcon className="size-6" aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <main
-          ref={scroller}
-          className="rd-scroll"
-          tabIndex={-1}
-          onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 48)}
-        >
-          {query.isPending ? (
-            <ReaderSkeleton />
-          ) : query.isError || !doc ? (
-            <div
-              className="rd-column flex flex-col items-center gap-3 py-24 text-center"
-              role="alert"
-            >
-              <p className="text-base font-semibold">
-                {t(importing ? 'reader.import_in_progress' : 'reader.load_failed')}
+      <main ref={scroller} className="rd-scroll" tabIndex={-1} onClick={onSurfaceClick}>
+        {query.isPending ? (
+          <ReaderSkeleton />
+        ) : query.isError || !doc ? (
+          <div
+            className="rd-column rd-reading flex flex-col items-center gap-3 text-center"
+            role="alert"
+          >
+            <p className="mt-16 text-base font-semibold">
+              {t(importing ? 'reader.import_in_progress' : 'reader.load_failed')}
+            </p>
+            {!importing && (
+              <p className="max-w-sm text-sm text-muted-foreground">{describeError(query.error)}</p>
+            )}
+            <div className="mt-2 flex gap-2">
+              <Link
+                to="/reader"
+                className="rd-press inline-flex h-11 items-center rounded-full bg-foreground/[0.07] px-5 text-sm font-semibold"
+              >
+                {t('reader.back_to_library')}
+              </Link>
+              <button
+                type="button"
+                className="rd-press h-11 rounded-full bg-foreground px-5 text-sm font-semibold text-background"
+                onClick={() => void query.refetch()}
+              >
+                {t('reader.retry')}
+              </button>
+            </div>
+          </div>
+        ) : listening.audioOnly ? (
+          <AudioOnlyView doc={doc} active={active} onActivate={activate} />
+        ) : (
+          <div
+            className="rd-column rd-reading"
+            style={{ '--rd-text-size': `${prefs.textSize}px` } as CSSProperties}
+          >
+            <ReaderTextView
+              docId={doc.id}
+              segments={doc.segments}
+              active={active}
+              position={doc.position_segment}
+              scroller={scroller}
+              follow={follow}
+              onSeek={resumeFollowing}
+              lang={doc.language ?? undefined}
+              header={header}
+              marked={marked}
+              onWordPress={onWordPress}
+              chromeHidden={chrome.hiddenRef}
+              onChrome={onChrome}
+            />
+            {doc.segments.length === 0 && (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                {t('reader.empty_document')}
               </p>
-              {!importing && (
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  {describeError(query.error)}
-                </p>
-              )}
-              <div className="mt-2 flex gap-2">
-                <Link
-                  to="/reader"
-                  className="rd-press inline-flex h-11 items-center rounded-full bg-foreground/[0.07] px-5 text-sm font-semibold"
-                >
-                  {t('reader.back_to_library')}
-                </Link>
-                <button
-                  type="button"
-                  className="rd-press h-11 rounded-full bg-foreground px-5 text-sm font-semibold text-background"
-                  onClick={() => void query.refetch()}
-                >
-                  {t('reader.retry')}
-                </button>
-              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <div ref={bottom} className="rd-bottom rd-chrome">
+        {doc && active && (
+          <div className="rd-floating">
+            <div className="rd-floating-start">
+              <UndoButton />
+              <FurthestButton />
             </div>
-          ) : listening.audioOnly ? (
-            <AudioOnlyView doc={doc} active={active} onActivate={activate} />
-          ) : (
-            <div
-              className="rd-column pb-16 pt-6"
-              style={{ '--rd-text-size': `${prefs.textSize}px` } as CSSProperties}
-            >
-              <ReaderTextView
-                docId={doc.id}
-                segments={doc.segments}
-                active={active}
-                position={doc.position_segment}
-                scroller={scroller}
-                follow={follow}
-                onSeek={resumeFollowing}
-                lang={doc.language ?? undefined}
-                header={header}
-                marked={marked}
-                onWordPress={onWordPress}
-              />
-              {doc.segments.length === 0 && (
-                <p className="py-10 text-center text-sm text-muted-foreground">
-                  {t('reader.empty_document')}
-                </p>
-              )}
-            </div>
-          )}
-        </main>
-        {active && (
-          <div className="rd-pills">
-            <UndoPill />
             {!following && !listening.audioOnly && (
-              <div className="flex max-w-full flex-wrap justify-center gap-2">
-                <button
-                  type="button"
-                  className={cn(
-                    'rd-press rd-pill',
-                    playing ? 'rd-pill-primary' : 'rd-pill-secondary',
-                  )}
-                  onClick={() => window.dispatchEvent(new Event(FOLLOW_EVENT))}
-                >
-                  <ArrowDownToLineIcon className="size-4" aria-hidden="true" />
-                  {t('reader.back_to_current')}
-                </button>
+              <div className="rd-floating-end">
                 {!playing && (
                   <button
                     type="button"
-                    className="rd-press rd-pill rd-pill-primary"
+                    className="rd-press rd-float-btn rd-float-strong"
                     onClick={continueHere}
                   >
-                    <PlayIcon className="size-4 fill-current" aria-hidden="true" />
-                    {t('reader.continue_here')}
+                    <PlayIcon className="size-4 shrink-0 fill-current" aria-hidden="true" />
+                    <span className="truncate">{t('reader.continue_here')}</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="rd-press rd-float-round"
+                  aria-label={t('reader.back_to_current')}
+                  title={t('reader.back_to_current')}
+                  onClick={() => window.dispatchEvent(new Event(FOLLOW_EVENT))}
+                >
+                  <LocateFixedIcon className="size-5" aria-hidden="true" />
+                </button>
               </div>
             )}
           </div>
+        )}
+        {doc && (
+          <PlayerDock
+            doc={doc}
+            active={active}
+            onSheet={openSheet}
+            onActivate={activate}
+            onBookmark={addBookmark}
+          />
         )}
       </div>
 
       {doc && (
         <>
-          <PlayerDock doc={doc} active={active} onSheet={openSheet} onActivate={activate} />
           <DebugHud />
-          <OptionsSheet
+          <ActionsSheet
             doc={doc}
             active={active}
-            open={sheet === 'options'}
+            open={sheet === 'actions'}
             onOpenChange={closeSheet}
             onSheet={openSheet}
             onAddBookmark={addBookmark}
           />
+          <AppearanceSheet open={sheet === 'appearance'} onOpenChange={closeSheet} />
           <SpeedSheet open={sheet === 'speed'} onOpenChange={closeSheet} />
           <VoiceSheet doc={doc} open={sheet === 'voice'} onOpenChange={closeSheet} />
           <SleepSheet doc={doc} open={sheet === 'sleep'} onOpenChange={closeSheet} />

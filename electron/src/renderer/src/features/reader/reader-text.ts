@@ -132,7 +132,6 @@ export function coverInitial(title: string): string {
 
 export const SPEED_MIN = 0.5;
 export const SPEED_MAX = 3;
-export const SPEED_PRESETS = [0.8, 1, 1.2, 1.5, 2, 2.5] as const;
 
 /** Clamp to 0.5–3.0 on the 0.1 grid. */
 export function clampSpeed(value: number): number {

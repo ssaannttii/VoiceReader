@@ -17,6 +17,8 @@ export interface ReaderPrefs {
   trackAction: TrackAction;
   /** A single tap on the text does nothing; a double tap plays from there. */
   doubleTap: boolean;
+  /** Fade the controls out while playing; null follows the device (on for phones). */
+  autoHide: boolean | null;
 }
 
 export const TEXT_SIZE_MIN = 15;
@@ -28,6 +30,7 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   skipSeconds: 15,
   trackAction: 'sentence',
   doubleTap: false,
+  autoHide: null,
 };
 
 function clampText(value: unknown): number {
@@ -49,7 +52,22 @@ export function sanitizePrefs(value: unknown): ReaderPrefs {
     skipSeconds: oneOf(SKIP_OPTIONS, raw.skipSeconds, DEFAULT_PREFS.skipSeconds),
     trackAction: oneOf(TRACK_ACTIONS, raw.trackAction, DEFAULT_PREFS.trackAction),
     doubleTap: typeof raw.doubleTap === 'boolean' ? raw.doubleTap : DEFAULT_PREFS.doubleTap,
+    autoHide: typeof raw.autoHide === 'boolean' ? raw.autoHide : DEFAULT_PREFS.autoHide,
   };
+}
+
+/** Auto-hide default: on for phones and tablets (touch or narrow), off on a desktop. */
+export function autoHideDefault(coarsePointer: boolean, width: number): boolean {
+  return coarsePointer || width < 1024;
+}
+
+/** Whether the controls fade out while playing on this device. */
+export function autoHideOn(prefs: ReaderPrefs): boolean {
+  if (prefs.autoHide !== null) return prefs.autoHide;
+  if (typeof window === 'undefined') return false;
+  const coarse =
+    typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  return autoHideDefault(coarse, window.innerWidth);
 }
 
 function read(): ReaderPrefs {

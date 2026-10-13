@@ -15,7 +15,8 @@ import {
 } from './orb-math';
 import type { ReaderDocument } from './reader-api';
 import { readerPlayer, useReaderPlayer } from './reader-player';
-import { chapterIndexAt } from './reader-text';
+import { chapterIndexAt, coverGradient } from './reader-text';
+import { useCoverUrl } from './use-reader-data';
 
 /** Outline calm while paused (a still, round orb). */
 const REST_CALM = 0.15;
@@ -200,12 +201,27 @@ export function AudioOnlyView({
   const segment = active ? player.segment : doc.position_segment;
   const chapter = doc.chapters[chapterIndexAt(doc.chapters, segment)]?.title;
   const meta = chapter || doc.author || doc.source_name;
+  const coverUrl = useCoverUrl(doc.id, doc.has_cover);
   return (
     <div className="rd-audio-only" data-slot="reader-audio-only">
-      <div className="flex min-w-0 flex-col items-center gap-3 text-center">
-        <CoverTile id={doc.id} title={doc.title} hasCover={doc.has_cover} size="lg" />
+      {/* A soft, slowly drifting wash of the cover behind everything. */}
+      <div
+        className="rd-audio-backdrop"
+        style={{
+          backgroundImage: coverUrl ? `url("${coverUrl}")` : coverGradient(doc.id + doc.title),
+        }}
+        aria-hidden="true"
+      />
+      <div className="relative flex min-w-0 flex-col items-center gap-4 text-center">
+        <CoverTile
+          id={doc.id}
+          title={doc.title}
+          hasCover={doc.has_cover}
+          size="lg"
+          className="aspect-[3/4] h-[clamp(8.75rem,24dvh,15rem)] w-auto rounded-[var(--rd-r-md)] text-6xl shadow-[var(--rd-shadow-float)]"
+        />
         <div className="min-w-0 max-w-md">
-          <h1 className="line-clamp-2 font-[family-name:var(--rd-reading-font,var(--rd-serif))] text-xl font-semibold leading-snug tracking-tight">
+          <h1 className="line-clamp-2 text-xl font-semibold leading-snug tracking-tight">
             {doc.title}
           </h1>
           {meta && <p className="mt-1 truncate text-sm text-muted-foreground">{meta}</p>}
@@ -213,7 +229,7 @@ export function AudioOnlyView({
       </div>
       <button
         type="button"
-        className="rd-orb"
+        className="rd-orb relative"
         aria-label={t(playing ? 'reader.pause' : 'reader.play')}
         onClick={() => {
           if (!active) {

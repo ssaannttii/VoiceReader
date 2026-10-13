@@ -1,99 +1,118 @@
-import { useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircleIcon,
-  CloudOffIcon,
+  BookmarkPlusIcon,
+  ChevronDownIcon,
+  ListIcon,
+  ListOrderedIcon,
   Loader2Icon,
   MoonIcon,
   PauseIcon,
   PlayIcon,
   RotateCcwIcon,
   RotateCwIcon,
+  SearchIcon,
   SkipBackIcon,
   SkipForwardIcon,
-  UserRoundIcon,
-  ChevronsRightIcon,
-  ListOrderedIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { readerApi, readerKeys, type ReaderDocument } from './reader-api';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
-import { FOLLOW_EVENT, SleepLabel } from './player-sheets';
+import { FOLLOW_EVENT } from './player-sheets';
 import { useReaderPrefs } from './reader-prefs';
-import { formatClock, formatSpeed } from './reader-text';
+import { chapterIndexAt, formatClock, formatSpeed } from './reader-text';
 import { EngineBanner, useEngineView } from './engine-status';
 import { useListeningPrefs } from './listening-prefs';
 import { useReaderQueue } from './reader-queue';
 import { soundscapeIcon } from './soundscape-sheet';
+import { durationParts, scrubRange, scrubTimes, snapToMark } from './player-chrome';
+import { VoiceAvatar } from './voice-avatar';
+import { tick } from './haptics';
 
-export type DockSheet = 'speed' | 'voice' | 'sleep' | 'queue' | 'soundscape';
+export type DockSheet =
+  | 'speed'
+  | 'voice'
+  | 'sleep'
+  | 'queue'
+  | 'soundscape'
+  | 'search'
+  | 'chapters';
 
-/** Queue and soundscape: compact icon chips beside speed, voice and sleep. */
-function ListeningChips({
-  docId,
-  onSheet,
-}: {
-  docId: string;
-  onSheet: (sheet: DockSheet) => void;
-}) {
+/** "2 h 14 min" / "14 min" for the scrubber's remaining time. */
+export function useDuration() {
   const { t } = useTranslation();
-  const queued = useReaderQueue().filter((item) => item.id !== docId).length;
-  const { soundscape } = useListeningPrefs();
-  const SoundIcon = soundscapeIcon(soundscape);
-  return (
-    <>
-      <button
-        type="button"
-        className="rd-chip relative w-11 shrink-0 px-0"
-        data-active={queued > 0}
-        aria-label={t('reader.queue_open', { count: queued })}
-        onClick={() => onSheet('queue')}
-      >
-        <ListOrderedIcon className="size-4" aria-hidden="true" />
-        {queued > 0 && (
-          <span className="rd-chip-badge" aria-hidden="true">
-            {queued}
-          </span>
-        )}
-      </button>
-      <button
-        type="button"
-        className="rd-chip w-11 shrink-0 px-0"
-        data-active={soundscape !== 'off'}
-        aria-label={t('reader.soundscape')}
-        onClick={() => onSheet('soundscape')}
-      >
-        <SoundIcon className="size-4" aria-hidden="true" />
-      </button>
-    </>
-  );
+  return (seconds: number) => {
+    const { hours, minutes } = durationParts(seconds);
+    return hours > 0
+      ? t('reader.duration_hm', { hours, minutes })
+      : t('reader.minutes_total', { minutes });
+  };
 }
 
-/** Furthest point reached: offered when it is well ahead of the playhead. */
-const FURTHEST_MIN_SECONDS = 30;
+/** Thumb travel is inset by half its width (1rem thumb) on both ends of the track. */
+const THUMB_PX = 16;
 
 function Scrubber({ doc }: { doc: ReaderDocument }) {
   const { t } = useTranslation();
-  const { segment, rate, furthest } = useReaderPlayer();
+  const duration = useDuration();
+  const { segment, rate, furthest, sleep } = useReaderPlayer();
   const clock = useReaderClock();
   const [preview, setPreview] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const snapped = useRef(false);
   const count = Math.max(1, doc.segments.length);
+  // The range follows the playhead, not the drag: a drag stays inside its chapter.
+  const range = scrubRange(doc.chapters, count, segment);
+  const span = range.end - range.start;
   const within = clock.duration > 0 ? Math.min(0.999, clock.time / clock.duration) : 0;
-  const value = preview ?? segment + within;
-  const previewSegment = preview === null ? null : Math.min(count - 1, Math.floor(preview));
+  const value = preview ?? Math.min(range.end, Math.max(range.start, segment + within));
+  const previewSegment =
+    preview === null ? null : Math.min(range.end - 1, Math.max(range.start, Math.floor(preview)));
   const elapsed = previewSegment === null ? clock.elapsed : readerPlayer.secondsAt(previewSegment);
   const total = clock.total || doc.est_duration_s;
-  const furthestAt = readerPlayer.secondsAt(furthest);
-  const behind = furthest > segment && furthestAt - clock.elapsed >= FURTHEST_MIN_SECONDS;
+  const times = scrubTimes(range, elapsed, total, rate, (index) => readerPlayer.secondsAt(index));
+  const fraction = (at: number) => Math.min(1, Math.max(0, (at - range.start) / span));
+  const markShown = furthest > segment && furthest >= range.start && furthest < range.end;
+
   const commit = () => {
+    snapped.current = false;
+    setDragging(false);
     if (previewSegment !== null) {
       readerPlayer.seekSegment(previewSegment);
       window.dispatchEvent(new Event(FOLLOW_EVENT));
     }
     setPreview(null);
   };
+  const onInput = (input: HTMLInputElement, next: number) => {
+    if (markShown) {
+      const usable = Math.max(1, input.getBoundingClientRect().width - THUMB_PX);
+      const stick = snapToMark(
+        fraction(next) * usable,
+        fraction(furthest) * usable,
+        snapped.current,
+      );
+      if (stick && !snapped.current) tick();
+      snapped.current = stick;
+      if (stick) {
+        setPreview(furthest);
+        return;
+      }
+    }
+    setPreview(next);
+  };
+  const startDrag = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.isPrimary) setDragging(true);
+  };
+
+  const sleepLabel =
+    sleep.mode === 'time'
+      ? formatClock((clock.sleepLeft ?? 0) / 1000)
+      : sleep.mode === 'chapter'
+        ? t('reader.sleep_chapter_short')
+        : null;
   return (
-    <div className="relative">
+    <div className="rd-scrub" data-dragging={dragging || undefined}>
       {previewSegment !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-full mb-2 flex justify-center">
           <p className="line-clamp-2 max-w-md rounded-xl bg-popover px-3 py-2 text-center font-[family-name:var(--rd-serif)] text-sm shadow-lg ring-1 ring-border">
@@ -101,50 +120,102 @@ function Scrubber({ doc }: { doc: ReaderDocument }) {
           </p>
         </div>
       )}
-      <div className="relative -my-2">
+      <div className="relative">
         <input
           type="range"
           className="rd-range block"
-          min={0}
-          max={count}
+          min={range.start}
+          max={range.end}
           step="any"
           value={value}
           aria-label={t('reader.position')}
-          aria-valuetext={`${formatClock(elapsed / rate)} / ${formatClock(total / rate)}`}
-          style={{ '--rd-fill': `${(value / count) * 100}%` } as CSSProperties}
-          onChange={(event) => setPreview(Number(event.target.value))}
+          aria-valuetext={`${formatClock(times.left)} / ${formatClock(times.right)}`}
+          style={{ '--rd-fill': `${fraction(value) * 100}%` } as CSSProperties}
+          onChange={(event) => onInput(event.currentTarget, Number(event.currentTarget.value))}
+          onPointerDown={startDrag}
           onPointerUp={commit}
+          onPointerCancel={commit}
           onKeyUp={commit}
-          onBlur={() => setPreview(null)}
+          onBlur={() => {
+            setDragging(false);
+            setPreview(null);
+          }}
         />
-        {furthest > 0 && (
+        {markShown && (
           <span
-            className="rd-furthest-tick"
-            style={{ '--rd-at': Math.min(1, furthest / count) } as CSSProperties}
+            className="rd-furthest-dot"
+            data-snapped={(preview !== null && snapped.current) || undefined}
+            style={{ '--rd-at': fraction(furthest) } as CSSProperties}
             aria-hidden="true"
           />
         )}
       </div>
-      <div className="flex items-center justify-between gap-2 text-[11px] font-medium tabular-nums text-muted-foreground">
-        <span>{formatClock(elapsed / rate)}</span>
-        {behind && previewSegment === null && (
-          <button
-            type="button"
-            className="rd-press -my-1 inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-1 font-semibold text-foreground"
-            onClick={() => {
-              readerPlayer.goFurthest();
-              window.dispatchEvent(new Event(FOLLOW_EVENT));
-            }}
-          >
-            <ChevronsRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">
-              {t('reader.go_furthest', { time: formatClock(furthestAt / rate) })}
+      <div className="rd-scrub-times">
+        <span>{formatClock(times.left)}</span>
+        <span className="flex min-w-0 items-center justify-center gap-1.5">
+          <span className="truncate">
+            {t('reader.time_left', { time: duration(times.remaining) })}
+          </span>
+          {sleepLabel && (
+            <span className="flex shrink-0 items-center gap-1" data-slot="reader-sleep-left">
+              <span aria-hidden="true">·</span>
+              <MoonIcon className="size-3" aria-hidden="true" />
+              <span className="sr-only">{t('reader.sleep_timer')}:</span>
+              {sleepLabel}
             </span>
-          </button>
-        )}
-        <span>−{formatClock(Math.max(0, total - elapsed) / rate)}</span>
+          )}
+        </span>
+        <span className="text-right">
+          {times.rightIsRemaining ? '−' : ''}
+          {formatClock(times.right)}
+        </span>
       </div>
     </div>
+  );
+}
+
+/** "≡ Chapter title": opens the chapters list. */
+function ChapterChip({ doc, onOpen }: { doc: ReaderDocument; onOpen: () => void }) {
+  const { t } = useTranslation();
+  const { segment } = useReaderPlayer();
+  const title = doc.chapters[chapterIndexAt(doc.chapters, segment)]?.title;
+  return (
+    <div className="flex justify-center">
+      <button
+        type="button"
+        className="rd-chapter-chip"
+        aria-label={title ? `${t('reader.chapters')}: ${title}` : t('reader.chapters')}
+        onClick={onOpen}
+      >
+        <ListIcon className="size-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{title ?? t('reader.chapters')}</span>
+      </button>
+    </div>
+  );
+}
+
+function VoicePill({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation();
+  const player = useReaderPlayer();
+  const voices = useQuery({
+    queryKey: readerKeys.voices,
+    queryFn: ({ signal }) => readerApi.voices(signal),
+    staleTime: 60_000,
+  });
+  const name = player.voice
+    ? (voices.data?.find((voice) => voice.id === player.voice)?.name ?? t('reader.voice'))
+    : t('reader.voice_default');
+  return (
+    <button
+      type="button"
+      className="rd-voice-pill"
+      aria-label={`${t('reader.voice')}: ${name}`}
+      onClick={onOpen}
+    >
+      <VoiceAvatar id={player.voice} name={name} offline={player.offline} />
+      <span className="min-w-0 truncate">{name}</span>
+      <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
+    </button>
   );
 }
 
@@ -153,6 +224,7 @@ export function PlayerDock({
   active,
   onSheet,
   onActivate,
+  onBookmark,
 }: {
   doc: ReaderDocument;
   /** This document is loaded in the player. */
@@ -160,23 +232,18 @@ export function PlayerDock({
   onSheet: (sheet: DockSheet) => void;
   /** Load this document (replacing whatever plays) and start it. */
   onActivate: () => void;
+  onBookmark: () => void;
 }) {
   const { t } = useTranslation();
   const player = useReaderPlayer();
   const prefs = useReaderPrefs();
   const engineView = useEngineView(doc.id);
-  const voices = useQuery({
-    queryKey: readerKeys.voices,
-    queryFn: ({ signal }) => readerApi.voices(signal),
-    staleTime: 60_000,
-  });
-  const voiceName = player.voice
-    ? (voices.data?.find((voice) => voice.id === player.voice)?.name ?? t('reader.voice'))
-    : t('reader.voice_default');
+  const { soundscape } = useListeningPrefs();
+  const queued = useReaderQueue().filter((item) => item.id !== doc.id).length;
   if (!active) {
     return (
-      <div className="rd-dock">
-        <div className="mx-auto flex max-w-xl items-center gap-3 py-1">
+      <div className="rd-dock" data-slot="reader-dock-inactive">
+        <div className="rd-dock-inner flex items-center gap-3 py-1">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
             {t('reader.replace_playing', { title: player.doc?.title ?? '' })}
           </p>
@@ -194,13 +261,16 @@ export function PlayerDock({
   }
   const busy = player.status === 'buffering';
   const playing = player.status === 'playing' || busy;
+  const ended = player.status === 'ended';
   const last = doc.segments.length - 1;
   const seconds = prefs.skipSeconds;
   const byChapter = prefs.trackAction === 'chapter' && doc.chapters.length > 0;
   const showTrack = prefs.trackAction !== 'skip';
+  const sleeping = player.sleep.mode !== 'off';
+  const SoundIcon = soundscapeIcon(soundscape);
   return (
     <div className="rd-dock" data-slot="reader-dock">
-      <div className="mx-auto max-w-xl">
+      <div className="rd-dock-inner">
         {player.status !== 'error' && <EngineBanner view={engineView} />}
         {player.status === 'error' && (
           <div
@@ -218,15 +288,30 @@ export function PlayerDock({
             </button>
           </div>
         )}
+        {doc.chapters.length > 0 && <ChapterChip doc={doc} onOpen={() => onSheet('chapters')} />}
         <Scrubber doc={doc} />
-        <div className="mt-1 flex items-center justify-center gap-[clamp(0.25rem,3vw,1.25rem)]">
+        <div className="rd-transport">
+          <button
+            type="button"
+            className="rd-icon-btn rd-sleep-btn"
+            data-active={sleeping || undefined}
+            aria-label={t('reader.sleep_timer')}
+            aria-pressed={sleeping}
+            onClick={() => onSheet('sleep')}
+          >
+            <MoonIcon
+              className={sleeping ? 'size-6 fill-current' : 'size-6'}
+              strokeWidth={1.8}
+              aria-hidden="true"
+            />
+          </button>
           <button
             type="button"
             className="rd-icon-btn relative"
             aria-label={t('reader.back_seconds', { seconds })}
             onClick={() => readerPlayer.skip(-seconds)}
           >
-            <RotateCcwIcon className="size-[1.6rem]" strokeWidth={1.6} aria-hidden="true" />
+            <RotateCcwIcon className="size-[1.75rem]" strokeWidth={1.6} aria-hidden="true" />
             <span className="rd-skip-num" aria-hidden="true">
               {seconds}
             </span>
@@ -234,24 +319,26 @@ export function PlayerDock({
           {showTrack && (
             <button
               type="button"
-              className="rd-icon-btn"
+              className="rd-icon-btn rd-track-btn"
               aria-label={t(byChapter ? 'reader.previous_chapter' : 'reader.previous')}
               disabled={player.segment <= 0 && !playing}
               onClick={() => readerPlayer.trackPrevious()}
             >
-              <SkipBackIcon className="size-6 fill-current" aria-hidden="true" />
+              <SkipBackIcon className="size-5 fill-current" aria-hidden="true" />
             </button>
           )}
           <button
             type="button"
-            className="rd-play mx-1"
-            aria-label={t(playing ? 'reader.pause' : 'reader.play')}
+            className="rd-play"
+            aria-label={t(ended ? 'reader.restart' : playing ? 'reader.pause' : 'reader.play')}
             onClick={() => readerPlayer.toggle()}
           >
             {busy ? (
               <Loader2Icon className="size-7 animate-spin" aria-hidden="true" />
             ) : playing ? (
               <PauseIcon className="size-7 fill-current" aria-hidden="true" />
+            ) : ended ? (
+              <RotateCcwIcon className="size-7" strokeWidth={2.2} aria-hidden="true" />
             ) : (
               <PlayIcon className="ml-1 size-7 fill-current" aria-hidden="true" />
             )}
@@ -259,12 +346,12 @@ export function PlayerDock({
           {showTrack && (
             <button
               type="button"
-              className="rd-icon-btn"
+              className="rd-icon-btn rd-track-btn"
               aria-label={t(byChapter ? 'reader.next_chapter' : 'reader.next')}
               disabled={player.segment >= last}
               onClick={() => readerPlayer.trackNext()}
             >
-              <SkipForwardIcon className="size-6 fill-current" aria-hidden="true" />
+              <SkipForwardIcon className="size-5 fill-current" aria-hidden="true" />
             </button>
           )}
           <button
@@ -273,48 +360,66 @@ export function PlayerDock({
             aria-label={t('reader.forward_seconds', { seconds })}
             onClick={() => readerPlayer.skip(seconds)}
           >
-            <RotateCwIcon className="size-[1.6rem]" strokeWidth={1.6} aria-hidden="true" />
+            <RotateCwIcon className="size-[1.75rem]" strokeWidth={1.6} aria-hidden="true" />
             <span className="rd-skip-num" aria-hidden="true">
               {seconds}
             </span>
           </button>
-        </div>
-        <div className="mt-1 flex items-center justify-center gap-1.5 min-[400px]:gap-2">
           <button
             type="button"
-            className="rd-chip min-w-[4.25rem]"
+            className="rd-icon-btn rd-speed-btn"
             aria-label={`${t('reader.speed')}: ${formatSpeed(player.rate)}`}
             onClick={() => onSheet('speed')}
           >
             {formatSpeed(player.rate)}
           </button>
-          <button
-            type="button"
-            className="rd-chip min-w-0 max-w-[11rem]"
-            onClick={() => onSheet('voice')}
-            aria-label={`${t('reader.voice')}: ${voiceName}`}
-          >
-            {player.offline ? (
-              <CloudOffIcon className="size-4 shrink-0" aria-hidden="true" />
-            ) : (
-              <UserRoundIcon className="size-4 shrink-0" aria-hidden="true" />
-            )}
-            <span className="truncate">{voiceName}</span>
-          </button>
-          <button
-            type="button"
-            className="rd-chip"
-            data-active={player.sleep.mode !== 'off'}
-            aria-label={t('reader.sleep_timer')}
-            onClick={() => onSheet('sleep')}
-          >
-            <MoonIcon className="size-4 shrink-0" aria-hidden="true" />
-            {/* Narrow phones: the idle timer is just its moon, leaving room for the voice name. */}
-            <span className={player.sleep.mode === 'off' ? 'max-[399px]:sr-only' : undefined}>
-              <SleepLabel />
-            </span>
-          </button>
-          <ListeningChips docId={doc.id} onSheet={onSheet} />
+        </div>
+        <div className="rd-actions-row">
+          <div className="flex items-center">
+            <button
+              type="button"
+              className="rd-icon-btn rd-quiet-btn"
+              data-active={soundscape !== 'off' || undefined}
+              aria-label={t('reader.soundscape')}
+              onClick={() => onSheet('soundscape')}
+            >
+              <SoundIcon className="size-5" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="rd-icon-btn rd-quiet-btn"
+              aria-label={t('reader.search_document')}
+              onClick={() => onSheet('search')}
+            >
+              <SearchIcon className="size-5" aria-hidden="true" />
+            </button>
+          </div>
+          <VoicePill onOpen={() => onSheet('voice')} />
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              className="rd-icon-btn rd-quiet-btn"
+              aria-label={t('reader.bookmark_add')}
+              disabled={!doc.segments.length}
+              onClick={onBookmark}
+            >
+              <BookmarkPlusIcon className="size-5" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="rd-icon-btn rd-quiet-btn relative"
+              data-active={queued > 0 || undefined}
+              aria-label={t('reader.queue_open', { count: queued })}
+              onClick={() => onSheet('queue')}
+            >
+              <ListOrderedIcon className="size-5" aria-hidden="true" />
+              {queued > 0 && (
+                <span className="rd-chip-badge" aria-hidden="true">
+                  {queued}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

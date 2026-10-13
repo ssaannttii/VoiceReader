@@ -17,6 +17,7 @@ import { readerPlayer } from './reader-player';
 import { readerPrefs } from './reader-prefs';
 import { createLongPress, wordAtPoint } from './reader-long-press';
 import { FOLLOW_EVENT } from './player-sheets';
+import { tapOutcome } from './player-chrome';
 import {
   blockIndexBySegment,
   groupBlocks,
@@ -29,27 +30,41 @@ const reducedMotion = () =>
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/**
+ * The part of the scroller not covered by the floating header and dock: its
+ * `scroll-padding` (set from their measured heights while they are shown).
+ */
+function visibleBand(scroller: HTMLElement): { top: number; height: number } {
+  const box = scroller.getBoundingClientRect();
+  const style = getComputedStyle(scroller);
+  const padTop = parseFloat(style.scrollPaddingTop) || 0;
+  const padBottom = parseFloat(style.scrollPaddingBottom) || 0;
+  // Never let the chrome squeeze the band below half the screen.
+  const height = Math.max(box.height * 0.5, box.height - padTop - padBottom);
+  return { top: box.top + Math.min(padTop, box.height - height), height };
+}
+
 /** Bring the spoken sentence into the reading band (upper third) when it leaves it. */
 export function scrollToSentence(scroller: HTMLElement, element: HTMLElement, force = false) {
-  const box = scroller.getBoundingClientRect();
+  const band = visibleBand(scroller);
   const rect = element.getBoundingClientRect();
-  const top = rect.top - box.top;
-  const bottom = rect.bottom - box.top;
-  if (!force && top >= box.height * 0.12 && bottom <= box.height * 0.72) return;
-  const target = scroller.scrollTop + top - box.height * 0.28;
-  const far = Math.abs(top) > box.height * 2;
+  const top = rect.top - band.top;
+  const bottom = rect.bottom - band.top;
+  if (!force && top >= band.height * 0.12 && bottom <= band.height * 0.72) return;
+  const target = scroller.scrollTop + top - band.height * 0.28;
+  const far = Math.abs(top) > band.height * 2;
   scroller.scrollTo({ top: target, behavior: far || reducedMotion() ? 'auto' : 'smooth' });
   // Layout can still shift after a long jump (fonts, images); settle on the next frame.
   if (far)
     requestAnimationFrame(() => {
-      const settled = element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-      scroller.scrollTop += settled - box.height * 0.28;
+      const settled = element.getBoundingClientRect().top - band.top;
+      scroller.scrollTop += settled - band.height * 0.28;
     });
 }
 
-/** First sentence whose text is on screen (for "continue from here"), or null. */
+/** First sentence whose text is on screen below the header (for "continue from here"), or null. */
 export function firstVisibleSegment(scroller: HTMLElement): number | null {
-  const top = scroller.getBoundingClientRect().top;
+  const top = visibleBand(scroller).top;
   for (const element of scroller.querySelectorAll<HTMLElement>('.rd-sent[data-seg]')) {
     const rect = element.getBoundingClientRect();
     // Mostly visible: its lower half is below the top edge.
@@ -100,6 +115,8 @@ export const ReaderTextView = memo(function ReaderTextView({
   lang,
   marked,
   onWordPress,
+  chromeHidden,
+  onChrome,
 }: {
   docId: string;
   segments: ReaderSegment[];
@@ -116,6 +133,10 @@ export const ReaderTextView = memo(function ReaderTextView({
   marked?: ReadonlySet<number>;
   /** Long press (touch) or right-click (mouse) on a word. */
   onWordPress?: (press: WordPress) => void;
+  /** The floating controls are faded out (a tap only brings them back). */
+  chromeHidden?: RefObject<boolean>;
+  /** A tap toggles the controls; a seek or play keeps them up. */
+  onChrome?: (event: 'toggle' | 'interact') => void;
 }) {
   const article = useRef<HTMLElement>(null);
   const topSentinel = useRef<HTMLDivElement>(null);
@@ -405,31 +426,65 @@ export const ReaderTextView = memo(function ReaderTextView({
     }
   };
 
+  /** Single tap waiting to see whether a second one makes it a double tap. */
+  const pendingToggle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelToggle = () => {
+    if (pendingToggle.current) clearTimeout(pendingToggle.current);
+    pendingToggle.current = null;
+  };
+  useEffect(() => cancelToggle, []);
+
+  // Tap rules (see tapOutcome): hidden controls → a tap only reveals them;
+  // otherwise a tap on a sentence seeks (or, with double tap to play, a single
+  // tap toggles the controls and a double tap plays); beside the text it toggles.
   const onClick = (event: MouseEvent<HTMLElement>) => {
     if (swallowClick.current) {
       swallowClick.current = false;
       return;
     }
-    // Another document is playing: the dock offers to switch first.
-    if (!active) return;
     const target = event.target as HTMLElement;
     const sentence = target.closest<HTMLElement>('[data-seg]');
-    if (!sentence) return;
+    const selected = Boolean(window.getSelection()?.toString());
+    // Another document is playing: the dock offers to switch first.
+    if (!active) {
+      if (!selected) onChrome?.('toggle');
+      return;
+    }
+    const doubleTap = readerPrefs().doubleTap;
+    if (!doubleTap && selected) return;
+    if (!sentence) {
+      if (!selected) onChrome?.('toggle');
+      return;
+    }
     const segment = Number(sentence.dataset.seg);
     const word = target.closest<HTMLElement>('[data-w]');
-    const selected = Boolean(window.getSelection()?.toString());
-    if (readerPrefs().doubleTap) {
-      // One tap only reads; a second tap on the same sentence plays from it.
+    if (doubleTap) {
+      // One tap toggles the controls (once it is clearly not a double tap);
+      // a second tap on the same sentence plays from it.
       const now = performance.now();
       const last = lastTap.current;
       if (!last || last.segment !== segment || now - last.at > DOUBLE_TAP_MS) {
+        cancelToggle();
         lastTap.current = selected ? null : { segment, at: now };
+        if (!selected)
+          pendingToggle.current = setTimeout(() => {
+            pendingToggle.current = null;
+            onChrome?.('toggle');
+          }, DOUBLE_TAP_MS);
         return;
       }
+      cancelToggle();
       lastTap.current = null;
       // A desktop double-click also selects the word under it.
       window.getSelection()?.removeAllRanges();
-    } else if (selected) return;
+    } else if (
+      tapOutcome({ chromeHidden: Boolean(chromeHidden?.current), doubleTap, onSentence: true }) ===
+      'toggle'
+    ) {
+      onChrome?.('toggle');
+      return;
+    }
+    onChrome?.('interact');
     onSeek();
     if (word && readerPlayer.getState().segment === segment)
       readerPlayer.seekWord(segment, Number(word.dataset.w));

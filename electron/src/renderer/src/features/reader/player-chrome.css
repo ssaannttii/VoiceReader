@@ -1,0 +1,621 @@
+/*
+ * Player & reading-view chrome: the header and dock float over the text with
+ * soft fades into the reading surface, and fade out while playing (auto-hide,
+ * rules in player-chrome.ts). Built on reader-tokens.css; the fades use
+ * `--rd-surface`, the exact colour the text sits on, so light, dark and paper
+ * (and the app theme with "system") all blend without a seam.
+ */
+@layer components {
+  .rd-root {
+    --rd-surface: var(--background);
+  }
+
+  /* ── Auto-hide ─────────────────────────────────────────────────────────── */
+  .rd-chrome {
+    transition:
+      opacity var(--rd-dur-fast) var(--rd-ease-out),
+      transform var(--rd-dur-fast) var(--rd-ease-out);
+  }
+  .rd-root[data-chrome='hidden'] .rd-chrome {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: 200ms;
+  }
+  .rd-root[data-chrome='hidden'] .rd-topbar {
+    transform: translateY(-8px);
+  }
+  .rd-root[data-chrome='hidden'] .rd-bottom {
+    transform: translateY(8px);
+  }
+  .rd-root[data-chrome='hidden'] .rd-floating > * {
+    pointer-events: none;
+  }
+  /* The follow band (reader-text-view.tsx) uses the space the chrome leaves free. */
+  .rd-scroll {
+    scroll-padding-top: var(--rd-top-h, 0px);
+    scroll-padding-bottom: var(--rd-dock-h, 0px);
+  }
+  .rd-root[data-chrome='hidden'] .rd-scroll {
+    scroll-padding: 0;
+  }
+  /* The text scrolls clear of both bars at its ends. */
+  .rd-reading {
+    padding-top: calc(var(--rd-top-h, 3.5rem) + 1.5rem);
+    padding-bottom: calc(var(--rd-dock-h, 15rem) + 3rem);
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  .rd-topbar::after {
+    content: '';
+    position: absolute;
+    inset: 100% 0 auto;
+    height: 1.5rem;
+    background: linear-gradient(var(--rd-surface), transparent);
+    pointer-events: none;
+  }
+  .rd-topbar-side {
+    display: flex;
+    min-width: 5.5rem;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .rd-head-text {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .rd-head-title,
+  .rd-head-sub {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rd-head-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    letter-spacing: -0.005em;
+  }
+  .rd-head-sub {
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+    color: var(--muted-foreground);
+  }
+
+  /* ── Bottom stack: floating row, dock ──────────────────────────────────── */
+  .rd-bottom {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 10;
+  }
+  .rd-dock::before {
+    content: '';
+    position: absolute;
+    inset: auto 0 100%;
+    height: 2rem;
+    background: linear-gradient(transparent, var(--rd-surface));
+    pointer-events: none;
+  }
+  .rd-dock-inner {
+    max-width: 35rem;
+    margin-inline: auto;
+  }
+
+  .rd-floating {
+    position: absolute;
+    bottom: calc(100% + var(--rd-s1));
+    left: max(var(--rd-s4), var(--rd-safe-left));
+    right: max(var(--rd-s4), var(--rd-safe-right));
+    max-width: 35rem;
+    margin-inline: auto;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--rd-s2);
+    pointer-events: none;
+    /* Above the dock's fade, which is painted after it. */
+    z-index: 1;
+  }
+  .rd-floating-start,
+  .rd-floating-end {
+    display: flex;
+    min-width: 0;
+    gap: var(--rd-s2);
+  }
+  /* Without room beside "continue here" + locate, undo/furthest wrap to a row above. */
+  .rd-floating {
+    flex-wrap: wrap-reverse;
+    /* wrap-reverse flips the cross axis: flex-start is the bottom edge. */
+    align-items: flex-start;
+  }
+  .rd-floating-start {
+    min-width: min(11rem, 100%);
+    flex: 0 1 auto;
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
+  .rd-floating-start:empty {
+    min-width: 0;
+  }
+  .rd-floating-end {
+    margin-inline-start: auto;
+  }
+  .rd-floating-end {
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .rd-floating > * > * {
+    pointer-events: auto;
+  }
+  .rd-float-btn {
+    display: inline-flex;
+    height: 2.75rem;
+    max-width: 100%;
+    align-items: center;
+    gap: var(--rd-s2);
+    padding-inline: 0.875rem;
+    border-radius: var(--rd-r-md);
+    background: var(--rd-raised);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow:
+      0 0 0 1px var(--rd-hairline),
+      var(--rd-shadow-float);
+    animation: rd-float-in 200ms var(--rd-ease-out) both;
+  }
+  .rd-float-strong {
+    background: var(--foreground);
+    color: var(--background);
+    box-shadow: var(--rd-shadow-float);
+  }
+  .rd-float-round {
+    display: inline-grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: var(--rd-r-full);
+    background: var(--foreground);
+    color: var(--background);
+    box-shadow: var(--rd-shadow-float);
+    animation: rd-float-in 200ms var(--rd-ease-out) both;
+  }
+  @keyframes rd-float-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+
+  /* Chapter chip: opens the chapters list. */
+  .rd-chapter-chip {
+    display: inline-flex;
+    max-width: 16.5rem;
+    min-height: 2.5rem;
+    align-items: center;
+    gap: var(--rd-s1_5);
+    padding-inline: 0.625rem;
+    border-radius: var(--rd-r-sm);
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    touch-action: manipulation;
+    transition:
+      background-color var(--rd-dur-press) ease,
+      transform var(--rd-dur-press) ease;
+  }
+  .rd-chapter-chip:active {
+    transform: scale(var(--rd-press-scale));
+    background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  }
+  @media (hover: hover) {
+    .rd-chapter-chip:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      color: var(--foreground);
+    }
+  }
+  .rd-chapter-chip:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  /* ── Scrubber ──────────────────────────────────────────────────────────── */
+  .rd-scrub {
+    position: relative;
+  }
+  .rd-scrub .rd-range {
+    margin-block: -0.375rem;
+  }
+  .rd-scrub[data-dragging] .rd-range {
+    --rd-track: 8px;
+  }
+  /* No thumb at rest; it appears while dragging, focused, or under a mouse. */
+  .rd-scrub .rd-range::-webkit-slider-thumb {
+    transform: scale(0);
+    transition: transform var(--rd-dur-fast) var(--rd-ease-out);
+  }
+  .rd-scrub .rd-range::-moz-range-thumb {
+    transform: scale(0);
+  }
+  .rd-scrub[data-dragging] .rd-range::-webkit-slider-thumb,
+  .rd-scrub .rd-range:focus-visible::-webkit-slider-thumb {
+    transform: scale(1);
+  }
+  .rd-scrub[data-dragging] .rd-range::-moz-range-thumb,
+  .rd-scrub .rd-range:focus-visible::-moz-range-thumb {
+    transform: scale(1);
+  }
+  @media (hover: hover) {
+    .rd-scrub:hover .rd-range::-webkit-slider-thumb {
+      transform: scale(1);
+    }
+    .rd-scrub:hover .rd-range::-moz-range-thumb {
+      transform: scale(1);
+    }
+  }
+  /* Furthest point reached (thumb centre travels 0.5rem in from each edge). */
+  .rd-furthest-dot {
+    position: absolute;
+    top: 50%;
+    left: calc(0.5rem + (100% - 1rem) * var(--rd-at, 0));
+    width: 10px;
+    height: 10px;
+    translate: -50% -50%;
+    border-radius: var(--rd-r-full);
+    background: var(--rd-text-3);
+    box-shadow: 0 0 0 2px var(--rd-surface);
+    pointer-events: none;
+    transition:
+      transform var(--rd-dur-fast) var(--rd-ease-out),
+      background-color var(--rd-dur-fast) ease;
+  }
+  .rd-furthest-dot[data-snapped] {
+    transform: scale(1.3);
+    background: var(--foreground);
+  }
+  .rd-scrub-times {
+    display: grid;
+    grid-template-columns: minmax(3rem, auto) minmax(0, 1fr) minmax(3rem, auto);
+    align-items: center;
+    gap: var(--rd-s2);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-foreground);
+  }
+
+  /* ── Transport and actions rows ────────────────────────────────────────── */
+  .rd-transport {
+    display: flex;
+    max-width: 26rem;
+    align-items: center;
+    justify-content: space-between;
+    margin: var(--rd-s2) auto 0;
+  }
+  @media (max-width: 29.99rem) {
+    .rd-track-btn {
+      display: none;
+    }
+  }
+  .rd-speed-btn {
+    width: auto;
+    min-width: 2.75rem;
+    padding-inline: var(--rd-s1);
+    border-radius: var(--rd-r-sm);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .rd-sleep-btn[data-active] {
+    color: var(--foreground);
+  }
+  .rd-actions-row {
+    display: grid;
+    grid-template-columns: 1fr minmax(0, auto) 1fr;
+    align-items: center;
+    gap: var(--rd-s1);
+    margin-top: var(--rd-s1);
+  }
+  .rd-quiet-btn {
+    color: var(--muted-foreground);
+  }
+  .rd-quiet-btn[data-active] {
+    color: var(--foreground);
+  }
+  .rd-quiet-btn .rd-chip-badge {
+    box-shadow: 0 0 0 2px var(--rd-surface);
+  }
+
+  /* Voice pill with its generated avatar. */
+  .rd-voice-pill {
+    position: relative;
+    display: inline-flex;
+    height: 2.25rem;
+    min-width: 0;
+    max-width: 11rem;
+    align-items: center;
+    gap: var(--rd-s2);
+    justify-self: center;
+    padding: 0 0.625rem 0 0.375rem;
+    border-radius: var(--rd-r-full);
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+    box-shadow: inset 0 0 0 1px var(--rd-hairline);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    touch-action: manipulation;
+    transition:
+      background-color var(--rd-dur-press) ease,
+      transform var(--rd-dur-press) ease;
+  }
+  /* 44px tall hit area around the 36px pill. */
+  .rd-voice-pill::after {
+    content: '';
+    position: absolute;
+    inset: -0.25rem 0;
+  }
+  .rd-voice-pill:active {
+    transform: scale(var(--rd-press-scale));
+  }
+  @media (hover: hover) {
+    .rd-voice-pill:hover {
+      background: color-mix(in srgb, var(--foreground) 9%, transparent);
+    }
+  }
+  .rd-voice-pill:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .rd-avatar {
+    display: inline-grid;
+    width: var(--rd-avatar, 24px);
+    height: var(--rd-avatar, 24px);
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: var(--rd-r-full);
+    color: #fff;
+    font-size: calc(var(--rd-avatar, 24px) * 0.44);
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%);
+  }
+  .rd-avatar-neutral {
+    background: var(--rd-g4);
+    color: var(--rd-text-2);
+    box-shadow: none;
+  }
+
+  /* ── Sheets ────────────────────────────────────────────────────────────── */
+  .rd-sheet-heading {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.125rem;
+    color: var(--muted-foreground);
+  }
+  .rd-sheet-divider {
+    height: 1px;
+    margin: var(--rd-s2) 0.75rem;
+    background: color-mix(in srgb, var(--border) 60%, transparent);
+  }
+
+  /* Aa sheet: round background swatches. */
+  .rd-bg-option {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--rd-s1_5);
+    padding-block: var(--rd-s1);
+    border-radius: var(--rd-r-md);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 500;
+    touch-action: manipulation;
+  }
+  .rd-bg-option[aria-checked='true'] {
+    color: var(--foreground);
+    font-weight: 600;
+  }
+  .rd-bg-option:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .rd-bg-swatch {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    place-items: center;
+    border-radius: var(--rd-r-full);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 16%, transparent);
+    transition: box-shadow var(--rd-dur-fast) ease;
+  }
+  .rd-bg-option[aria-checked='true'] .rd-bg-swatch {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--foreground) 16%, transparent),
+      0 0 0 2px var(--popover),
+      0 0 0 4px var(--foreground);
+  }
+
+  /* Aa sheet: highlight theme cards drawing the effect in miniature. */
+  .rd-hl-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--rd-s2);
+    padding: var(--rd-s2);
+    border-radius: var(--rd-r-md);
+    background: color-mix(in srgb, var(--foreground) 4%, transparent);
+    box-shadow: inset 0 0 0 1px var(--rd-hairline);
+    text-align: left;
+    font-size: 0.8125rem;
+    font-weight: 560;
+    touch-action: manipulation;
+    transition:
+      box-shadow var(--rd-dur-fast) ease,
+      transform var(--rd-dur-press) ease;
+  }
+  .rd-hl-card:active {
+    transform: scale(var(--rd-press-scale));
+  }
+  .rd-hl-card[aria-checked='true'] {
+    box-shadow: inset 0 0 0 2px var(--foreground);
+  }
+  .rd-hl-card:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .rd-hl-sample {
+    display: flex;
+    height: 4rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 0.875rem;
+    border-radius: var(--rd-r-sm);
+    background: var(--hl-bg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hl-ink) 8%, transparent);
+  }
+  .rd-hl-sample i,
+  .rd-hl-sample u {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+  }
+  .rd-hl-sample i {
+    background: color-mix(in srgb, var(--hl-ink) 30%, transparent);
+  }
+  .rd-hl-sample b {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-inline: -6px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: var(--hl-sentence);
+  }
+  .rd-hl-sample b i {
+    flex: 1 1 0;
+  }
+  .rd-hl-sample b + b {
+    width: 66%;
+  }
+  .rd-hl-sample u {
+    flex: 0 0 28%;
+    height: 11px;
+    margin-block: -3px;
+    background: var(--hl-word);
+  }
+
+  /* Speed sheet: tappable marks at their true place under the slider. */
+  .rd-speed-marks {
+    position: relative;
+    height: 2.5rem;
+    margin-top: -0.375rem;
+  }
+  .rd-speed-mark {
+    position: absolute;
+    top: 0;
+    left: calc(0.5rem + (100% - 1rem) * var(--rd-at, 0));
+    min-width: 2.5rem;
+    height: 2.5rem;
+    translate: -50% 0;
+    padding-inline: 2px;
+    border-radius: var(--rd-r-sm);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    touch-action: manipulation;
+  }
+  .rd-speed-mark[aria-pressed='true'] {
+    color: var(--foreground);
+    font-weight: 650;
+  }
+  .rd-speed-mark:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+
+  /* Chapters: current row, listened rows, durations. */
+  .rd-chapter-row {
+    display: flex;
+    width: 100%;
+    min-height: 3rem;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem 0.5rem 0.625rem;
+    border-radius: var(--rd-r-sm);
+    text-align: left;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--foreground);
+    touch-action: manipulation;
+    transition: background-color var(--rd-dur-press) ease;
+  }
+  .rd-chapter-row > :last-child {
+    color: var(--muted-foreground);
+  }
+  .rd-chapter-row[data-state='done'] {
+    color: var(--muted-foreground);
+  }
+  .rd-chapter-row[aria-current='true'] {
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    font-weight: 650;
+  }
+  .rd-chapter-row:active {
+    background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  }
+  @media (hover: hover) {
+    .rd-chapter-row:hover {
+      background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    }
+  }
+  .rd-chapter-row:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+  .rd-chapter-lead {
+    display: grid;
+    width: 1rem;
+    flex-shrink: 0;
+    place-items: center;
+  }
+
+  /* ── Audio-only ────────────────────────────────────────────────────────── */
+  .rd-audio-backdrop {
+    position: absolute;
+    inset: -10%;
+    z-index: -1;
+    background-position: center;
+    background-size: cover;
+    filter: blur(64px) saturate(1.25);
+    opacity: 0.32;
+    transform: scale(1.2);
+    mask-image: radial-gradient(closest-side, #000 35%, transparent);
+    animation: rd-drift 30s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  [data-rd-surface='dark'] .rd-audio-backdrop {
+    opacity: 0.4;
+  }
+  @keyframes rd-drift {
+    from {
+      transform: scale(1.15) translate(-3%, -2%);
+    }
+    to {
+      transform: scale(1.3) translate(3%, 2%);
+    }
+  }
+}

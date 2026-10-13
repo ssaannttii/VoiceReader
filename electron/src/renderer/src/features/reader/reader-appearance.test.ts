@@ -62,6 +62,16 @@ describe('contrast (WCAG AA, 4.5:1)', () => {
     });
 });
 
+describe('yellow highlight', () => {
+  it('keeps the sentence box neutral so only the word carries the colour', () => {
+    for (const surface of ['light', 'dark'] as const) {
+      const hex = HIGHLIGHT_COLORS.yellow[surface].sentence;
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
 describe('appearanceVars', () => {
   it('sets highlight and font variables, and surface tokens only when forced', () => {
     const system = appearanceVars(DEFAULT_APPEARANCE, 'dark');
