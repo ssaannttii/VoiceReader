@@ -8,6 +8,31 @@
  */
 import type { SoundscapeId } from './listening-prefs';
 
+/** Beds only the automatic ambience uses (scene tags without a manual sound). */
+export const AMBIENT_BEDS = [
+  'wind',
+  'sea',
+  'storm',
+  'forest',
+  'night',
+  'room',
+  'city',
+  'cave',
+] as const;
+export type AmbientBedId = (typeof AMBIENT_BEDS)[number];
+/** Every synthesized loop: the manual soundscapes plus the ambient beds. */
+export type BedId = SoundscapeId | AmbientBedId;
+
+/** Loop loudness (RMS of full scale): manual sounds ≈ −18 dBFS, ambient beds ≈ −25 dBFS. */
+export const MANUAL_RMS = 0.12;
+export const AMBIENT_RMS = 0.056;
+/** Ambient beds also keep their peaks low (drips, chirps): understated, never startling. */
+const AMBIENT_PEAK = 0.5;
+
+export function isAmbientBed(id: BedId): id is AmbientBedId {
+  return (AMBIENT_BEDS as readonly string[]).includes(id);
+}
+
 export const SOUNDSCAPE_RATE = 22_050;
 /** Loop length; long enough that the repetition is not noticeable. */
 export const LOOP_SECONDS = 32;
@@ -240,8 +265,352 @@ function clink(frequency: number, seconds: number, sampleRate: number): Float32A
   return out;
 }
 
-function layers(id: SoundscapeId, length: number, sampleRate: number): Layer[] {
-  const seed = { rain: 11, brown: 23, pink: 37, cafe: 41, fire: 53 }[id];
+/** A short bird call: a few quick sine sweeps with soft edges. */
+function chirp(sampleRate: number, random: () => number): Float32Array {
+  const notes = 2 + Math.floor(random() * 4);
+  const noteSeconds = 0.05 + random() * 0.07;
+  const gapSeconds = 0.04 + random() * 0.06;
+  const base = 2600 + random() * 1800;
+  const sweep = (random() < 0.5 ? -1 : 1) * (300 + random() * 900);
+  const noteLength = Math.round(noteSeconds * sampleRate);
+  const step = noteLength + Math.round(gapSeconds * sampleRate);
+  const out = new Float32Array(step * notes);
+  for (let note = 0; note < notes; note++) {
+    let phase = 0;
+    const level = 1 - note * 0.12;
+    for (let i = 0; i < noteLength; i++) {
+      const x = i / noteLength;
+      phase += (2 * Math.PI * (base + sweep * x)) / sampleRate;
+      out[note * step + i] = Math.sin(phase) * Math.sin(Math.PI * x) ** 2 * level;
+    }
+  }
+  return out;
+}
+
+/** A cricket chirp: three or four 4–5 kHz pulses. */
+function cricket(frequency: number, sampleRate: number, pulses: number): Float32Array {
+  const pulse = Math.round(0.016 * sampleRate);
+  const step = Math.round(0.032 * sampleRate);
+  const out = new Float32Array(step * pulses);
+  for (let p = 0; p < pulses; p++)
+    for (let i = 0; i < pulse; i++) {
+      const t = i / sampleRate;
+      out[p * step + i] =
+        Math.sin(2 * Math.PI * frequency * t) * Math.sin((Math.PI * i) / pulse) ** 2;
+    }
+  return out;
+}
+
+/** A water drop in a cave: a falling "plink" and a few fading echoes. */
+function drip(sampleRate: number, random: () => number): Float32Array {
+  const length = Math.round(0.9 * sampleRate);
+  const out = new Float32Array(length);
+  const start = 1500 + random() * 900;
+  const ring = Math.round(0.12 * sampleRate);
+  const dry = new Float32Array(ring);
+  let phase = 0;
+  for (let i = 0; i < ring; i++) {
+    const t = i / sampleRate;
+    phase += (2 * Math.PI * start * (0.62 + 0.38 * Math.exp(-t / 0.012))) / sampleRate;
+    dry[i] = Math.sin(phase) * Math.exp(-t / 0.035) * Math.min(1, i / 8);
+  }
+  const echoes = [
+    [0, 1],
+    [0.13, 0.35],
+    [0.29, 0.2],
+    [0.47, 0.11],
+    [0.68, 0.06],
+  ];
+  for (const [delay, gain] of echoes) {
+    const at = Math.round(delay * sampleRate);
+    for (let i = 0; i < ring && at + i < length; i++) out[at + i] += dry[i] * gain;
+  }
+  return out;
+}
+
+/** Amplitude envelope of swells (waves, passing cars, distant thunder) at the given times. */
+function swells(
+  length: number,
+  sampleRate: number,
+  times: number[],
+  shape: () => { rise: number; fall: number; level: number },
+): Float32Array {
+  const out = new Float32Array(length);
+  for (const time of times) {
+    const { rise, fall, level } = shape();
+    const start = Math.floor(time * sampleRate);
+    const peak = start + Math.round(rise * sampleRate);
+    const end = peak + Math.round(fall * 4 * sampleRate);
+    for (let i = start; i < Math.min(end, length); i++) {
+      const value =
+        i < peak
+          ? Math.sin(((i - start) / Math.max(1, peak - start)) * (Math.PI / 2)) ** 2
+          : Math.exp(-(i - peak) / (fall * sampleRate));
+      out[i] += value * level;
+    }
+  }
+  return out;
+}
+
+/** Noise shaped by an envelope (one per channel, slightly offset for width). */
+function shaped(noise: Float32Array, envelope: Float32Array, floor = 0): Float32Array {
+  const out = new Float32Array(noise.length);
+  for (let i = 0; i < noise.length; i++) out[i] = noise[i] * (floor + envelope[i]);
+  return out;
+}
+
+/** Times every `min`–`max` seconds (an irregular but steady pulse: waves, cricket rows). */
+function paced(duration: number, min: number, max: number, random: () => number): number[] {
+  const times: number[] = [];
+  for (let time = random() * min; time < duration; time += min + random() * (max - min))
+    times.push(time);
+  return times;
+}
+
+function ambientLayers(
+  id: AmbientBedId,
+  length: number,
+  sampleRate: number,
+  random: () => number,
+): Layer[] {
+  const seconds = length / sampleRate;
+  const stereo = (make: (n: number, r: () => number) => Float32Array) => ({
+    left: make(length, random),
+    right: make(length, random),
+  });
+  const events = (
+    times: number[],
+    write: (at: number, left: Float32Array, right: Float32Array) => void,
+  ) => {
+    const left = new Float32Array(length);
+    const right = new Float32Array(length);
+    for (const time of times) write(Math.floor(time * sampleRate), left, right);
+    return { left, right };
+  };
+  switch (id) {
+    case 'wind': {
+      // Gusts: slow, deep swells of brown and pink noise, and a faint high whistle.
+      return [
+        {
+          ...stereo(brownNoise),
+          filters: [{ type: 'lowpass', frequency: 420 }],
+          gain: 0.8,
+          wobble: { rate: 0.12, depth: 0.75 },
+        },
+        {
+          ...stereo(pinkNoise),
+          filters: [{ type: 'bandpass', frequency: 850, Q: 0.7 }],
+          gain: 0.55,
+          wobble: { rate: 0.17, depth: 0.85 },
+        },
+        {
+          ...stereo(whiteNoise),
+          filters: [{ type: 'bandpass', frequency: 1700, Q: 7 }],
+          gain: 0.05,
+          wobble: { rate: 0.09, depth: 0.95 },
+        },
+      ];
+    }
+    case 'sea': {
+      // Waves every 6–9 s: a rumble that swells and a foam hiss that trails it.
+      const times = paced(seconds, 6, 9, random);
+      const wave = () => ({
+        rise: 1.6 + random() * 1.2,
+        fall: 1.2 + random(),
+        level: 0.6 + random() * 0.4,
+      });
+      const body = swells(length, sampleRate, times, wave);
+      const foam = swells(
+        length,
+        sampleRate,
+        times.map((time) => time + 1.2),
+        wave,
+      );
+      return [
+        {
+          left: shaped(brownNoise(length, random), body, 0.25),
+          right: shaped(brownNoise(length, random), body, 0.25),
+          filters: [{ type: 'lowpass', frequency: 380 }],
+          gain: 0.9,
+        },
+        {
+          left: shaped(pinkNoise(length, random), foam, 0.08),
+          right: shaped(pinkNoise(length, random), foam, 0.08),
+          filters: [
+            { type: 'highpass', frequency: 500 },
+            { type: 'lowpass', frequency: 4200 },
+          ],
+          gain: 0.45,
+        },
+      ];
+    }
+    case 'storm': {
+      // Heavy rain plus a distant rumble every 10–16 s (low, slow, never a crack).
+      const thunder = swells(length, sampleRate, paced(seconds, 10, 16, random), () => ({
+        rise: 0.5 + random() * 0.8,
+        fall: 0.9 + random() * 1.2,
+        level: 0.5 + random() * 0.5,
+      }));
+      return [
+        {
+          ...stereo(whiteNoise),
+          filters: [
+            { type: 'highpass', frequency: 500 },
+            { type: 'lowpass', frequency: 6000, Q: 0.5 },
+          ],
+          gain: 0.3,
+          wobble: { rate: 0.2, depth: 0.25 },
+        },
+        { ...stereo(pinkNoise), filters: [{ type: 'lowpass', frequency: 1500 }], gain: 0.65 },
+        {
+          left: shaped(brownNoise(length, random), thunder),
+          right: shaped(brownNoise(length, random), thunder),
+          filters: [{ type: 'lowpass', frequency: 110 }],
+          gain: 1.6,
+        },
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 200 }], gain: 0.4 },
+      ];
+    }
+    case 'forest': {
+      // Soft wind in leaves and, rarely, a simple bird call somewhere to the side.
+      const birds = events(poissonTimes(seconds, 0.14, random), (at, left, right) =>
+        stamp(
+          left,
+          right,
+          at,
+          0.05 + random() * 0.07,
+          random() * 1.6 - 0.8,
+          chirp(sampleRate, random),
+        ),
+      );
+      return [
+        {
+          ...stereo(pinkNoise),
+          filters: [
+            { type: 'highpass', frequency: 900 },
+            { type: 'lowpass', frequency: 5200 },
+          ],
+          gain: 0.35,
+          wobble: { rate: 0.18, depth: 0.7 },
+        },
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 260 }], gain: 0.35 },
+        { ...birds, filters: [{ type: 'highpass', frequency: 1500 }], gain: 1 },
+      ];
+    }
+    case 'night': {
+      // Two or three crickets with their own pitch, pace and place; quiet night air below.
+      const crickets = { left: new Float32Array(length), right: new Float32Array(length) };
+      const rows = [
+        { frequency: 4300, pan: -0.55, min: 0.55, max: 0.75, level: 0.07 },
+        { frequency: 4750, pan: 0.5, min: 0.7, max: 1.0, level: 0.05 },
+        { frequency: 3900, pan: 0.1, min: 1.1, max: 1.7, level: 0.03 },
+      ];
+      for (const row of rows)
+        for (const time of paced(seconds, row.min, row.max, random))
+          stamp(
+            crickets.left,
+            crickets.right,
+            Math.floor(time * sampleRate),
+            row.level * (0.7 + random() * 0.3),
+            row.pan,
+            cricket(row.frequency, sampleRate, 3 + Math.floor(random() * 2)),
+          );
+      return [
+        {
+          ...crickets,
+          filters: [{ type: 'bandpass', frequency: 4400, Q: 1.2 }],
+          gain: 1,
+          wobble: { rate: 0.07, depth: 0.4 },
+        },
+        { ...stereo(pinkNoise), filters: [{ type: 'lowpass', frequency: 900 }], gain: 0.12 },
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 180 }], gain: 0.25 },
+      ];
+    }
+    case 'room':
+      // Room tone: the soft air of a quiet room, almost nothing.
+      return [
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 220 }], gain: 0.8 },
+        {
+          ...stereo(pinkNoise),
+          filters: [
+            { type: 'highpass', frequency: 120 },
+            { type: 'lowpass', frequency: 1200 },
+          ],
+          gain: 0.1,
+          wobble: { rate: 0.05, depth: 0.2 },
+        },
+      ];
+    case 'city': {
+      // Distant traffic (cars passing as slow swells) and a far-off murmur.
+      const passing = swells(length, sampleRate, poissonTimes(seconds, 0.3, random), () => ({
+        rise: 1.5 + random() * 2,
+        fall: 0.8 + random() * 1.2,
+        level: 0.3 + random() * 0.5,
+      }));
+      return [
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 320 }], gain: 0.7 },
+        {
+          left: shaped(pinkNoise(length, random), passing, 0.1),
+          right: shaped(pinkNoise(length, random), passing, 0.1),
+          filters: [
+            { type: 'highpass', frequency: 150 },
+            { type: 'lowpass', frequency: 1400 },
+          ],
+          gain: 0.6,
+        },
+        {
+          ...stereo(pinkNoise),
+          filters: [{ type: 'bandpass', frequency: 700, Q: 0.9 }],
+          gain: 0.12,
+          wobble: { rate: 0.4, depth: 0.5 },
+        },
+      ];
+    }
+    case 'cave': {
+      // Still, cold air and a drop every few seconds with its echoes.
+      const drips = events(poissonTimes(seconds, 0.45, random), (at, left, right) =>
+        stamp(
+          left,
+          right,
+          at,
+          0.04 + random() * 0.06,
+          random() * 1.4 - 0.7,
+          drip(sampleRate, random),
+        ),
+      );
+      return [
+        { ...stereo(brownNoise), filters: [{ type: 'lowpass', frequency: 160 }], gain: 0.8 },
+        {
+          ...stereo(pinkNoise),
+          filters: [{ type: 'bandpass', frequency: 320, Q: 0.8 }],
+          gain: 0.1,
+          wobble: { rate: 0.06, depth: 0.3 },
+        },
+        { ...drips, filters: [{ type: 'highpass', frequency: 700 }], gain: 1 },
+      ];
+    }
+  }
+}
+
+const BED_SEEDS: Record<BedId, number> = {
+  rain: 11,
+  brown: 23,
+  pink: 37,
+  cafe: 41,
+  fire: 53,
+  wind: 61,
+  sea: 67,
+  storm: 71,
+  forest: 79,
+  night: 83,
+  room: 89,
+  city: 97,
+  cave: 101,
+};
+
+function layers(id: BedId, length: number, sampleRate: number): Layer[] {
+  if (isAmbientBed(id)) return ambientLayers(id, length, sampleRate, mulberry32(BED_SEEDS[id]));
+  const seed = BED_SEEDS[id];
   const random = mulberry32(seed);
   const stereo = (make: (n: number, r: () => number) => Float32Array) => ({
     left: make(length, random),
@@ -401,21 +770,110 @@ type OfflineContextConstructor = new (
   sampleRate: number,
 ) => OfflineAudioContext;
 
-/** Render one soundscape into a seamless stereo loop, as WAV bytes. */
-export async function renderSoundscape(id: SoundscapeId): Promise<ArrayBuffer> {
-  const Context = ((globalThis as { OfflineAudioContext?: OfflineContextConstructor })
-    .OfflineAudioContext ??
-    (globalThis as { webkitOfflineAudioContext?: OfflineContextConstructor })
-      .webkitOfflineAudioContext) as OfflineContextConstructor | undefined;
-  if (!Context) throw new Error('OfflineAudioContext unavailable');
-  const rate = SOUNDSCAPE_RATE;
-  const preroll = PREROLL_SECONDS * rate;
-  const loop = LOOP_SECONDS * rate;
-  const fade = FADE_SECONDS * rate;
-  const length = preroll + loop + fade;
+/** Wobble gain curve at 50 Hz control rate (slow swells need no more). */
+function wobbleCurve(layer: Layer, seconds: number, random: () => number): Float32Array | null {
+  if (!layer.wobble) return null;
+  const points = Math.ceil(seconds * 50);
+  const noise = smoothNoise(points, 50, layer.wobble.rate, random);
+  const curve = new Float32Array(points);
+  for (let i = 0; i < points; i++)
+    curve[i] = Math.max(0, layer.gain * (1 + layer.wobble.depth * noise[i]));
+  return curve;
+}
+
+/** Biquad coefficients exactly as the Web Audio spec defines them (lowpass/highpass Q in dB). */
+export function biquadCoefficients(
+  type: BiquadFilterType,
+  frequency: number,
+  Q: number | undefined,
+  sampleRate: number,
+): [number, number, number, number, number] {
+  const w0 = (2 * Math.PI * Math.min(frequency, sampleRate / 2)) / sampleRate;
+  const cos = Math.cos(w0);
+  const sin = Math.sin(w0);
+  const q = Q ?? 1;
+  let b0: number, b1: number, b2: number;
+  let alpha: number;
+  switch (type) {
+    case 'lowpass':
+      alpha = sin / (2 * 10 ** (q / 20));
+      b0 = (1 - cos) / 2;
+      b1 = 1 - cos;
+      b2 = b0;
+      break;
+    case 'highpass':
+      alpha = sin / (2 * 10 ** (q / 20));
+      b0 = (1 + cos) / 2;
+      b1 = -(1 + cos);
+      b2 = b0;
+      break;
+    case 'bandpass':
+      alpha = sin / (2 * q);
+      b0 = alpha;
+      b1 = 0;
+      b2 = -alpha;
+      break;
+    default:
+      throw new RangeError(`unsupported filter ${type}`);
+  }
+  const a0 = 1 + alpha;
+  return [b0 / a0, b1 / a0, b2 / a0, (-2 * cos) / a0, (1 - alpha) / a0];
+}
+
+function biquad(data: Float32Array, coefficients: [number, number, number, number, number]) {
+  const [b0, b1, b2, a1, a2] = coefficients;
+  let x1 = 0,
+    x2 = 0,
+    y1 = 0,
+    y2 = 0;
+  for (let i = 0; i < data.length; i++) {
+    const x = data[i];
+    const y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x;
+    y2 = y1;
+    y1 = y;
+    data[i] = y;
+  }
+}
+
+/** The same graph as the OfflineAudioContext one, computed in plain JS (tests, old browsers). */
+export function mixLayers(list: Layer[], length: number, sampleRate: number): Float32Array[] {
+  const out = [new Float32Array(length), new Float32Array(length)];
+  const random = mulberry32(7);
+  for (const layer of list) {
+    const curve = wobbleCurve(layer, length / sampleRate, random);
+    [layer.left, layer.right].forEach((source, channel) => {
+      const data = source.slice(0, length);
+      for (const filter of layer.filters)
+        biquad(data, biquadCoefficients(filter.type, filter.frequency, filter.Q, sampleRate));
+      const target = out[channel];
+      if (!curve) {
+        for (let i = 0; i < length; i++) target[i] += data[i] * layer.gain;
+        return;
+      }
+      // setValueCurveAtTime interpolates linearly between the points over the duration.
+      const last = curve.length - 1;
+      for (let i = 0; i < length; i++) {
+        const position = (i / length) * last;
+        const k = Math.floor(position);
+        const g = curve[k] + (curve[Math.min(last, k + 1)] - curve[k]) * (position - k);
+        target[i] += data[i] * g;
+      }
+    });
+  }
+  return out;
+}
+
+async function renderOffline(
+  Context: OfflineContextConstructor,
+  list: Layer[],
+  length: number,
+  rate: number,
+): Promise<Float32Array[]> {
   const context = new Context(2, length, rate);
   const random = mulberry32(7);
-  for (const layer of layers(id, length, rate)) {
+  for (const layer of list) {
     const buffer = context.createBuffer(2, length, rate);
     buffer.copyToChannel(layer.left as Float32Array<ArrayBuffer>, 0);
     buffer.copyToChannel(layer.right as Float32Array<ArrayBuffer>, 1);
@@ -423,32 +881,57 @@ export async function renderSoundscape(id: SoundscapeId): Promise<ArrayBuffer> {
     source.buffer = buffer;
     let node: AudioNode = source;
     for (const filter of layer.filters) {
-      const biquad = context.createBiquadFilter();
-      biquad.type = filter.type;
-      biquad.frequency.value = filter.frequency;
-      if (filter.Q !== undefined) biquad.Q.value = filter.Q;
-      node.connect(biquad);
-      node = biquad;
+      const biquadNode = context.createBiquadFilter();
+      biquadNode.type = filter.type;
+      biquadNode.frequency.value = filter.frequency;
+      if (filter.Q !== undefined) biquadNode.Q.value = filter.Q;
+      node.connect(biquadNode);
+      node = biquadNode;
     }
     const gain = context.createGain();
     gain.gain.value = layer.gain;
-    if (layer.wobble) {
-      // Control-rate curve (50 Hz) is plenty for slow swells.
-      const points = Math.ceil((length / rate) * 50);
-      const noise = smoothNoise(points, 50, layer.wobble.rate, random);
-      const curve = new Float32Array(points);
-      for (let i = 0; i < points; i++)
-        curve[i] = Math.max(0, layer.gain * (1 + layer.wobble.depth * noise[i]));
-      gain.gain.setValueCurveAtTime(curve, 0, length / rate);
-    }
+    const curve = wobbleCurve(layer, length / rate, random);
+    if (curve) gain.gain.setValueCurveAtTime(curve, 0, length / rate);
     node.connect(gain);
     gain.connect(context.destination);
     source.start(0);
   }
   const rendered = await context.startRendering();
-  const channels = [0, 1].map((channel) =>
-    loopCrossfade(rendered.getChannelData(channel).subarray(preroll), loop, fade),
-  );
-  normalizeLoudness(channels);
-  return encodeWav(channels, rate);
+  return [0, 1].map((channel) => rendered.getChannelData(channel));
+}
+
+/**
+ * One bed as a seamless, loudness-normalized stereo loop (`LOOP_SECONDS` long).
+ * Uses an OfflineAudioContext when there is one, else the identical JS graph.
+ */
+export async function renderBedChannels(
+  id: BedId,
+  options: { offline?: boolean } = {},
+): Promise<Float32Array[]> {
+  const Context = ((globalThis as { OfflineAudioContext?: OfflineContextConstructor })
+    .OfflineAudioContext ??
+    (globalThis as { webkitOfflineAudioContext?: OfflineContextConstructor })
+      .webkitOfflineAudioContext) as OfflineContextConstructor | undefined;
+  const rate = SOUNDSCAPE_RATE;
+  const preroll = PREROLL_SECONDS * rate;
+  const loop = LOOP_SECONDS * rate;
+  const fade = FADE_SECONDS * rate;
+  const length = preroll + loop + fade;
+  const list = layers(id, length, rate);
+  const useOffline = options.offline ?? true;
+  if (useOffline && !Context && !isAmbientBed(id))
+    throw new Error('OfflineAudioContext unavailable');
+  const mixed =
+    useOffline && Context
+      ? await renderOffline(Context, list, length, rate)
+      : mixLayers(list, length, rate);
+  const channels = mixed.map((channel) => loopCrossfade(channel.subarray(preroll), loop, fade));
+  if (isAmbientBed(id)) normalizeLoudness(channels, AMBIENT_RMS, AMBIENT_PEAK);
+  else normalizeLoudness(channels, MANUAL_RMS);
+  return channels;
+}
+
+/** Render one bed into a seamless stereo loop, as WAV bytes. */
+export async function renderSoundscape(id: BedId): Promise<ArrayBuffer> {
+  return encodeWav(await renderBedChannels(id), SOUNDSCAPE_RATE);
 }

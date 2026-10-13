@@ -3,9 +3,11 @@ import { useSyncExternalStore } from 'react';
 
 export const SOUNDSCAPES = ['rain', 'brown', 'pink', 'cafe', 'fire'] as const;
 export type SoundscapeId = (typeof SOUNDSCAPES)[number];
+/** `auto`: a bed chosen per scene of the document (reader-ambience.ts). */
+export type SoundscapeChoice = SoundscapeId | 'auto' | 'off';
 
 export interface ListeningPrefs {
-  soundscape: SoundscapeId | 'off';
+  soundscape: SoundscapeChoice;
   /** 0–100. */
   soundscapeVolume: number;
   /** Pause the soundscape whenever the voice pauses. */
@@ -31,9 +33,10 @@ export function sanitizeListening(value: unknown): ListeningPrefs {
       ? Math.round(Math.min(100, Math.max(0, raw.soundscapeVolume)))
       : DEFAULT_LISTENING.soundscapeVolume;
   return {
-    soundscape: SOUNDSCAPES.includes(raw.soundscape as SoundscapeId)
-      ? (raw.soundscape as SoundscapeId)
-      : 'off',
+    soundscape:
+      raw.soundscape === 'auto' || SOUNDSCAPES.includes(raw.soundscape as SoundscapeId)
+        ? (raw.soundscape as SoundscapeId | 'auto')
+        : 'off',
     soundscapeVolume: volume,
     soundscapeWithVoice:
       typeof raw.soundscapeWithVoice === 'boolean'

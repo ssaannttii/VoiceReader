@@ -39,9 +39,10 @@ rendered on the PC GPU.
   When a document ends, the first queued one continues from its saved position (from the start
   once finished) and leaves the queue. The end-of-chapter/end-of-document sleep timer stops
   instead of continuing; a timed sleep keeps running across documents.
-- Soundscapes (per device): off, rain, brown noise, pink noise, café, fireplace — synthesized on
-  the device — with their own volume and "only while the voice plays"; the sleep timer fades and
-  stops them too.
+- Soundscapes (per device): off, Automatic, rain, brown noise, pink noise, café, fireplace —
+  synthesized on the device — with their own volume and "only while the voice plays"; the sleep
+  timer fades and stops them too. Automatic follows the document's scenes (see "Automatic
+  ambience" below); the sheet shows "Now: rain" and the fixed sounds below switch back.
 - Audio-only mode (top bar headphones, or options): the text gives way to the cover, title,
   chapter and an orb whose motion follows the word timings; tapping it plays/pauses.
 
@@ -412,3 +413,60 @@ Images live in `<DATA_DIR>/reader/<id>/assets/` and are deleted with the documen
   or "Image".
 - Offline downloads (IndexedDB `reader-offline` v2, `assets` store) also keep the images; a failed
   image never fails the download, and offline reading falls back to the stored copy.
+
+## Automatic ambience (scene-aware beds)
+
+Off by default: it is the "Automatic" choice of the soundscape sheet. Silence is preferred to a
+wrong sound; the reading audio is never routed through Web Audio and its player is unchanged.
+
+### Scene analysis (backend `services/reader_ambience.py`)
+- **Scenes:** hard cuts at headings, chapter starts and scene-break lines (`* * *`, `***`, `—`,
+  `#`, `⁂`…); otherwise windows of ~10 paragraphs (≤ 4000 chars; a tail under 4 paragraphs joins
+  the window before it).
+- **Tags:** `rain`, `storm`, `wind`, `sea`, `forest`, `night`, `fire`, `tavern`, `city`,
+  `interior`, `cave`, `none`. A weighted Spanish/English lexicon (per language, since words collide
+  across them) scores each window per 100 words; a tag needs a minimum density and weight, a 1.6×
+  margin over any conflicting tag (compatible pairs such as rain + storm or tavern + city
+  reinforce each other) and confidence ≥ 0.35. Figurative "lluvia de / sea of" barely counts, a
+  repeated word counts at most 3 times, and lexicon words used as names in the document ("Brisa")
+  are ignored. Documents in other languages get no ambience.
+- **Optional refinement:** close calls are re-ranked by cosine similarity (local Ollama,
+  `bge-m3` via `/api/embed`, CPU only with `num_gpu: 0`) to short per-tag descriptions, only among
+  tags the lexicon already found, and only when the embedding agrees (closest tag overall, ahead
+  of a "none" description). If Ollama is not running it is started once per process
+  (`ollama serve`, detached and hidden); otherwise the step is skipped silently.
+  `OMNIVOICE_READER_AMBIENCE_OLLAMA=0` disables it; `OMNIVOICE_READER_AMBIENCE_EMBED_MODEL`
+  picks another model.
+- **Smoothing:** a one-window blip between two agreeing windows of the same section takes their
+  tag; equal neighbours merge; a sounding scene shorter than ~90 s (1350 chars) becomes silence.
+- **Storage:** `<doc>/ambience.json` `{version, content_version, segment_count, language,
+  fingerprint, refined, computed_at, scenes}`; recomputed when the algorithm version,
+  segmentation version, segment count, language or text fingerprint differs. Computed on a
+  background thread on demand, and after imports once Automatic has been used on this machine
+  (marker `reader/ambience.enabled`). The lexicon result is stored first; the refinement
+  rewrites it.
+
+| method | path | returns |
+|---|---|---|
+| GET | `/reader/documents/{id}/ambience` | `{"status": "ready"\|"computing"\|"unavailable", "scenes": [{"start_segment", "end_segment", "tag", "confidence", "intensity"}], "refined"?}`; starts the analysis when missing or stale; `unavailable` while importing or after a failed analysis; 404 for unknown documents |
+
+Scenes are contiguous and cover the whole document (inclusive segment ranges).
+
+### Client
+- **Beds:** the manual rain, café (tavern) and fireplace loops, trimmed to the ambient level, plus
+  eight synthesized beds — wind, sea (waves), storm (heavy rain + distant rumbles), forest (leaves
+  + rare bird calls), night (crickets), room tone, city murmur, cave drips — seamless 32 s loops at
+  ≈ −25 dBFS RMS (peaks ≤ 0.5), rendered the first time they are needed and cached in IndexedDB
+  like the manual loops (memory keeps only the manual ones).
+- **Playback:** two alternating `<audio loop>` elements; equal-power crossfades (8 s from silence,
+  10 s between beds, 12 s to silence); at most one change per 45 s of listening (the first
+  decision for a document is immediate); unsure scenes (confidence < 0.3) are silent.
+- **Volume:** slider × sleep fade × bed trim × intensity (0.7–1.0); the bed sits 3 dB lower while
+  the voice speaks and rises back at headings and pauses (2.5 s ramps). Fades are computed from
+  timestamps on the voice's `timeupdate` (player clock) and the beds' own `timeupdate`, plus a
+  250 ms interval only while a fade runs — never animation frames — so they progress on a locked
+  phone. Arming, "only while the voice plays", the sleep fade and stop are shared with the manual
+  soundscape.
+- **Scenes** are fetched when a document opens with Automatic on; `computing` is polled every 4 s
+  (up to ~3 min); errors and `unavailable` mean silence.
+- **Diagnostics:** `ambience` events (`scenes`, `scene`, `crossfade`, `error`, `play_error`).

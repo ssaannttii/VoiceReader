@@ -109,7 +109,9 @@ async def _import(fn, *args, **kwargs) -> dict:
         doc = await asyncio.to_thread(fn, *args, **kwargs)
     except reader_import.ReaderImportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    return await asyncio.to_thread(_save, doc)
+    summary = await asyncio.to_thread(_save, doc)
+    _after_import(summary["id"])  # automatic ambience block below
+    return summary
 
 
 def _clean_lang(value: Optional[str]) -> Optional[str]:
@@ -859,3 +861,26 @@ async def delete_bookmark(bookmark_id: str):
     except reader_store.BookmarkNotFound:
         raise HTTPException(status_code=404, detail="Bookmark not found") from None
     return {"ok": True}
+
+
+# ── Automatic ambience (scene analysis; services/reader_ambience.py) ────────
+# One self-contained block: scene analysis is independent of rendering and speech.
+
+
+@router.get("/reader/documents/{doc_id}/ambience")
+async def get_ambience(doc_id: str):
+    """``{status: ready|computing|unavailable, scenes}``; starts the analysis when
+    it is missing or stale (the client polls while ``computing``)."""
+    from services import reader_ambience
+
+    try:
+        return await asyncio.to_thread(reader_ambience.status, doc_id)
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+
+
+def _after_import(doc_id: str) -> None:
+    """Background scene analysis of a new text/URL document (only once Automático has been used)."""
+    from services import reader_ambience
+
+    reader_ambience.after_import(doc_id)

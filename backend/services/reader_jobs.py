@@ -155,7 +155,7 @@ def run_import(doc_id: str) -> None:
         reader_store.fail_import(doc_id, _error_message(exc))
         return
     try:
-        reader_store.complete_import(
+        done = reader_store.complete_import(
             doc_id,
             title=doc.title,
             author=doc.author,
@@ -167,6 +167,10 @@ def run_import(doc_id: str) -> None:
         )
     except reader_store.DocumentNotFound:
         return
+    if done is not None:
+        from services import reader_ambience
+
+        reader_ambience.after_import(doc_id)
 
 
 def wait_idle(timeout: float = 30.0) -> bool:

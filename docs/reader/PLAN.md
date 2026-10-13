@@ -58,6 +58,7 @@ plano en Android) durante sesiones largas. Es el criterio principal de 1.1.
 | 4.1 | **Marcadores con notas** | Tabla `reader_bookmarks` (migración); aviso con "Deshacer" y "Añadir nota"; hoja de marcadores con "Escuchar desde aquí" y exportar a Markdown. |
 | 4.2 | **Cola** | "Añadir a la cola", reordenar, pasar al siguiente al terminar; el temporizador respeta la cola. |
 | 4.3 | **Sonidos de ambiente** | 5 bucles sintetizados en el dispositivo (lluvia, ruido marrón y rosa, cafetería, chimenea; sin audio con licencia) en un segundo `<audio loop>` con volumen propio; se apagan con el temporizador. |
+| 4.3b | **Ambiente automático** | Opción "Automático" (desactivada por defecto): el PC divide el documento en escenas y las etiqueta (léxico es/en + Ollama opcional; ante la duda, silencio); el dispositivo funde con suavidad entre lechos sintetizados (lluvia, tormenta, viento, mar, bosque, noche, chimenea, taberna, ciudad, habitación, cueva). Ver SPEC "Automatic ambience". |
 | 4.4 | **Selector de voces** | Búsqueda, recientes, filtro por idioma (por defecto el del documento). |
 
 ## Fase 5 — Extras

@@ -25,6 +25,11 @@ describe('sanitizeListening', () => {
     );
   });
 
+  it('accepts Automático', () => {
+    expect(sanitizeListening({ soundscape: 'auto' }).soundscape).toBe('auto');
+    expect(sanitizeListening({ soundscape: 'automatic' }).soundscape).toBe('off');
+  });
+
   it('keeps valid choices', () => {
     expect(
       sanitizeListening({
