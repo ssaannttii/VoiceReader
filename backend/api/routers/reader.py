@@ -179,14 +179,16 @@ async def import_file(file: UploadFile = File(...), language: Optional[str] = Fo
     name = os.path.basename(file.filename or "document.txt")
     _check_file_type(name)
     lang = _clean_lang(language)
-    stem = os.path.splitext(name)[0].replace("_", " ").strip() or name
+    # A placeholder while the import runs; the import picks the real title
+    # (metadata, heading, cleaned file name) unless the user renames it first.
+    placeholder = reader_import.filename_title(name) or reader_import.legacy_filename_title(name) or "Document"
     return await _start_import(
-        title=reader_import._short_title(stem) or "Document",
+        title=placeholder,
         source_type="file",
         files=[(name, data)],
         source_name=name,
         language=lang,
-        meta={"kind": reader_jobs.KIND_FILE, "language": lang},
+        meta={"kind": reader_jobs.KIND_FILE, "language": lang, "placeholder_title": placeholder},
     )
 
 
@@ -216,13 +218,14 @@ async def import_scan(
     lang = _clean_lang(language)
     clean_title = " ".join((title or "").split()) or None
     count = len(stored)
+    placeholder = clean_title or f"Scan ({count} page{'s' if count != 1 else ''})"
     return await _start_import(
-        title=clean_title or f"Scan ({count} page{'s' if count != 1 else ''})",
+        title=placeholder,
         source_type="scan",
         files=stored,
         source_name=f"{count} image{'s' if count != 1 else ''}",
         language=lang,
-        meta={"kind": reader_jobs.KIND_SCAN, "language": lang, "title": clean_title},
+        meta={"kind": reader_jobs.KIND_SCAN, "language": lang, "title": clean_title, "placeholder_title": placeholder},
     )
 
 

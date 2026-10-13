@@ -153,7 +153,7 @@ def test_file_import_runs_in_background_and_409s_until_ready(env, gate):
     started = client.post(
         "/reader/documents/file", files={"file": ("my_notes.md", b"# Notes\n\nSome text to read aloud.", "text/markdown")}
     ).json()
-    assert started["import_status"] == "importing" and started["title"] == "my notes"
+    assert started["import_status"] == "importing" and started["title"] == "My notes"
     assert started["segment_count"] == 0
     doc_id = started["id"]
     listed = _wait(lambda: next(

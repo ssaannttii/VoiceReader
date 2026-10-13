@@ -164,6 +164,8 @@ def run_import(doc_id: str) -> None:
             chapters=doc.chapters,
             cover=doc.cover,
             assets=doc.assets,
+            # A rename made while the import ran wins over the imported title.
+            keep_title_unless=meta.get("placeholder_title") or None,
         )
     except reader_store.DocumentNotFound:
         return
