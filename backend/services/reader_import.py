@@ -22,6 +22,7 @@ import os
 import posixpath
 import re
 import struct
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -131,6 +132,214 @@ def _short_title(text: str) -> str:
         return text
     cut = text.rfind(" ", 0, TITLE_MAX - 1)
     return (text[: cut if cut > TITLE_MAX // 2 else TITLE_MAX - 1]).rstrip(" ,;:.-") + "…"
+
+
+# ── Titles and authors of imported files ─────────────────────────────────────
+#
+# A file name is a poor title ("9788466658898_Nacidos_bruma_v3 (1)"), and so is
+# much embedded metadata ("Microsoft Word - informe.docx", "Untitled",
+# "Usuario de Windows"). :func:`pick_title` takes the first metadata title that
+# reads like one, then a heading the document opens with (when the file name is
+# unusable, messy or shares a word with it), then the cleaned file name.
+
+#: Titles that name a template, a placeholder or nothing at all (compared by :func:`_title_key`).
+_PLACEHOLDER_TITLES = frozenset((
+    "untitled", "untitled document", "sin titulo", "sans titre", "ohne titel", "senza titolo", "sem titulo",
+    "document", "documento", "doc", "title", "titulo", "titre", "titel", "titolo", "new document",
+    "nuevo documento", "presentation", "presentacion", "powerpoint presentation", "presentacion de powerpoint",
+    "slide 1", "diapositiva 1", "pdf", "unknown", "desconocido", "none", "null", "n a", "na", "cover",
+    "portada", "title page", "word", "file", "archivo", "fichero", "scan", "scanned document",
+    "documento escaneado", "download", "descarga", "ebook",
+))
+_GENERIC_NAME_RE = re.compile(
+    r"^(?:untitled|document|documento|doc|scan|scanned|escaneo|escaneado|img|image|imagen|page|p[aá]gina|dsc|"
+    r"file|archivo|slide|diapositiva|new|nuevo|download|descarga)[\s._-]*\d*$",
+    re.IGNORECASE,
+)
+#: Producer / creator software that some tools write into the title or author field.
+_TOOL_RE = re.compile(
+    r"\b(?:microsoft\s+(?:word|office|excel|powerpoint)|acrobat|adobe\s+(?:acrobat|indesign|illustrator|"
+    r"photoshop|pdf|distiller|livecycle)|pdftex|xetex|luatex|latex\s+with\s+hyperref|ghostscript|distiller|"
+    r"abbyy|finereader|calibre|libreoffice|openoffice|pdfcreator|cutepdf|primopdf|nitro\s+pdf|foxit|itext|"
+    r"wkhtmltopdf|camscanner|scansnap|indesign|quarkxpress|quartz\s+pdfcontext|google\s+docs)\b",
+    re.IGNORECASE,
+)
+_FILE_EXT_RE = re.compile(
+    r"\.(?:pdf|docx?|odt|rtf|txt|tex|indd|qxd|pages|epub|mobi|azw3?|html?|xml|dvi|e?ps|ai|psd|jpe?g|png|"
+    r"tiff?|pptx?|xlsx?)\s*$",
+    re.IGNORECASE,
+)
+#: One token mixing letters with three or more digits ("DOC00123", "IMG_2041").
+_CODE_TOKEN_RE = re.compile(r"^(?=\S*[^\W\d_])(?=(?:\S*\d){3})\S+$")
+_DIGIT_GLUE_RE = re.compile(r"(?<=\d)[-\s.](?=\d)")
+_PLACEHOLDER_AUTHORS = frozenset((
+    "unknown", "unknown author", "desconocido", "autor desconocido", "admin", "administrator", "administrador",
+    "user", "usuario", "owner", "propietario", "author", "autor", "windows user", "usuario de windows",
+    "utilisateur windows", "microsoft office user", "usuario de microsoft office", "hp", "dell", "lenovo",
+    "asus", "acer", "pc", "home", "default", "guest", "invitado", "none", "null", "n a", "na", "calibre",
+))
+_COPY_MARK_RE = re.compile(
+    r"\s*[(\[]\d{1,3}[)\]]|\s+-\s+(?:copy|copia)(?:\s*\(\d+\))?\s*$|^(?:copy of|copia de)\s+",
+    re.IGNORECASE,
+)
+#: Download-site tags: "(z-lib.org)", "[www.example.com]".
+_SITE_TAG_RE = re.compile(
+    r"[\[(][^\])]{0,60}(?:z-?lib|libgen|www\.|\.com|\.org|\.net|\.es)[^\])]{0,60}[\])]", re.IGNORECASE
+)
+#: File-name tokens that are versions or processing marks, never part of a title.
+_NOISE_TOKEN_RE = re.compile(
+    r"^(?:v\d+(?:\.\d+)*|rev\d*|ocr|ocred|compressed|optimized|comprimido|optimizado|isbn:?)$", re.IGNORECASE
+)
+_HEX_TOKEN_RE = re.compile(r"^(?=[0-9a-f-]*\d)(?=[0-9a-f-]*[a-f])[0-9a-f-]{12,}$", re.IGNORECASE)
+_SHARED_STOPWORDS = frozenset((
+    "para", "with", "from", "that", "this", "como", "sobre", "dans", "pour", "into", "their", "edition",
+    "edicion", "volume", "libro", "book", "the", "and", "los", "las", "del", "une", "des",
+))
+
+
+def _title_key(text: str) -> str:
+    """Case-, accent- and punctuation-insensitive form of a title, for comparisons."""
+    folded = unicodedata.normalize("NFKD", text or "").casefold()
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    return " ".join(re.findall(r"[^\W_]+", folded))
+
+
+def _looks_like_path(text: str) -> bool:
+    return bool(re.match(r"^(?:[A-Za-z]:[\\/]|[\\/]|(?:https?|file|ftp)://|www\.)", text)) or "\\" in text \
+        or text.count("/") >= 2
+
+
+def _title_junk(text: Optional[str]) -> bool:
+    """Whether a metadata title / heading is a placeholder, a file name, a tool name or noise."""
+    text = _clean(text or "")
+    if len(text) < 2 or len(text) > 200 or sum(c.isalpha() for c in text) < 2:
+        return True
+    if _title_key(text) in _PLACEHOLDER_TITLES or _GENERIC_NAME_RE.match(text):
+        return True
+    if _TOOL_RE.search(text) or _FILE_EXT_RE.search(text) or _looks_like_path(text):
+        return True
+    if re.search(r"\d{9,}", _DIGIT_GLUE_RE.sub("", text)):  # an ISBN or another long number
+        return True
+    if " " not in text and (
+        "_" in text or len(re.findall(r"[-.]", text)) >= 2 or _CODE_TOKEN_RE.match(text)
+    ):
+        return True  # file-name-like: "Nacidos_bruma_v3", "libro-final-ocr", "DOC00123"
+    return False
+
+
+def _tidy_title(text: str) -> str:
+    """Collapse whitespace, drop wrapping quotes, sentence-case an all-caps phrase."""
+    text = _clean(text).strip("\"'«»“”‘’ ").rstrip(" -–—|:;,")
+    return _short_title(_sentence_case(text) if " " in text else text)
+
+
+def _noise_token(token: str) -> bool:
+    bare = token.replace("-", "")
+    if bare.isdigit() and len(bare) >= 9 or re.fullmatch(r"\d{9}[Xx]", bare):
+        return True  # ISBN-10/13 or another long number (dates like 2024-01-03 stay)
+    return bool(_NOISE_TOKEN_RE.match(token) or _HEX_TOKEN_RE.match(token))
+
+
+def filename_title(name: str) -> str:
+    """A readable title from a file name ("" when nothing readable is left).
+
+    Strips the extension, copy marks ("(1)", "- copia"), download-site tags,
+    ISBNs and other long numbers, hashes and version/OCR marks; turns ``_``
+    (and the ``-``/``.`` of a name without spaces) into spaces; capitalizes an
+    all-lowercase name and sentence-cases an all-caps one.
+    """
+    base = os.path.basename((name or "").replace("\\", "/")).strip()
+    stem, ext = os.path.splitext(base)
+    if not re.fullmatch(r"\.[A-Za-z0-9]{1,5}", ext):
+        stem = base
+    text = _SITE_TAG_RE.sub(" ", stem)
+    for _ in range(3):
+        text = _COPY_MARK_RE.sub(" ", text).strip()
+    spaced = " " in text
+    text = re.sub(r"[_+]", " ", text)
+    if not spaced:  # a slug: "libro-final-OCR" (a date's hyphens stay: "2024-01-03")
+        text = re.sub(r"(?<=[^\W\d_])-|-(?=[^\W\d_])", " ", text)
+    if not spaced and text.count(".") >= 2:
+        text = text.replace(".", " ")
+    text = _clean(" ".join(token for token in text.split() if not _noise_token(token))).strip(" -–—.,;:")
+    if sum(c.isalpha() for c in text) < 2 or _GENERIC_NAME_RE.match(text) or _title_key(text) in _PLACEHOLDER_TITLES:
+        return ""
+    if text == text.lower():
+        text = text[:1].upper() + text[1:]
+    elif " " in text:
+        text = _sentence_case(text)
+    return _short_title(text)
+
+
+def legacy_filename_title(name: str) -> str:
+    """The title earlier versions gave a file: its stem with ``_`` as spaces."""
+    base = os.path.basename(name or "")
+    return _short_title(os.path.splitext(base)[0].replace("_", " ").strip())
+
+
+def _filename_is_messy(name: str) -> bool:
+    """Whether the file name needed cleaning (a machine name, not one a person typed)."""
+    stem = os.path.splitext(os.path.basename(name or ""))[0]
+    return "_" in stem or ("-" in stem and " " not in stem) or _title_key(filename_title(name)) != _title_key(stem)
+
+
+_NOT_A_TITLE_RE = re.compile(
+    r"^(?:contents|table of contents|[íi]ndice|sumario|contenidos?|copyright|cr[eé]ditos|"
+    r"table des mati[eè]res|sommaire|inhalt|inhaltsverzeichnis|indice|sum[aá]rio)\b",
+    re.IGNORECASE,
+)
+
+
+def _section_heading(text: str) -> bool:
+    """A heading that names a part of the document ("Capítulo 1", "Prólogo", "Índice"), not the document."""
+    return bool(
+        _NOT_A_TITLE_RE.match(text) or _NUMBERED_HEADING_RE.match(text) or _NAMED_HEADING_RE.match(text)
+        or _NUMBER_LINE_RE.match(text) or _APPARATUS_HEADING_RE.match(text)
+    )
+
+
+def _shares_word(left: str, right: str) -> bool:
+    words = {w for w in _title_key(left).split() if len(w) >= 4 and w not in _SHARED_STOPWORDS}
+    return bool(words & set(_title_key(right).split()))
+
+
+def pick_title(metadata: list, *, filename: str = "", heading: Optional[str] = None) -> str:
+    """The best title for an imported file ("" when nothing qualifies).
+
+    ``metadata`` titles in order of trust (junk ones are skipped); then
+    ``heading`` — a heading the document opens with — when the cleaned file
+    name is empty, was messy, or shares a word with it; then the cleaned name.
+    """
+    for candidate in metadata:
+        if candidate and not _title_junk(candidate):
+            return _tidy_title(candidate)
+    from_name = filename_title(filename) if filename else ""
+    if heading and not _title_junk(heading) and not _section_heading(_clean(heading)) and (
+        not from_name or _filename_is_messy(filename) or _shares_word(heading, from_name)
+    ):
+        return _tidy_title(heading)
+    return from_name
+
+
+def _author_junk(text: str) -> bool:
+    text = _clean(text)
+    if len(text) < 2 or len(text) > 150 or sum(c.isalpha() for c in text) < 2:
+        return True
+    if _title_key(text) in _PLACEHOLDER_AUTHORS or _TOOL_RE.search(text) or _looks_like_path(text):
+        return True
+    # Account names: digits, "_", e-mail addresses, a lone lowercase login ("jdoe").
+    return bool(re.search(r"[\d_@]", text) or re.fullmatch(r"[a-z][a-z.-]*", text))
+
+
+def pick_author(candidates: list) -> Optional[str]:
+    """The first candidate that reads like a person's (or organization's) name."""
+    for candidate in candidates:
+        text = _clean(candidate or "")
+        if text and not _author_junk(text):
+            if _is_shouted(text):
+                text = " ".join(word[:1].upper() + word[1:].lower() for word in text.split(" "))
+            return text[:150]
+    return None
 
 
 # ── Segmentation ─────────────────────────────────────────────────────────────
@@ -1584,12 +1793,8 @@ def _number_value(line: str) -> Optional[int]:
     return None
 
 
-def pdf_pages(data: bytes, progress: Progress = None, *, max_pages: int = PDF_MAX_PAGES) -> list[str]:
-    """Text layer of every page (``""`` for a page without one), in order.
-
-    Raises :class:`ReaderImportError` for unreadable, encrypted, oversized or
-    image-only PDFs.
-    """
+def _open_pdf(data: bytes):
+    """A ``pypdf.PdfReader`` (decrypted when it only has an empty user password)."""
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 
@@ -1603,6 +1808,18 @@ def pdf_pages(data: bytes, progress: Progress = None, *, max_pages: int = PDF_MA
                 raise ReaderImportError("couldn't read the PDF: it is password-protected")
         except (NotImplementedError, PdfReadError) as exc:
             raise ReaderImportError(f"couldn't read this encrypted PDF: {exc}") from exc
+    return reader
+
+
+def pdf_pages(data: bytes, progress: Progress = None, *, max_pages: int = PDF_MAX_PAGES) -> list[str]:
+    """Text layer of every page (``""`` for a page without one), in order.
+
+    Raises :class:`ReaderImportError` for unreadable, encrypted, oversized or
+    image-only PDFs.
+    """
+    from pypdf.errors import PdfReadError
+
+    reader = _open_pdf(data)
     try:
         pages = reader.pages
         total = len(pages)
@@ -1792,14 +2009,151 @@ def pdf_blocks(page_texts: list[str], language: Optional[str] = None) -> list[Bl
     return blocks
 
 
-def import_pdf(data: bytes, *, title: str, language: Optional[str] = None, progress: Progress = None, **common) -> ImportedDocument:
-    """PDF bytes → document; ``progress`` gets 0–0.8 for pages, 0.8–1 for segmentation."""
+#: Pages searched for the first one with a text layer (a cover is often an image).
+_TITLE_PAGES = 3
+_HEADING_TITLE_MAX = 150
+
+
+def _pdf_text(value) -> Optional[str]:
+    try:
+        text = _clean(str(value).replace("\x00", "")) if value is not None else ""
+    except Exception:  # noqa: BLE001 — undecodable metadata is no metadata
+        return None
+    return text or None
+
+
+def pdf_metadata(data: bytes) -> dict:
+    """``{"titles", "author", "subject", "heading"}`` of a PDF; best effort.
+
+    ``titles`` are the document-information and XMP titles as written (junk
+    included — :func:`pick_title` filters them); ``author`` the first creator
+    that reads like a name; ``subject`` a short subject line; ``heading`` the
+    largest-type text near the top of the first page that has a text layer.
+    """
+    out: dict = {"titles": [], "author": None, "subject": None, "heading": None}
+    try:
+        reader = _open_pdf(data)
+    except ReaderImportError:
+        return out
+    authors: list[Optional[str]] = []
+    try:
+        info = reader.metadata
+    except Exception:  # noqa: BLE001 — metadata is optional
+        info = None
+    if info is not None:
+        for key, attr in (("titles", "title"), ("authors", "author"), ("subject", "subject")):
+            try:
+                value = _pdf_text(getattr(info, attr))
+            except Exception:  # noqa: BLE001
+                value = None
+            if key == "titles":
+                out["titles"].append(value)
+            elif key == "authors":
+                authors.append(value)
+            elif value and len(value) <= TITLE_MAX and len(value.split()) <= 12 and not value.endswith(".") \
+                    and not _title_junk(value):
+                out["subject"] = _tidy_title(value)
+    try:
+        xmp = reader.xmp_metadata
+        if xmp is not None:
+            titles = xmp.dc_title or {}
+            out["titles"].extend(_pdf_text(t) for t in (titles.values() if isinstance(titles, dict) else [titles]))
+            creators = [_pdf_text(c) for c in (xmp.dc_creator or [])]
+            authors.append("; ".join(c for c in creators if c) or None)
+    except Exception:  # noqa: BLE001 — malformed XMP is common
+        pass
+    out["author"] = pick_author(authors)
+    out["heading"] = _pdf_heading(reader, out["author"])
+    return out
+
+
+def _pdf_heading(reader, author: Optional[str] = None) -> Optional[str]:
+    """The largest-type line of the first page with text, when it stands out."""
+    try:
+        pages = reader.pages
+        count = min(len(pages), _TITLE_PAGES)
+    except Exception:  # noqa: BLE001
+        return None
+    for index in range(count):
+        runs: list[list] = []  # [effective font size, text], consecutive equal sizes merged
+
+        def visit(text, cm, tm, _font, size, runs=runs):
+            if not text:
+                return
+            if not text.strip():
+                if runs:
+                    runs[-1][1] += text
+                return
+            try:
+                # Size on the page = font size × the vertical scale of Tm × CTM.
+                c = tm[2] * cm[0] + tm[3] * cm[2]
+                d = tm[2] * cm[1] + tm[3] * cm[3]
+                scaled = round(abs(float(size)) * (c * c + d * d) ** 0.5, 1)
+            except (TypeError, ValueError, IndexError):
+                return
+            if runs and abs(runs[-1][0] - scaled) <= 0.5:
+                runs[-1][1] += text
+            else:
+                runs.append([scaled, text])
+
+        try:
+            pages[index].extract_text(visitor_text=visit)
+        except Exception:  # noqa: BLE001 — one bad page shouldn't kill the import
+            continue
+        cleaned = [(size, _clean(text)) for size, text in runs if size > 0 and _clean(text)]
+        if cleaned:
+            return _heading_from_runs(cleaned, author)
+    return None
+
+
+def _heading_from_runs(runs: list[tuple[float, str]], author: Optional[str]) -> Optional[str]:
+    chars: dict[float, int] = {}
+    for size, text in runs:
+        chars[size] = chars.get(size, 0) + len(text)
+    body = max(chars, key=lambda size: chars[size])
+    top = max(chars)
+    # A heading is set larger than the body text — or, on a short title page, is
+    # simply the largest of several sizes.
+    title_page = len(chars) >= 2 and sum(chars.values()) <= 400
+    if top < body * 1.2 and not title_page:
+        return None
+    floor = min(chars) + 0.5 if title_page else body * 1.2
+    author_key = _title_key(author or "")
+    for size in sorted((s for s in chars if s >= floor), reverse=True):
+        texts = [text for s, text in runs if abs(s - size) <= 0.5]
+        others = [text for text in texts if not (author_key and _title_key(text) == author_key)]
+        if not others:
+            continue  # a cover sets the author's name largest: look one size down
+        for text in others:
+            if len(text) <= _HEADING_TITLE_MAX and not _title_junk(text) and not _section_heading(text):
+                return _tidy_title(text)
+        return None  # the largest text names a section ("Capítulo 1"): not a title page
+    return None
+
+
+def import_pdf(
+    data: bytes,
+    *,
+    title: Optional[str] = None,
+    filename: str = "",
+    language: Optional[str] = None,
+    progress: Progress = None,
+    **common,
+) -> ImportedDocument:
+    """PDF bytes → document; ``progress`` gets 0–0.8 for pages, 0.8–1 for segmentation.
+
+    A ``title`` the caller was given is kept as is; otherwise :func:`pick_title`
+    chooses between the PDF's metadata, its first-page heading and ``filename``.
+    """
     pages = pdf_pages(data, (lambda f: progress(0.8 * f)) if progress else None)
     _check_size("".join(pages))
     sample = "\n".join(pages)[:40_000]
     lang = (language or "").strip().lower()[:8] or guess_language(sample)
     blocks = pdf_blocks(pages, lang)
-    doc = ImportedDocument(title=title, blocks=blocks, **common)
+    meta = pdf_metadata(data)
+    title = _clean(title or "") or pick_title(meta["titles"], filename=filename, heading=meta["heading"]) \
+        or meta["subject"] or ""
+    doc = ImportedDocument(title=title, author=meta["author"], blocks=blocks, **common)
     return _finish(doc, lang, sample, (lambda f: progress(0.8 + 0.2 * f)) if progress else None)
 
 
@@ -2160,14 +2514,15 @@ def import_file(
     name = os.path.basename(filename or "document")
     stem, ext = os.path.splitext(name)
     ext = ext.lower()
-    title = stem.replace("_", " ").strip()
+    # The file name is only a fallback: metadata and headings usually say more.
+    title = filename_title(name)
     common = {"source_type": "file", "source_name": name}
     web_images = _url_image_loader(image_base) if image_base else data_uri_image
 
     if ext in (".html", ".htm", ".xhtml"):
         return _from_html(_decode_html_bytes(data), fallback_title=title, language=language, images=web_images, **common)
     if ext == ".pdf":
-        return import_pdf(data, title=title, language=language, progress=progress, **common)
+        return import_pdf(data, filename=name, language=language, progress=progress, **common)
     if ext == ".epub":
         try:
             script = epub_to_chapter_script(data, extract=_rich_epub_extract)
@@ -2179,8 +2534,8 @@ def import_file(
         meta = epub_metadata(data)
         blocks = parse_markdown(script, markdown=False, rich=True)
         doc = ImportedDocument(
-            title=meta["title"] or title,
-            author=meta["author"],
+            title=pick_title([meta["title"]], filename=name),
+            author=pick_author([meta["author"]]),
             blocks=blocks,
             language=meta["language"],
             cover=meta["cover"],
@@ -2192,7 +2547,13 @@ def import_file(
         )
     if ext == ".docx":
         blocks, meta = parse_docx(data)
-        doc = ImportedDocument(title=meta["title"] or title, author=meta["author"], blocks=blocks, **common)
+        opening = next((b.text for b in blocks[:3] if b.kind == "h"), None)
+        doc = ImportedDocument(
+            title=pick_title([meta["title"]], filename=name, heading=opening),
+            author=pick_author([meta["author"]]),
+            blocks=blocks,
+            **common,
+        )
         return _finish(doc, language, _blocks_text(blocks), progress, images=_zip_image_loader(data))
     if ext in (".txt", ".md", ".markdown", ".text", ""):
         from services.longform_import import chapterize_plaintext

@@ -282,9 +282,12 @@ def complete_import(
     language: Optional[str] = None,
     cover: Optional[tuple[bytes, str]] = None,
     assets: Optional[dict[str, bytes]] = None,
+    keep_title_unless: Optional[str] = None,
 ) -> Optional[dict]:
     """Write the imported content and mark the row ready.
 
+    With ``keep_title_unless`` (the placeholder title the row was created
+    with), a title the user changed while the import ran is kept.
     Returns the summary, or ``None`` when the document was deleted meanwhile
     (its folder is removed again).
     """
@@ -292,11 +295,13 @@ def complete_import(
     has_cover = _write_content(folder, segments, chapters, cover, assets)
     with db_conn() as conn:
         updated = conn.execute(
-            "UPDATE reader_documents SET title=?, author=?, language=?, segment_count=?,"
+            "UPDATE reader_documents SET title=CASE WHEN ? IS NULL OR title=? THEN ? ELSE title END, author=?,"
+            " language=?, segment_count=?,"
             " char_count=?, chapter_count=?, has_cover=?, import_status=?, import_progress=NULL,"
             " import_error=NULL, updated_at=? WHERE id=? AND import_status=?",
             (
-                title, author, language, len(segments), sum(len(s["text"]) for s in segments),
+                keep_title_unless, keep_title_unless, title,
+                author, language, len(segments), sum(len(s["text"]) for s in segments),
                 len(chapters), int(has_cover), IMPORT_READY, time.time(), doc_id, IMPORT_RUNNING,
             ),
         ).rowcount

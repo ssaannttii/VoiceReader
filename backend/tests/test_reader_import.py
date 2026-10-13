@@ -131,7 +131,7 @@ def test_markdown_file_headings_lists_and_inline_markup():
 def test_txt_file_chapter_lines_become_headings():
     txt = "Chapter 1\n\nIt began here.\n\nChapter 2\n\nIt ended there.\n"
     doc = ri.import_file("story.txt", txt.encode("utf-8"))
-    assert doc.title == "story"
+    assert doc.title == "Story"  # the cleaned, capitalized file name
     assert [c["title"] for c in doc.chapters] == ["Chapter 1", "Chapter 2"]
     assert doc.chapters[1]["segment"] == 2
 

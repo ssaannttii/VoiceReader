@@ -264,6 +264,22 @@ PDF import detects chapter headings ("Capítulo 7", "Chapter VII", "Parte II", "
 "Epílogo", numbered or roman-numbered short lines, all-caps short lines) and emits `h` blocks;
 if none are found, chapters fall back to every 10 pages ("Páginas 1–10"…).
 
+### File titles and authors
+`reader_import.pick_title`: the first metadata title that is not junk (empty, "Untitled",
+"Document1", "Microsoft Word - x.docx", tool names, file-name-like strings, ISBNs/long numbers,
+paths/URLs, > 200 chars); then an opening heading — PDF: the largest-type text of the first page
+with a text layer (pypdf `visitor_text`, size × text-matrix scale; the author's name and section
+headings such as "Capítulo 1"/"Índice" are skipped) — when the cleaned file name is empty, was
+messy, or shares a word with it; then the cleaned file name (`filename_title`: no extension,
+"(1)"/"- copia", download-site tags, ISBNs, hashes, `v3`/OCR marks; `_` and slug `-` → spaces;
+lowercase capitalized, all-caps sentence-cased); else the first text. PDF metadata = Info
+Title/Author/Subject + XMP `dc:title`/`dc:creator`; DOCX core properties, EPUB `dc:*` and the
+author go through the same filters (`pick_author` drops "Usuario de Windows", "admin", logins,
+e-mails). A user-given title (scan form) is kept. The upload's placeholder title (cleaned file
+name) is stored in `import.json`; if the user renames the row while it imports, the rename wins.
+`scripts/reader/retitle-pdfs.py` proposes titles for PDFs whose title is still the old
+file-name title (dry run; `--write` applies, `--pdf-dir` reads the original files' metadata).
+
 ### Engine status
 `GET /reader/status` adds `model_state`: `"unloaded"` \| `"loading"` \| `"ready"` \| `"error"`
 and `model_error`. `POST /reader/warmup` starts loading the TTS engine (idempotent, returns
