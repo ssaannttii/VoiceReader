@@ -174,3 +174,57 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
 ## Running for the phone
 `scripts/reader/start-reader.ps1` builds the web UI when missing/stale, starts the backend
 reachable from the LAN, and prints the phone URL. See `docs/reader/README.md`.
+
+## v2 contract (global improvement plan, docs/reader/PLAN.md)
+
+Additive: every existing field and route keeps its meaning.
+
+### DocumentSummary — new fields
+| field | type | notes |
+|---|---|---|
+| `furthest_segment` | int | max segment ever reached; `PUT .../progress` raises it, never lowers it |
+| `archived` | bool | hidden from the default library view |
+| `completed` | bool | set when progress reaches the end; user can toggle |
+| `import_status` | `"ready"` \| `"importing"` \| `"error"` | file/scan imports run in the background |
+| `import_progress` | float \| null | 0–1 while importing |
+| `import_error` | str \| null | human-readable, when `import_status == "error"` |
+
+`PATCH /reader/documents/{id}` additionally accepts `archived`, `completed`.
+`GET /reader/documents/{id}` on a document that is still importing returns 409 `{"detail": "importing"}`.
+
+### Background imports
+- `POST /reader/documents/file` and `POST /reader/documents/scan` return a `DocumentSummary`
+  immediately with `import_status: "importing"`; the client polls `GET /reader/documents`
+  (every 2 s while any row is importing). `text` and `url` imports stay synchronous.
+- `POST /reader/documents/scan`: multipart `files` (1–50 images, in page order), optional form
+  `language`, `title`. Server-side OCR; the result is a normal document (one paragraph per text
+  block, one chapter per image when there are several).
+
+### PDF chapters
+PDF import detects chapter headings ("Capítulo 7", "Chapter VII", "Parte II", "Prólogo",
+"Epílogo", numbered or roman-numbered short lines, all-caps short lines) and emits `h` blocks;
+if none are found, chapters fall back to every 10 pages ("Páginas 1–10"…).
+
+### Engine status
+`GET /reader/status` adds `model_state`: `"unloaded"` \| `"loading"` \| `"ready"` \| `"error"`
+and `model_error`. `POST /reader/warmup` starts loading the TTS engine (idempotent, returns
+status). Clients call it when Reader opens.
+
+### Pronunciation (user-level wrappers over VoiceStudio's dictionary)
+- `GET /reader/pronunciations?language=es` → `[{id, term, replacement, language}]`
+- `POST /reader/pronunciations` `{term, replacement, language}` → entry
+- `DELETE /reader/pronunciations/{id}`
+- Rendering applies the dictionary for the document language after `normalize_for_tts`. The
+  render cache key is computed from the **final synthesized text**, so a new entry only
+  re-renders the segments that contain the term.
+
+### Bookmarks
+- `GET /reader/documents/{id}/bookmarks` → `[{id, segment, word, note, created_at}]` (by segment)
+- `POST /reader/documents/{id}/bookmarks` `{segment, word?, note?}` → bookmark
+- `PATCH /reader/bookmarks/{bid}` `{note}` · `DELETE /reader/bookmarks/{bid}`
+- `GET /reader/documents/{id}/bookmarks/export` → `text/markdown` (title, then per bookmark the
+  chapter, the segment text and the note)
+
+### Client-only (no API)
+Continuous MSE playback, undo seek, configurable controls, reading themes, double-tap, reading
+sync, in-document search, queue, soundscapes, voice picker search/recents, share target.
