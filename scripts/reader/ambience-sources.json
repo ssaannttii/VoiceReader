@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "note": "Recorded beds for the Reader's automatic ambience (scripts/reader/fetch-ambience.py). Every source is Creative Commons 0 (public domain) on Freesound.org, checked on its page at build time. start/length are seconds of the preview; level_db is the bed's RMS in the pack (dBFS); lowpass blurs chatter into murmur.",
+  "beds": [
+    {
+      "id": "rain", "tag": "rain",
+      "title": "Rain_06.wav", "author": "Q.K.", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Q.K./sounds/56311/",
+      "preview_url": "https://cdn.freesound.org/previews/56/56311_91374-hq.ogg",
+      "start": 30, "length": 70, "level_db": -20
+    },
+    {
+      "id": "storm", "tag": "storm",
+      "title": "Rain and Thunder Ambience", "author": "sagamusix", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/sagamusix/sounds/700358/",
+      "preview_url": "https://cdn.freesound.org/previews/700/700358_9398458-hq.ogg",
+      "start": 60, "length": 75, "level_db": -20, "tame_db": 5
+    },
+    {
+      "id": "wind", "tag": "wind",
+      "title": "Wind singing in the mountain, some night cricket in background", "author": "felix.blume", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/felix.blume/sounds/165526/",
+      "preview_url": "https://cdn.freesound.org/previews/165/165526_1661766-hq.ogg",
+      "start": 112, "length": 75, "level_db": -21
+    },
+    {
+      "id": "sea", "tag": "sea",
+      "title": "Beach Waves 04.wav", "author": "DylanTheFish", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/DylanTheFish/sounds/463250/",
+      "preview_url": "https://cdn.freesound.org/previews/463/463250_7482766-hq.ogg",
+      "start": 112, "length": 75, "level_db": -20
+    },
+    {
+      "id": "forest", "tag": "forest",
+      "title": "sfx_amb_forest_spring_afternoon-01.wav", "author": "bajko", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/bajko/sounds/385280/",
+      "preview_url": "https://cdn.freesound.org/previews/385/385280_2341984-hq.ogg",
+      "start": 32, "length": 75, "level_db": -22
+    },
+    {
+      "id": "night", "tag": "night",
+      "title": "Night Crickets Back Porch.aiff", "author": "hdfreema", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/hdfreema/sounds/333221/",
+      "preview_url": "https://cdn.freesound.org/previews/333/333221_2098408-hq.ogg",
+      "start": 144, "length": 70, "level_db": -23
+    },
+    {
+      "id": "fire", "tag": "fire",
+      "title": "Lit Fireplace", "author": "lurpsis", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/lurpsis/sounds/444127/",
+      "preview_url": "https://cdn.freesound.org/previews/444/444127_1744434-hq.ogg",
+      "start": 36, "length": 66, "level_db": -20
+    },
+    {
+      "id": "tavern", "tag": "tavern",
+      "title": "General Chatter In Bar", "author": "squareal", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/squareal/sounds/237398/",
+      "preview_url": "https://cdn.freesound.org/previews/237/237398_1502374-hq.ogg",
+      "start": 62, "length": 75, "level_db": -21, "lowpass": 3200
+    },
+    {
+      "id": "crowd", "tag": "crowd",
+      "title": "market.wav", "author": "ninebilly", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/ninebilly/sounds/173013/",
+      "preview_url": "https://cdn.freesound.org/previews/173/173013_773642-hq.ogg",
+      "start": 2, "length": 75, "level_db": -22, "lowpass": 3500
+    },
+    {
+      "id": "town", "tag": "town",
+      "title": "0403201225_piazza della signoria.wav", "author": "uauaua", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/uauaua/sounds/14529/",
+      "preview_url": "https://cdn.freesound.org/previews/14/14529_37253-hq.ogg",
+      "start": 0, "length": 75, "level_db": -23, "lowpass": 5000
+    },
+    {
+      "id": "city", "tag": "city",
+      "title": "Night city atmosphere", "author": "Soundkrampf", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Soundkrampf/sounds/237329/",
+      "preview_url": "https://cdn.freesound.org/previews/237/237329_3435865-hq.ogg",
+      "start": 0, "length": 62, "level_db": -23
+    },
+    {
+      "id": "interior", "tag": "interior",
+      "title": "House Room Tone", "author": "aleclubin", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/aleclubin/sounds/641306/",
+      "preview_url": "https://cdn.freesound.org/previews/641/641306_6970169-hq.ogg",
+      "start": 2, "length": 75, "level_db": -31, "lowpass": 6000
+    },
+    {
+      "id": "library", "tag": "library",
+      "title": "Old Clock Pendulum", "author": "Tom_Kaszuba", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Tom_Kaszuba/sounds/657255/",
+      "preview_url": "https://cdn.freesound.org/previews/657/657255_11673893-hq.ogg",
+      "start": 12, "length": 75, "level_db": -29, "invert_right": true, "lowpass": 7000
+    },
+    {
+      "id": "temple", "tag": "temple",
+      "title": "AMB Dans une grande eglise.WAV", "author": "Zetheyo", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Zetheyo/sounds/475954/",
+      "preview_url": "https://cdn.freesound.org/previews/475/475954_4890032-hq.ogg",
+      "start": 150, "length": 75, "level_db": -27
+    },
+    {
+      "id": "cave", "tag": "cave",
+      "title": "Ambiance_Atmosphere_Cave_Loop_Stereo.ogg", "author": "Nox_Sound", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Nox_Sound/sounds/553080/",
+      "preview_url": "https://cdn.freesound.org/previews/553/553080_9250976-hq.ogg",
+      "start": 0, "length": 52, "level_db": -23
+    },
+    {
+      "id": "snow", "tag": "snow",
+      "title": "Howling winter storm ambient sounds", "author": "DBlover", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/DBlover/sounds/505999/",
+      "preview_url": "https://cdn.freesound.org/previews/505/505999_7846219-hq.ogg",
+      "start": 86, "length": 75, "level_db": -21
+    },
+    {
+      "id": "river", "tag": "river",
+      "title": "small stream forest", "author": "Yuval", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/Yuval/sounds/197023/",
+      "preview_url": "https://cdn.freesound.org/previews/197/197023_770707-hq.ogg",
+      "start": 46, "length": 75, "level_db": -21
+    },
+    {
+      "id": "mist", "tag": "mist",
+      "title": "Ambience City Quiet Night Air Tone", "author": "leonelmail", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/leonelmail/sounds/427841/",
+      "preview_url": "https://cdn.freesound.org/previews/427/427841_4437257-hq.ogg",
+      "start": 22, "length": 75, "level_db": -26
+    },
+    {
+      "id": "road", "tag": "road",
+      "title": "horses-and-carriage.wav", "author": "ondrosik", "license": "CC0-1.0",
+      "source_url": "https://freesound.org/people/ondrosik/sounds/121129/",
+      "preview_url": "https://cdn.freesound.org/previews/121/121129_2140699-hq.ogg",
+      "start": 464, "length": 75, "level_db": -23
+    }
+  ]
+}

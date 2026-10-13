@@ -25,6 +25,14 @@ vi.mock('./reader-ambience', () => ({ ambienceController: ambience }));
 vi.mock('./soundscape-cache', () => ({
   loadBed: vi.fn(() => Promise.resolve(new Blob(['wav']))),
 }));
+// No recordings on the PC: the manual sounds are the synthesized loops.
+vi.mock('./ambience-pack', () => ({
+  ambiencePack: {
+    refresh: () => Promise.resolve(),
+    manualKey: (id: string) => id,
+    load: () => Promise.resolve(new Blob(['wav'])),
+  },
+}));
 vi.mock('@/lib/audio/object-url', () => ({
   createObjectUrl: () => 'blob:manual',
   revokeObjectUrl: () => {},

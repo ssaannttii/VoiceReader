@@ -10,16 +10,18 @@ import {
   AmbienceScheduler,
   DUCK_SECONDS,
   DUCK_VOICE,
-  TAG_BED,
+  synthChoice,
   bedLevel,
   crossfadeSeconds,
   equalPower,
   sceneAt,
   sceneTag,
   type AmbienceScene,
+  type AmbienceSceneTag,
+  type BedChoice,
+  type BedKey,
   type AmbienceTag,
 } from './ambience-schedule';
-import type { BedId } from './soundscape-synth';
 
 /** The parts of an HTMLAudioElement the engine uses. */
 export interface BedElement {
@@ -34,7 +36,9 @@ export interface BedElement {
 
 export interface AmbienceEngineDeps {
   createElement(): BedElement;
-  loadBed(id: BedId): Promise<Blob>;
+  loadBed(key: BedKey): Promise<Blob>;
+  /** The bed a tag plays (recorded or synthesized); default: synthesized only. */
+  bedFor?(tag: AmbienceSceneTag): BedChoice | null;
   createUrl(blob: Blob): string | null;
   revokeUrl(url: string | null): void;
   /** Milliseconds (a monotonic clock). */
@@ -52,7 +56,7 @@ interface Fade {
 
 interface Slot {
   el: BedElement | null;
-  bed: BedId | null;
+  bed: BedKey | null;
   url: string | null;
   /** Bed trim × intensity (before master volume and ducking). */
   level: number;
@@ -83,6 +87,8 @@ export class AmbienceEngine {
   private lastTick: number | null = null;
   private loadToken = 0;
   private lastSceneKey: string | null = null;
+  /** Intensity of the scene now sounding (a bed refresh keeps it). */
+  private intensity = 0.5;
 
   constructor(private readonly deps: AmbienceEngineDeps) {}
 
@@ -96,7 +102,7 @@ export class AmbienceEngine {
   }
 
   /** Beds currently loaded into the two elements (tests, diagnostics). */
-  beds(): (BedId | null)[] {
+  beds(): (BedKey | null)[] {
     return this.slots.map((slot) => slot.bed);
   }
 
@@ -192,6 +198,18 @@ export class AmbienceEngine {
     }
   }
 
+  /**
+   * The beds on offer changed (recordings arrived, "Recorded sounds" toggled):
+   * the current tag crossfades to its new bed; nothing else changes.
+   */
+  refreshBeds() {
+    const tag = this.scheduler.current;
+    if (!this.enabled || tag === 'none') return;
+    const live = this.slots.find((slot) => slot.bed !== null && slot.fade?.dir !== 'out');
+    if ((live?.bed ?? null) === (this.choose(tag)?.key ?? null)) return;
+    this.transition(tag, tag, this.intensity);
+  }
+
   /** Automático turned off: silence at once and forget the current bed. */
   stop() {
     this.loadToken++;
@@ -228,6 +246,7 @@ export class AmbienceEngine {
   }
 
   private transition(from: AmbienceTag, to: AmbienceTag, intensity: number) {
+    this.intensity = intensity;
     const seconds = crossfadeSeconds(from, to);
     const ms = seconds * 1000;
     const now = this.deps.now();
@@ -237,52 +256,70 @@ export class AmbienceEngine {
       else if (slot.fade?.dir === 'in') slot.fade = null;
     }
     const live = this.slots.find((slot) => slot.bed !== null) ?? null;
-    const bed = to === 'none' ? null : TAG_BED[to];
+    const choice = to === 'none' ? null : this.choose(to);
+    const bed = choice?.key ?? null;
     this.deps.log('ambience', { event: 'crossfade', from, to, bed, seconds, seg: this.segment });
     const token = ++this.loadToken;
-    if (live && bed && live.bed === bed) {
-      live.level = bedLevel(bed, intensity);
+    if (live && choice && live.bed === choice.key) {
+      live.level = bedLevel(choice.key, intensity, choice.rms);
       this.apply(now);
       return;
     }
-    if (!bed) {
+    if (!choice) {
       if (live) live.fade = { dir: 'out', start: now, ms };
       this.apply(now);
       return;
     }
     const incoming = this.slots.find((slot) => slot !== live) ?? this.slots[0];
-    this.deps.loadBed(bed).then(
-      (blob) => {
-        if (token !== this.loadToken) return;
-        const at = this.deps.now();
-        const url = this.deps.createUrl(blob);
-        if (!url) {
+    const start = (pick: BedChoice) =>
+      this.deps.loadBed(pick.key).then(
+        (blob) => {
+          if (token !== this.loadToken) return;
+          const at = this.deps.now();
+          const url = this.deps.createUrl(blob);
+          if (!url) {
+            if (live?.bed) live.fade = { dir: 'out', start: at, ms };
+            return;
+          }
+          const el = this.element(incoming);
+          this.deps.revokeUrl(incoming.url);
+          incoming.url = url;
+          incoming.bed = pick.key;
+          incoming.level = bedLevel(pick.key, intensity, pick.rms);
+          incoming.fade = { dir: 'in', start: at, ms };
+          el.volume = 0;
+          el.src = url;
           if (live?.bed) live.fade = { dir: 'out', start: at, ms };
-          return;
-        }
-        const el = this.element(incoming);
-        this.deps.revokeUrl(incoming.url);
-        incoming.url = url;
-        incoming.bed = bed;
-        incoming.level = bedLevel(bed, intensity);
-        incoming.fade = { dir: 'in', start: at, ms };
-        el.volume = 0;
-        el.src = url;
-        if (live?.bed) live.fade = { dir: 'out', start: at, ms };
-        this.apply(at);
-        if (this.active) this.play(incoming);
-      },
-      (error: unknown) => {
-        if (token !== this.loadToken) return;
-        this.deps.log('ambience', {
-          event: 'error',
-          bed,
-          name: (error as { name?: string })?.name ?? 'Error',
-        });
-        // Silence is better than the wrong sound.
-        if (live?.bed) live.fade = { dir: 'out', start: this.deps.now(), ms };
-      },
-    );
+          this.apply(at);
+          if (this.active) this.play(incoming);
+        },
+        (error: unknown) => {
+          if (token !== this.loadToken) return;
+          this.deps.log('ambience', {
+            event: 'error',
+            bed: pick.key,
+            name: (error as { name?: string })?.name ?? 'Error',
+          });
+          // A recording that cannot load gives way to its synthesized stand-in…
+          if (pick.fallback && pick.fallback.key !== live?.bed) {
+            void start(pick.fallback);
+            return;
+          }
+          if (pick.fallback && live) {
+            live.level = bedLevel(pick.fallback.key, intensity, pick.fallback.rms);
+            this.apply(this.deps.now());
+            return;
+          }
+          // …else silence: better than the wrong sound.
+          if (live?.bed) live.fade = { dir: 'out', start: this.deps.now(), ms };
+        },
+      );
+    void start(choice);
+  }
+
+  /** The bed for a tag: injected (recordings + stand-ins) or synthesized only. */
+  private choose(tag: AmbienceSceneTag): BedChoice | null {
+    return this.deps.bedFor ? this.deps.bedFor(tag) : synthChoice(tag);
   }
 
   private updateDuck() {

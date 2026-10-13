@@ -15,7 +15,8 @@ import type { AmbienceScene, AmbienceTag } from './ambience-schedule';
 import { readerApi } from './reader-api';
 import { dlog } from './reader-debug';
 import { readerPlayer } from './reader-player';
-import { loadBed } from './soundscape-cache';
+import { ambiencePack } from './ambience-pack';
+import { listeningPrefs, subscribeListening } from './listening-prefs';
 
 export type AmbienceStatus = 'idle' | 'loading' | 'computing' | 'ready' | 'unavailable';
 
@@ -42,7 +43,8 @@ class AmbienceController {
   private installed = false;
   private readonly engine = new AmbienceEngine({
     createElement: () => this.createElement(),
-    loadBed,
+    loadBed: ambiencePack.load,
+    bedFor: ambiencePack.bedFor,
     createUrl: (blob) => createObjectUrl(blob),
     revokeUrl: (url) => revokeObjectUrl(url),
     now: () => performance.now(),
@@ -69,6 +71,14 @@ class AmbienceController {
     readerPlayer.subscribe(() => this.follow());
     // The player's clock is published from the voice's `timeupdate`.
     readerPlayer.subscribeClock(() => this.tick());
+    // Recordings arriving from the PC, or "Recorded sounds" toggled: the current scene follows.
+    let recorded = listeningPrefs().soundscapeRecorded;
+    ambiencePack.subscribe(() => this.engine.refreshBeds());
+    subscribeListening(() => {
+      if (listeningPrefs().soundscapeRecorded === recorded) return;
+      recorded = listeningPrefs().soundscapeRecorded;
+      this.engine.refreshBeds();
+    });
   }
 
   /** Automático chosen or not (from the soundscape preference). */
@@ -77,6 +87,7 @@ class AmbienceController {
     this.enabled = enabled;
     this.engine.setEnabled(enabled);
     if (enabled) {
+      void ambiencePack.refresh();
       this.follow();
       return;
     }

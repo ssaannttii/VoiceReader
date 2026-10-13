@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AMBIENCE_TAGS,
   AmbienceScheduler,
   MIN_HOLD_SECONDS,
   TAG_BED,
   bedLevel,
   crossfadeSeconds,
   equalPower,
+  isRecordedKey,
   sceneAt,
   sceneTag,
+  synthChoice,
   type AmbienceScene,
 } from './ambience-schedule';
 import { AMBIENT_RMS, MANUAL_RMS } from './soundscape-synth';
@@ -44,6 +47,22 @@ describe('sceneAt / sceneTag', () => {
     expect(TAG_BED.fire).toBe('fire');
     expect(TAG_BED.rain).toBe('rain');
     expect(TAG_BED.interior).toBe('room');
+  });
+
+  it('gives the newer tags a synthesized stand-in only where one fits', () => {
+    for (const tag of AMBIENCE_TAGS) expect(tag in TAG_BED).toBe(true);
+    expect(TAG_BED.mist).toBe('wind');
+    expect(TAG_BED.town).toBe('city');
+    expect(TAG_BED.river).toBeNull();
+    expect(synthChoice('river')).toBeNull();
+    expect(synthChoice('library')).toEqual({ key: 'room' });
+    expect(sceneTag(scene(0, 1, 'mist'))).toBe('mist');
+  });
+
+  it('tells recordings from synthesized beds', () => {
+    expect(isRecordedKey('rec:rain.ogg')).toBe(true);
+    expect(isRecordedKey('rain')).toBe(false);
+    expect(isRecordedKey(null)).toBe(false);
   });
 });
 
@@ -114,5 +133,12 @@ describe('crossfades and levels', () => {
     expect(bedLevel('rain', 1)).toBeCloseTo(AMBIENT_RMS / MANUAL_RMS, 6);
     expect(bedLevel('wind', 0)).toBeCloseTo(0.7, 6);
     expect(bedLevel('wind', Number.NaN)).toBeCloseTo(0.85, 6);
+  });
+
+  it('trims recordings by their own loudness, never above unity', () => {
+    expect(bedLevel('rec:rain.ogg', 1, 0.1)).toBeCloseTo(AMBIENT_RMS / 0.1, 6);
+    expect(bedLevel('rec:quiet.ogg', 1, AMBIENT_RMS / 2)).toBeCloseTo(1, 6);
+    // Unknown loudness: treated like a manual loop.
+    expect(bedLevel('rec:rain.ogg', 1)).toBeCloseTo(AMBIENT_RMS / MANUAL_RMS, 6);
   });
 });

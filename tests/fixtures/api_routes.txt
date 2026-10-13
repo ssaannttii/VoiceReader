@@ -152,6 +152,8 @@ GET /projects
 GET /projects/{project_id}
 GET /pronunciation
 GET /pronunciation/export
+GET /reader/ambience/pack
+GET /reader/ambience/pack/{name}
 GET /reader/audio/{key}
 GET /reader/default-voices
 GET /reader/documents

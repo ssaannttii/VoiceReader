@@ -18,6 +18,14 @@ export const AMBIENCE_TAGS = [
   'city',
   'interior',
   'cave',
+  'mist',
+  'snow',
+  'river',
+  'crowd',
+  'temple',
+  'library',
+  'road',
+  'town',
 ] as const;
 export type AmbienceSceneTag = (typeof AMBIENCE_TAGS)[number];
 export type AmbienceTag = AmbienceSceneTag | 'none';
@@ -31,8 +39,12 @@ export interface AmbienceScene {
   intensity: number;
 }
 
-/** The bed each scene tag plays (reusing the manual rain, café and fireplace loops). */
-export const TAG_BED: Record<AmbienceSceneTag, BedId> = {
+/**
+ * The synthesized bed each scene tag plays (reusing the manual rain, café and
+ * fireplace loops) when no recording is available; null = no synthesized
+ * stand-in is good enough, so silence (a river is not the sea).
+ */
+export const TAG_BED: Record<AmbienceSceneTag, BedId | null> = {
   rain: 'rain',
   storm: 'storm',
   wind: 'wind',
@@ -44,7 +56,38 @@ export const TAG_BED: Record<AmbienceSceneTag, BedId> = {
   city: 'city',
   interior: 'room',
   cave: 'cave',
+  mist: 'wind',
+  snow: 'wind',
+  river: null,
+  crowd: 'city',
+  temple: 'room',
+  library: 'room',
+  road: null,
+  town: 'city',
 };
+
+/** A recorded loop of the ambience pack (`rec:<file>`), as opposed to a synthesized bed. */
+export type RecordedKey = `rec:${string}`;
+/** What an element plays: a synthesized bed or a recorded loop. */
+export type BedKey = BedId | RecordedKey;
+
+/** The bed chosen for a tag; `rms` is a recording's loudness (synthesized beds know theirs). */
+export interface BedChoice {
+  key: BedKey;
+  rms?: number;
+  /** Played instead when the recording cannot be loaded (offline and not cached, removed). */
+  fallback?: BedChoice | null;
+}
+
+export function isRecordedKey(key: BedKey | null | undefined): key is RecordedKey {
+  return typeof key === 'string' && key.startsWith('rec:');
+}
+
+/** The synthesized choice for a tag (no recordings). */
+export function synthChoice(tag: AmbienceSceneTag): BedChoice | null {
+  const bed = TAG_BED[tag];
+  return bed ? { key: bed } : null;
+}
 
 /** Seconds of listening between two changes of bed. */
 export const MIN_HOLD_SECONDS = 45;
@@ -94,10 +137,16 @@ export function equalPower(progress: number): [number, number] {
 /**
  * Element gain of a bed relative to the master volume: ambient beds are
  * rendered at their quiet level already; the manual loops reused here (rain,
- * café, fireplace) are trimmed down to it. Intensity adds up to +3 dB.
+ * café, fireplace) and recordings (by their `rms`) are trimmed down to it.
+ * Intensity adds up to +3 dB.
  */
-export function bedLevel(bed: BedId, intensity: number): number {
-  const trim = isAmbientBed(bed) ? 1 : AMBIENT_RMS / MANUAL_RMS;
+export function bedLevel(bed: BedKey, intensity: number, rms?: number): number {
+  const recorded = rms !== undefined && Number.isFinite(rms) && rms > 0 ? rms : MANUAL_RMS;
+  const trim = isRecordedKey(bed)
+    ? AMBIENT_RMS / Math.max(AMBIENT_RMS, recorded)
+    : isAmbientBed(bed)
+      ? 1
+      : AMBIENT_RMS / MANUAL_RMS;
   const i = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0.5;
   return trim * (0.7 + 0.3 * i);
 }

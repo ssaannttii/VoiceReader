@@ -365,6 +365,12 @@ export const readerApi = {
   /** Scenes for the automatic ambience; starts the analysis on the PC when missing. */
   ambience: (id: string, signal?: AbortSignal) =>
     apiJson<ReaderAmbience>(`${doc(id)}/ambience`, { signal }),
+  /** Recorded ambience beds on the PC (an optional pack; 404 on older backends). */
+  ambiencePack: (signal?: AbortSignal) =>
+    apiJson<ReaderAmbiencePack>('/reader/ambience/pack', { signal }),
+  /** One recorded loop of the pack (compressed bytes). */
+  ambienceFile: async (file: string, signal?: AbortSignal) =>
+    (await apiFetch(`/reader/ambience/pack/${encodeURIComponent(file)}`, { signal })).arrayBuffer(),
 
   // Prepared reading: what the voice says, never the displayed text.
   speech: (id: string, signal?: AbortSignal) =>
@@ -424,6 +430,29 @@ export interface ReaderAmbience {
     intensity: number;
   }[];
   refined?: boolean;
+}
+
+/** A recorded bed of the PC's ambience pack (`GET /reader/ambience/pack`). */
+export interface ReaderAmbienceBed {
+  id: string;
+  /** Scene tag it plays (rain, mist, …). */
+  tag: string;
+  file: string;
+  /** Loudness (RMS of full scale) of the loop. */
+  rms: number;
+  duration: number;
+  /** Seconds of padding around the loop in the file (trimmed after decoding). */
+  pad?: number;
+  sha256?: string;
+  title?: string;
+  author?: string;
+  license?: string;
+  source_url?: string;
+}
+
+export interface ReaderAmbiencePack {
+  available: boolean;
+  beds: ReaderAmbienceBed[];
 }
 
 export const READER_ACCEPTED_FILES = '.txt,.md,.html,.htm,.pdf,.epub,.docx';

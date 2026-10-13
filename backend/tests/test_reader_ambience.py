@@ -38,6 +38,35 @@ DIALOGUE_ES = (
     "—Vendrá. Siempre cumple lo que promete, aunque tarde. "
     "Tomás suspiró y pensó en todo lo que habían perdido desde entonces."
 )
+MIST_ES = (
+    "La bruma llegó con el anochecer y cubrió los tejados. Vin saltó entre los jirones de niebla, "
+    "y las brumas giraban a su alrededor mientras la noche se cerraba sobre la calle desierta. "
+    "Más allá de la bruma, la ciudad dormía."
+)
+SNOW_ES = (
+    "Nevaba desde la mañana. La nieve cubría el camino y los copos caían sin descanso sobre los pinos; "
+    "el frío del invierno helaba las manos y la escarcha brillaba en las ramas desnudas."
+)
+LIBRARY_ES = (
+    "Sazed pasaba las páginas del libro en la biblioteca. Los libros se amontonaban en los anaqueles, "
+    "junto al tintero y la pluma, y solo se oía el reloj mientras estudiaba los manuscritos."
+)
+RIVER_ES = (
+    "Siguieron el río durante horas. El agua del arroyo murmuraba entre las piedras y, junto a la cascada, "
+    "el río se ensanchaba en un remanso tranquilo antes de volver a correr hacia el valle."
+)
+MARKET_EN = (
+    "The market was crowded. Vendors shouted from their stalls and the crowd pressed between the "
+    "carts; the hubbub of the marketplace rose as hawkers sold bread and the throng bustled on."
+)
+CHURCH_EN = (
+    "Inside the cathedral the air smelled of incense. Monks knelt before the altar, the pews stood "
+    "empty, and the light fell through the stained glass of the old church onto the nave."
+)
+ROAD_ES = (
+    "Cabalgaron toda la tarde. Los caballos avanzaban al trote por el camino polvoriento, y el jinete "
+    "tiró de las riendas cuando el carruaje del cochero apareció tras la curva, al galope."
+)
 DIALOGUE_EN = (
     "\"I don't think that's wise,\" said Margaret. \"We should wait for your brother before deciding anything.\" "
     "\"And if he never comes?\" asked Thomas. \"We have been arguing about this for weeks.\" "
@@ -174,11 +203,15 @@ def test_long_sections_split_into_windows_of_about_ten_paragraphs():
 
 
 def _scenes_for(pattern: list[str], language: str = "es") -> list[dict]:
-    texts = {"rain": RAIN_ES, "tavern": TAVERN_ES, "none": DIALOGUE_ES}
-    windows = []
+    """One window of ten paragraphs per entry; ``|`` starts a new chapter (a hard cut)."""
+    texts = {"rain": RAIN_ES, "tavern": TAVERN_ES, "none": DIALOGUE_ES, "mist": MIST_ES, "snow": SNOW_ES}
+    chapters_text: list[list[str]] = [[]]
     for tag in pattern:
-        windows.append([texts[tag]] * 10)
-    segments, chapters = _doc([p for chunk in windows for p in chunk], headings=True)
+        if tag == "|":
+            chapters_text.append([])
+        else:
+            chapters_text[-1].extend([texts[tag]] * 10)
+    segments, chapters = _doc(*chapters_text, headings=True)
     scenes, refined = ra.analyze(segments, chapters, language=language)
     assert not refined
     return scenes
@@ -205,12 +238,110 @@ def test_short_scenes_fall_back_to_silence(monkeypatch):
 
 
 def test_scenes_cover_the_whole_document_in_order():
-    scenes = _scenes_for(["none", "rain", "rain", "none", "tavern", "tavern"])
+    scenes = _scenes_for(["none", "|", "rain", "rain", "|", "none", "|", "tavern", "tavern"])
     assert scenes[0]["start_segment"] == 0
     for before, after in zip(scenes, scenes[1:]):
         assert after["start_segment"] == before["end_segment"] + 1
         assert after["tag"] != before["tag"]
     assert [s["tag"] for s in scenes] == ["none", "rain", "none", "tavern"]
+
+
+# ── Scene persistence and chapter priors ─────────────────────────────────────
+
+
+def test_a_setting_carries_over_the_quiet_windows_of_its_scene():
+    # Rain established, then two windows of dialogue: still raining.
+    scenes = _scenes_for(["rain", "none", "none"])
+    assert [s["tag"] for s in scenes] == ["rain"]
+
+
+def test_persistence_fades_out_and_stops_at_hard_cuts():
+    long_quiet = _scenes_for(["rain"] + ["none"] * 12)
+    assert [s["tag"] for s in long_quiet] == ["rain", "none"]
+    # A new chapter starts silent: the rain of the previous one does not leak into it.
+    cut = _scenes_for(["rain", "|", "none", "none"])
+    assert [s["tag"] for s in cut] == ["rain", "none"]
+
+
+def test_a_conflicting_cue_ends_the_carried_setting():
+    # The tavern is not compatible with mist outdoors: the mist does not carry into it.
+    scenes = _scenes_for(["mist", "tavern"])
+    assert [s["tag"] for s in scenes] == ["mist", "tavern"]
+
+
+def test_the_opening_window_takes_the_setting_established_right_after():
+    scenes = _scenes_for(["none", "rain", "rain"])
+    assert [s["tag"] for s in scenes] == ["rain"]
+
+
+def test_chapter_prior_fills_windows_that_mention_its_setting_weakly():
+    weak = "Elena cerró la ventana; afuera seguía la bruma. —¿Vienes? —preguntó Tomás, y ella dijo que no."
+    segments, chapters = _doc([MIST_ES] * 10 + [DIALOGUE_ES] * 10 + [weak] + [DIALOGUE_ES] * 9)
+    windows = ra.classify_windows(segments, chapters, "es")
+    assert [w.verdict.tag for w in windows] == ["mist", "none", "mist"]
+    assert windows[2].verdict.confidence <= ra.PRIOR_CONFIDENCE
+    # Without the chapter's evidence the weak mention alone is not enough.
+    alone, chapters = _doc([DIALOGUE_ES] * 10 + [weak] + [DIALOGUE_ES] * 9)
+    assert all(w.verdict.tag == "none" for w in ra.classify_windows(alone, chapters, "es"))
+
+
+# ── New tags, phrases that are not settings, era ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "language", "tag"),
+    [
+        (MIST_ES, "es", "mist"),
+        (SNOW_ES, "es", "snow"),
+        (LIBRARY_ES, "es", "library"),
+        (RIVER_ES, "es", "river"),
+        (MARKET_EN, "en", "crowd"),
+        (CHURCH_EN, "en", "temple"),
+        (ROAD_ES, "es", "road"),
+    ],
+)
+def test_new_tags(text, language, tag):
+    verdict = ra.classify_text(text, language)
+    assert verdict.tag == tag, (verdict, ra.score_text(text, language))
+
+
+def test_a_mistborn_is_a_person_not_the_weather():
+    text = (
+        "Vin era una nacida de la bruma. Los nacidos de la bruma eran raros, y una nacida de la bruma "
+        "con capa de bruma llamaba la atención. Elend habló de los nacidos de las brumas durante horas."
+    )
+    scores, _ = ra.score_text(text * 2, "es")
+    assert scores.get("mist", 0) == 0
+    # The same words about the actual mist do count.
+    assert ra.score_text("La bruma cubría la calle.", "es")[0]["mist"] > 0
+
+
+def test_laughing_is_not_a_river():
+    # "se rió" loses its accent in tokenization; only "el río" style phrases count.
+    assert "river" not in ra.score_text("Marta se rio. Luego se rio otra vez y rio con ganas.", "es")[0]
+    assert ra.score_text("Caminaron junto al río y cruzaron el río.", "es")[0]["river"] > 0
+
+
+def test_era_turns_city_streets_into_a_town_in_pre_modern_books():
+    historic = [f"Recorrieron las calles y los callejones de la ciudad, entre carruajes y adoquines {n}." for n in range(400)]
+    modern = [f"Recorrieron las calles; el tráfico, los coches y el móvil sonando sin parar {n}." for n in range(400)]
+    assert ra.document_era(historic, "es") == "historic"
+    assert ra.document_era(modern, "es") == "modern"
+    assert ra.document_era(historic[:5], "es") == "modern"  # too short to judge
+    segments, chapters = _doc(historic)
+    scenes, _ = ra.analyze(segments, chapters, language="es")
+    assert {s["tag"] for s in scenes} == {"town"}
+    segments, chapters = _doc(modern)
+    scenes, _ = ra.analyze(segments, chapters, language="es")
+    assert {s["tag"] for s in scenes} == {"city"}
+
+
+def test_every_lexicon_tag_is_known_and_has_a_priority():
+    for language, tags in ra._LEXICON.items():
+        for tag in tags:
+            assert tag in ra.TAGS and tag in ra._PRIORITY, (language, tag)
+            assert tag in ra.PROTOTYPES, tag
+    assert "town" in ra.TAGS and ra.AMBIENCE_VERSION >= 2
 
 
 def test_refinement_only_chooses_among_lexicon_candidates():
