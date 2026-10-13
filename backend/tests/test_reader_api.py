@@ -34,6 +34,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(core.config, "DATA_DIR", str(tmp_path))
     monkeypatch.setattr(core.db, "DB_PATH", str(tmp_path / "reader.db"))
     core.db.ensure_schema()
+    from services import reader_import
+
+    monkeypatch.setattr(reader_import, "GROUP_CHARS", 0)
     monkeypatch.setattr(reader_render, "_inflight", {})
     monkeypatch.setattr(reader_render, "_jobs", {})
     monkeypatch.setattr(reader_render, "_interactive", {"active": 0})
@@ -475,3 +478,28 @@ def test_debug_events_are_appended_with_server_render_timings(env):
 
     assert client.post("/reader/debug/events", json={"session": "s", "events": [{}] * 501}).status_code == 422
     assert reader_debug.RETENTION_DAYS == 14
+
+
+def test_old_documents_are_regrouped_on_open_keeping_the_place(env, monkeypatch):
+    import json
+
+    from services import reader_import, reader_store
+
+    client = TestClient(env.app)
+    doc = _create(client)  # sentence-level (GROUP_CHARS=0 in this fixture)
+    client.put(f"/reader/documents/{doc['id']}/progress", json={"segment": 2})
+    path = env.data_dir / "reader" / doc["id"] / "content.json"
+    content = json.loads(path.read_text(encoding="utf-8"))
+    content["version"] = 1
+    path.write_text(json.dumps(content), encoding="utf-8")
+
+    monkeypatch.setattr(reader_import, "GROUP_CHARS", 280)
+    full = client.get(f"/reader/documents/{doc['id']}").json()
+    assert [s["text"] for s in full["segments"]] == [
+        "A Title",
+        "The first sentence is here. The second sentence is here.",
+        "Another paragraph to read.",
+    ]
+    assert full["segment_count"] == 3 and full["position_segment"] == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == reader_import.SEGMENTATION_VERSION
+    assert reader_store.load_content(doc["id"])["segments"] == full["segments"]

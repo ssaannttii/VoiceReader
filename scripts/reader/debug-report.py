@@ -93,7 +93,7 @@ def main() -> int:
                   f"total p50={pct(total, .5)} p90={pct(total, .9)} | fresh render p50={pct(fresh, .5)} | audio p50={pct(audio, .5)} ms")
         starts = by.get("start", [])
         misses = [r for r in starts if r.get("autoplay") and not r.get("ready")]
-        print(f"    starts={len(starts)} misses(next not ready)={len(misses)} stalls(waiting)={len(by.get('waiting', []))} "
+        print(f"    starts={len(starts)} misses(next not ready)={len(misses)} stalls(mid-sentence)={sum(1 for r in by.get('waiting', []) if r.get('at', 0) > 0)} "
               f"user_play={len(by.get('user_play', []))}")
         waits = [r["after_ms"] for r in by.get("status", []) if r.get("from") == "buffering" and r.get("to") == "playing" and r.get("after_ms") is not None]
         if waits:

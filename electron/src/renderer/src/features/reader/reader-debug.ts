@@ -107,7 +107,8 @@ export function dlog(type: string, data: Record<string, unknown> = {}) {
   }
   if (type === 'start' && data.ready === false && data.autoplay)
     stats = { ...stats, misses: stats.misses + 1 };
-  if (type === 'waiting') stats = { ...stats, stalls: stats.stalls + 1 };
+  // A src swap fires 'waiting' at 0 s for a few ms; only a mid-sentence wait is a stall.
+  if (type === 'waiting' && Number(data.at) > 0) stats = { ...stats, stalls: stats.stalls + 1 };
   if (type === 'error' || type === 'fail' || type === 'rejection')
     stats = { ...stats, errors: stats.errors + 1 };
   emit();

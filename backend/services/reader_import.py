@@ -27,6 +27,14 @@ from xml.etree import ElementTree as ET
 #: Hard cap for one segment, in characters (SPEC: very long sentences are
 #: split at <= 300 chars on clause punctuation/whitespace).
 MAX_SEGMENT_CHARS = 300
+#: Consecutive sentences of one paragraph are read as one segment up to this length.
+#: Each synthesis call has a large fixed cost (~1.5 s on an RTX 2070 regardless of
+#: length), so one-sentence segments of 2-3 s audio barely outpace playback and any
+#: hiccup becomes an audible gap; ~280-char segments render ~5x faster than real time
+#: and carry the narration's intonation across sentences.
+GROUP_CHARS = 280
+#: Stored in content.json; documents saved with an older layout are regrouped on load.
+SEGMENTATION_VERSION = 2
 #: Upload / download caps.
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_URL_BYTES = 10 * 1024 * 1024
@@ -125,6 +133,31 @@ def split_sentences(text: str, language: Optional[str]) -> list[str]:
     return out
 
 
+def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[list[dict], list[int]]:
+    """Merge consecutive body sentences of the same paragraph up to ``limit`` chars.
+
+    Returns the regrouped segments (renumbered) and, for every input index, the
+    index of the segment that now contains it. Headings are never merged.
+    """
+    limit = GROUP_CHARS if limit is None else limit
+    out: list[dict] = []
+    mapping: list[int] = []
+    for seg in segments:
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and seg["kind"] == "p"
+            and prev["kind"] == "p"
+            and prev["para"] == seg["para"]
+            and len(prev["text"]) + 1 + len(seg["text"]) <= limit
+        ):
+            prev["text"] = f"{prev['text']} {seg['text']}"
+        else:
+            out.append({"i": len(out), "text": seg["text"], "para": seg["para"], "kind": seg["kind"]})
+        mapping.append(len(out) - 1)
+    return out, mapping
+
+
 def segment_blocks(blocks: list[Block], language: Optional[str]) -> tuple[list[dict], list[dict]]:
     """``(segments, chapters)`` for a block list.
 
@@ -151,6 +184,9 @@ def segment_blocks(blocks: list[Block], language: Optional[str]) -> tuple[list[d
         for piece in pieces:
             segments.append({"i": len(segments), "text": piece, "para": para, "kind": kind})
         para += 1
+    segments, mapping = group_segments(segments)
+    for chapter in chapters:
+        chapter["segment"] = mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(segments)
     return segments, chapters
 
 

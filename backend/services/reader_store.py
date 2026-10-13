@@ -111,7 +111,7 @@ def create_document(
     try:
         _write_json_atomic(
             os.path.join(folder, "content.json"),
-            {"version": 1, "segments": segments, "chapters": chapters},
+            {"version": _segmentation_version(), "segments": segments, "chapters": chapters},
         )
         has_cover = False
         if cover and cover[0] and cover[1] in COVER_EXTENSIONS:
@@ -158,6 +158,35 @@ def get_summary(doc_id: str) -> dict:
     return summary_from_row(row)
 
 
+def _segmentation_version() -> int:
+    from services.reader_import import SEGMENTATION_VERSION
+
+    return SEGMENTATION_VERSION
+
+
+def _upgrade_content(doc_id: str, path: str, content: dict) -> dict:
+    """Regroup a document saved with an older segmentation, keeping the listener's place."""
+    from services.reader_import import group_segments
+
+    segments, mapping = group_segments(content.get("segments") or [])
+    chapters = [
+        {**chapter, "segment": mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(segments)}
+        for chapter in content.get("chapters") or []
+    ]
+    upgraded = {"version": _segmentation_version(), "segments": segments, "chapters": chapters}
+    _write_json_atomic(path, upgraded)
+    with db_conn() as conn:
+        row = conn.execute("SELECT position_segment FROM reader_documents WHERE id=?", (doc_id,)).fetchone()
+        if row is not None:
+            old = int(row["position_segment"] or 0)
+            position = mapping[old] if old < len(mapping) else len(segments)
+            conn.execute(
+                "UPDATE reader_documents SET segment_count=?, chapter_count=?, position_segment=? WHERE id=?",
+                (len(segments), len(chapters), position, doc_id),
+            )
+    return upgraded
+
+
 def load_content(doc_id: str) -> dict:
     path = os.path.join(document_dir(doc_id), "content.json")
     try:
@@ -165,6 +194,8 @@ def load_content(doc_id: str) -> dict:
             content = json.load(fh)
     except FileNotFoundError as exc:
         raise DocumentNotFound(doc_id) from exc
+    if int(content.get("version") or 1) < _segmentation_version():
+        content = _upgrade_content(doc_id, path, content)
     return {"segments": content.get("segments") or [], "chapters": content.get("chapters") or []}
 
 
@@ -176,8 +207,9 @@ def open_document(doc_id: str) -> dict:
         conn.execute(
             "UPDATE reader_documents SET last_opened_at=? WHERE id=?", (time.time(), doc_id)
         )
+    content = load_content(doc_id)  # first: it may regroup and renumber the summary fields
     doc = get_summary(doc_id)
-    doc.update(load_content(doc_id))
+    doc.update(content)
     return doc
 
 

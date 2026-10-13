@@ -11,6 +11,12 @@ import pytest
 from services import reader_import as ri
 
 
+@pytest.fixture(autouse=True)
+def _sentence_segments(monkeypatch):
+    """These tests check sentence splitting; grouping has its own tests below."""
+    monkeypatch.setattr(ri, "GROUP_CHARS", 0)
+
+
 def _texts(doc):
     return [s["text"] for s in doc.segments]
 
@@ -412,3 +418,32 @@ def test_page_level_feature_classes_do_not_drop_the_article():
     assert [b.text for b in blocks] == [
         "The article text survives page-level feature classes that merely contain apparatus words."
     ]
+
+
+def test_short_sentences_of_a_paragraph_are_grouped(monkeypatch):
+    monkeypatch.setattr(ri, "GROUP_CHARS", 40)
+    doc = ri.import_text(
+        "# Title\n\nOne short line. Another short line. A third one here.\n\n"
+        "New paragraph starts. It stays apart."
+    )
+    assert _texts(doc) == [
+        "Title",
+        "One short line. Another short line.",
+        "A third one here.",
+        "New paragraph starts. It stays apart.",
+    ]
+    assert [s["i"] for s in doc.segments] == [0, 1, 2, 3]
+    assert doc.chapters == [{"title": "Title", "segment": 0}]
+
+
+def test_group_segments_maps_every_old_index():
+    old = [
+        {"i": 0, "text": "Head", "para": 0, "kind": "h"},
+        {"i": 1, "text": "a" * 50, "para": 1, "kind": "p"},
+        {"i": 2, "text": "b" * 50, "para": 1, "kind": "p"},
+        {"i": 3, "text": "c" * 200, "para": 1, "kind": "p"},
+        {"i": 4, "text": "d" * 10, "para": 2, "kind": "p"},
+    ]
+    new, mapping = ri.group_segments(old, limit=120)
+    assert [len(s["text"]) for s in new] == [4, 101, 200, 10]
+    assert mapping == [0, 1, 1, 2, 3]
