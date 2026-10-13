@@ -511,10 +511,11 @@ def tokenize(text: str) -> list[str]:
 _SENTENCE_LEAD = frozenset(".!?¡¿—–-«\"“”'‘(:;…[")
 
 
-def proper_names(texts: Sequence[str], language: str) -> frozenset[str]:
+def proper_names(texts: Sequence[str], language: str, lexicon: Optional[_CompiledLexicon] = None) -> frozenset[str]:
     """Lexicon words used as names in this document ("Brisa", "Bosque", "Marina"):
-    mostly capitalized where a sentence does not start."""
-    lexicon = _LEX.get(language)
+    mostly capitalized where a sentence does not start. ``lexicon``: another
+    compiled lexicon (the music moods) instead of the ambience one."""
+    lexicon = lexicon if lexicon is not None else _LEX.get(language)
     if lexicon is None:
         return frozenset()
     capital: dict[str, int] = {}
