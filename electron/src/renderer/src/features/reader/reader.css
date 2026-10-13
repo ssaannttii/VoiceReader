@@ -804,6 +804,79 @@
     color: var(--rd-accent);
   }
 
+  /* Pages (appearance → layout): the window of text is a run of columns one page
+     wide (reader-pager.ts) between the header and the dock, so the controls never
+     cover a line and showing or hiding them never moves the text. Nothing
+     scrolls; the page indicator sits in a lane above the dock. */
+  .rd-root[data-layout='pages'] .rd-scroll {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  .rd-root[data-layout='pages'] .rd-reading {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding-top: calc(var(--rd-top-h, 3.5rem) + 0.75rem);
+    padding-bottom: calc(var(--rd-dock-h, 15rem) + 3rem);
+  }
+  /* No text runs under the bars, so their fades would only dim the page edges. */
+  .rd-root[data-layout='pages'] .rd-topbar::after,
+  .rd-root[data-layout='pages'] .rd-dock::before {
+    display: none;
+  }
+  .rd-pages {
+    position: relative;
+    flex: 1 1 auto;
+    /* A phone on its side has little room beside the dock: the page then runs under
+       it (readable while the controls are faded out) rather than shrinking to a line. */
+    min-height: min(60dvh, 20rem);
+    overflow: hidden;
+    /* Clip at the screen margin, not the text edge, so a sliding page is not cut short. */
+    overflow: clip;
+    overflow-clip-margin: 1.25rem;
+    /* One finger is ours (swipes, taps); two still zoom. */
+    touch-action: pinch-zoom;
+  }
+  .rd-pages > .rd-article {
+    column-fill: auto;
+    will-change: transform;
+  }
+  .rd-pages .rd-article .rd-heading {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+  .rd-pages .rd-article .rd-figure {
+    break-inside: avoid;
+  }
+  /* A tall image fits the page with its caption (ratio from its known size). */
+  .rd-pages .rd-figure-frame {
+    width: min(100%, calc((var(--rd-page-h) - 5em) * var(--rd-img-ratio)));
+  }
+  .rd-pages .rd-figure-frame img {
+    max-height: calc(var(--rd-page-h, 100vh) - 5em);
+    object-fit: contain;
+  }
+  .rd-page-indicator {
+    position: absolute;
+    inset-inline: 0;
+    bottom: calc(var(--rd-dock-h, 15rem) + 0.75rem);
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: var(--muted-foreground);
+    pointer-events: none;
+    transition: bottom 200ms ease;
+  }
+  /* Controls faded out: the indicator drops to the bottom edge; the pages stay put. */
+  .rd-root[data-chrome='hidden'] .rd-page-indicator {
+    bottom: calc(var(--rd-safe-bottom) + 0.75rem);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .rd-root *,
     .rd-sheet,

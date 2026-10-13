@@ -33,7 +33,10 @@ rendered on the PC GPU.
   offline with N downloaded sentences, voice loading, voice failed to load.
 - Media Session: lock-screen title/artist/artwork and play/pause/stop/seek; previous/next and
   seek backward/forward follow the device's control settings.
-- Keyboard on desktop: Space play/pause, ←/→ previous/next sentence, +/− speed.
+- Keyboard on desktop: Space play/pause, ←/→ previous/next sentence (page in the Pages layout),
+  +/− speed.
+- Pages layout (option): screen-sized pages turned by edge taps, swipes and keys (see "Paged
+  layout" below).
 - Queue ("Up next", per device): "Add to queue" in a document's menu and in the reader options;
   the queue sheet (dock chip, library mini-player) reorders (up/down), removes and plays now.
   When a document ends, the first queued one continues from its saved position (from the start
@@ -229,6 +232,36 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
 - `POST /reader/warmup` is called when a document opens (a 404 from older backends is
   ignored); a missing `model_state` counts as ready; a missing `furthest_segment` as the
   saved position.
+
+## Paged layout ("Páginas")
+
+Client only. Text & appearance → **Layout**: *Scroll* (default, unchanged) or *Pages*, per device
+(`layout` in `localStorage['voicestudio.reader.appearance']`; "Reset" returns to scrolling).
+- **Layout.** The rendered window of blocks (`pagedWindow`: 40 before / 80 after the position,
+  smaller than scrolling's, as every text change lays out all its columns) is one CSS multi-column
+  run, `column-width` = page width in whole px, `column-fill: auto`, inside a clipping viewport;
+  a page is shown with `translate3d` (`reader-pager.ts`, pure rules in `reader-pages.ts`). The page
+  band sits between the header and the dock (their measured heights) plus a lane for the indicator,
+  so the controls never cover a line and fading them never reflows; on a phone held sideways the
+  page keeps at least `min(60dvh, 20rem)` and runs under the dock. Headings avoid breaking after
+  themselves, images never split and fit the page height. No `content-visibility`.
+- **Turning.** Taps on the outer quarters of the screen (previous/next), horizontal swipes (the page
+  follows the finger, a 48 px drag or a quick flick turns), the wheel (one turn per gesture) and
+  ←/→/↑/↓/Page Up/Page Down (in this layout ←/→ turn pages instead of moving by sentence). The middle
+  half keeps the usual taps: a sentence plays (or double tap, with that option), elsewhere toggles
+  the controls; long press, right-click, highlights and bookmarks are unchanged. Reduced motion:
+  no slide.
+- **Follow-along.** While following, the page turns when the spoken word leaves it (a slide to the
+  next page, an instant jump for seeks). A manual turn stops following like a manual scroll
+  ("Back to current" / "Continue from here" appear); turning back onto the spoken page follows again.
+  Search and bookmark reveals turn to the segment's page and flash it.
+- **Window and reflow.** Two pages from either end of the window it grows by 60 blocks (re-centring
+  past 240); text added after the page keeps every page in place, text added before reflows and the
+  reader is put back on the sentence that started the page. Resizes, rotation, text size, font
+  loads and late image sizes reflow the same way.
+- **Indicator.** "Pág. 12 · 37 %" under the page (above the dock, at the bottom edge while the
+  controls are faded). Numbers are exact while the window starts the document and estimated
+  (characters per page of the window) before that; they carry on page by page across window shifts.
 
 ## Running for the phone
 `scripts/reader/start-reader.ps1` builds the web UI when missing/stale, starts the backend

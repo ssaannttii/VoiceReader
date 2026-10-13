@@ -29,11 +29,12 @@ import { DebugHud } from './debug-hud';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
 import type { ReaderDocument } from './reader-api';
-import { useAppearanceProps } from './reader-appearance';
+import { useAppearanceProps, useReaderAppearance } from './reader-appearance';
 import { titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
 import { autoHideOn, useReaderPrefs } from './reader-prefs';
 import {
+  editableTarget,
   firstVisibleSegment,
   ReaderTextView,
   scrollToSentence,
@@ -137,12 +138,6 @@ function ReaderSkeleton() {
   );
 }
 
-const editable = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable ||
-    target.matches('input, textarea, select') ||
-    Boolean(target.closest('.rd-sheet')));
-
 /** Desktop layout (wide window): the header keeps a "back" chevron instead of "minimise". */
 function useWide(): boolean {
   const query = '(min-width: 1024px)';
@@ -203,6 +198,7 @@ export function ReaderDocumentPage() {
   const player = useReaderPlayer();
   const prefs = useReaderPrefs();
   const appearance = useAppearanceProps();
+  const { layout, font } = useReaderAppearance();
   const wide = useWide();
   const root = useRef<HTMLDivElement>(null);
   const topbar = useRef<HTMLElement>(null);
@@ -223,6 +219,8 @@ export function ReaderDocumentPage() {
   const active = Boolean(doc && player.doc?.id === doc.id);
   const playing = player.status === 'playing' || player.status === 'buffering';
   const listening = useListeningPrefs();
+  /** Pages instead of scrolling (appearance option); audio-only has no text. */
+  const paged = layout === 'pages' && !listening.audioOnly;
   useReaderWarmup();
   const otherPlaying =
     Boolean(doc && player.doc && player.doc.id !== doc.id) &&
@@ -266,6 +264,17 @@ export function ReaderDocumentPage() {
     revealed.current = null;
     setFollowing(true);
   }, []);
+  const stopFollowing = useCallback(() => {
+    revealed.current = null;
+    if (!follow.current) return;
+    follow.current = false;
+    setFollowing(false);
+  }, []);
+  /** Pages: turning away from the spoken page stops following; turning back to it resumes. */
+  const onBrowse = useCallback(
+    (away: boolean) => (away ? stopFollowing() : resumeFollowing()),
+    [stopFollowing, resumeFollowing],
+  );
 
   // Search results and bookmarks reveal a segment: stop following the voice there.
   useEffect(() => {
@@ -292,23 +301,20 @@ export function ReaderDocumentPage() {
   useEffect(() => {
     const onFollow = () => {
       resumeFollowing();
+      // Pages: the text view turns to the spoken page itself.
+      if (paged) return;
       const sentence = scroller.current?.querySelector<HTMLElement>('.rd-sent[data-active]');
       if (sentence && scroller.current) scrollToSentence(scroller.current, sentence, true);
     };
     window.addEventListener(FOLLOW_EVENT, onFollow);
     return () => window.removeEventListener(FOLLOW_EVENT, onFollow);
-  }, [resumeFollowing]);
+  }, [resumeFollowing, paged]);
 
-  // A user scroll gesture stops auto-follow until "Back to current".
+  // A user scroll gesture stops auto-follow until "Back to current" (pages: onBrowse).
   useEffect(() => {
     const element = scroller.current;
-    if (!element) return;
-    const stop = () => {
-      revealed.current = null;
-      if (!follow.current) return;
-      follow.current = false;
-      setFollowing(false);
-    };
+    if (!element || paged) return;
+    const stop = stopFollowing;
     const onKey = (event: KeyboardEvent) => {
       if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) stop();
     };
@@ -320,15 +326,16 @@ export function ReaderDocumentPage() {
       element.removeEventListener('touchmove', stop);
       element.removeEventListener('keydown', onKey);
     };
-  }, [doc]);
+  }, [doc, paged, stopFollowing]);
 
-  // Desktop shortcuts: Space play/pause, ←/→ sentence, +/− speed.
+  // Desktop shortcuts: Space play/pause, ←/→ sentence (pages: the page), +/− speed.
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (editable(event.target)) return;
+      if (editableTarget(event.target)) return;
       const key = event.key;
+      if (paged && (key === 'ArrowLeft' || key === 'ArrowRight')) return;
       if (key === ' ' || key === 'k') readerPlayer.toggle();
       else if (key === 'ArrowLeft') readerPlayer.previous();
       else if (key === 'ArrowRight') readerPlayer.next();
@@ -339,7 +346,7 @@ export function ReaderDocumentPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active]);
+  }, [active, paged]);
 
   useEffect(() => {
     if (!doc) return;
@@ -347,7 +354,7 @@ export function ReaderDocumentPage() {
       if (event.defaultPrevented || event.altKey) return;
       const find = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
       const slash =
-        event.key === '/' && !event.ctrlKey && !event.metaKey && !editable(event.target);
+        event.key === '/' && !event.ctrlKey && !event.metaKey && !editableTarget(event.target);
       if (!find && !slash) return;
       event.preventDefault();
       setSheet('search');
@@ -371,7 +378,7 @@ export function ReaderDocumentPage() {
     if (!doc) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key.toLowerCase() !== 'b' || event.repeat || editable(event.target)) return;
+      if (event.key.toLowerCase() !== 'b' || event.repeat || editableTarget(event.target)) return;
       event.preventDefault();
       addBookmark();
     };
@@ -435,6 +442,7 @@ export function ReaderDocumentPage() {
       className="rd-root"
       data-slot="reader-document"
       data-chrome={chrome.hidden ? 'hidden' : 'shown'}
+      data-layout={paged ? 'pages' : undefined}
       {...appearance}
     >
       <header ref={topbar} className={cn('rd-topbar rd-chrome', titlebarChrome())}>
@@ -530,6 +538,9 @@ export function ReaderDocumentPage() {
               onWordPress={onWordPress}
               chromeHidden={chrome.hiddenRef}
               onChrome={onChrome}
+              paged={paged}
+              pageKey={`${prefs.textSize}|${font}`}
+              onBrowse={onBrowse}
             />
             {doc.segments.length === 0 && (
               <p className="py-10 text-center text-sm text-muted-foreground">

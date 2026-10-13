@@ -1,5 +1,5 @@
 /**
- * Reading appearance (highlight colours, font, background), per device in
+ * Reading appearance (highlight colours, font, background, layout), per device in
  * localStorage. Applied as CSS variables on every Reader surface (`.rd-root`
  * and its portaled sheets), so the studio keeps the app theme.
  */
@@ -9,10 +9,13 @@ import { useTheme } from '@/hooks/use-theme';
 export const HIGHLIGHTS = ['classic', 'amber', 'yellow', 'blue'] as const;
 export const FONTS = ['serif', 'sans', 'dyslexic'] as const;
 export const BACKGROUNDS = ['system', 'light', 'dark', 'paper'] as const;
+/** Continuous scrolling, or screen-sized pages turned by taps and swipes. */
+export const LAYOUTS = ['scroll', 'pages'] as const;
 
 export type ReaderHighlight = (typeof HIGHLIGHTS)[number];
 export type ReaderFont = (typeof FONTS)[number];
 export type ReaderBackground = (typeof BACKGROUNDS)[number];
+export type ReaderLayout = (typeof LAYOUTS)[number];
 /** The palette a page is painted with once `system` is resolved. */
 export type ReaderSurface = 'light' | 'dark' | 'paper';
 
@@ -20,12 +23,14 @@ export interface ReaderAppearance {
   highlight: ReaderHighlight;
   font: ReaderFont;
   background: ReaderBackground;
+  layout: ReaderLayout;
 }
 
 export const DEFAULT_APPEARANCE: ReaderAppearance = {
   highlight: 'classic',
   font: 'serif',
   background: 'system',
+  layout: 'scroll',
 };
 
 const KEY = 'voicestudio.reader.appearance';
@@ -40,6 +45,7 @@ export function parseAppearance(raw: unknown): ReaderAppearance {
     highlight: pick(HIGHLIGHTS, value.highlight, DEFAULT_APPEARANCE.highlight),
     font: pick(FONTS, value.font, DEFAULT_APPEARANCE.font),
     background: pick(BACKGROUNDS, value.background, DEFAULT_APPEARANCE.background),
+    layout: pick(LAYOUTS, value.layout, DEFAULT_APPEARANCE.layout),
   };
 }
 
