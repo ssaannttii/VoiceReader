@@ -13,6 +13,7 @@ import {
   SkipForwardIcon,
   UserRoundIcon,
   ChevronsRightIcon,
+  ListOrderedIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { readerApi, readerKeys, type ReaderDocument } from './reader-api';
@@ -21,8 +22,52 @@ import { FOLLOW_EVENT, SleepLabel } from './player-sheets';
 import { useReaderPrefs } from './reader-prefs';
 import { formatClock, formatSpeed } from './reader-text';
 import { EngineBanner, useEngineView } from './engine-status';
+import { useListeningPrefs } from './listening-prefs';
+import { useReaderQueue } from './reader-queue';
+import { soundscapeIcon } from './soundscape-sheet';
 
-export type DockSheet = 'speed' | 'voice' | 'sleep';
+export type DockSheet = 'speed' | 'voice' | 'sleep' | 'queue' | 'soundscape';
+
+/** Queue and soundscape: compact icon chips beside speed, voice and sleep. */
+function ListeningChips({
+  docId,
+  onSheet,
+}: {
+  docId: string;
+  onSheet: (sheet: DockSheet) => void;
+}) {
+  const { t } = useTranslation();
+  const queued = useReaderQueue().filter((item) => item.id !== docId).length;
+  const { soundscape } = useListeningPrefs();
+  const SoundIcon = soundscapeIcon(soundscape);
+  return (
+    <>
+      <button
+        type="button"
+        className="rd-chip relative w-11 shrink-0 px-0"
+        data-active={queued > 0}
+        aria-label={t('reader.queue_open', { count: queued })}
+        onClick={() => onSheet('queue')}
+      >
+        <ListOrderedIcon className="size-4" aria-hidden="true" />
+        {queued > 0 && (
+          <span className="rd-chip-badge" aria-hidden="true">
+            {queued}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        className="rd-chip w-11 shrink-0 px-0"
+        data-active={soundscape !== 'off'}
+        aria-label={t('reader.soundscape')}
+        onClick={() => onSheet('soundscape')}
+      >
+        <SoundIcon className="size-4" aria-hidden="true" />
+      </button>
+    </>
+  );
+}
 
 /** Furthest point reached: offered when it is well ahead of the playhead. */
 const FURTHEST_MIN_SECONDS = 30;
@@ -234,7 +279,7 @@ export function PlayerDock({
             </span>
           </button>
         </div>
-        <div className="mt-1 flex items-center justify-center gap-2">
+        <div className="mt-1 flex items-center justify-center gap-1.5 min-[400px]:gap-2">
           <button
             type="button"
             className="rd-chip min-w-[4.25rem]"
@@ -264,8 +309,12 @@ export function PlayerDock({
             onClick={() => onSheet('sleep')}
           >
             <MoonIcon className="size-4 shrink-0" aria-hidden="true" />
-            <SleepLabel />
+            {/* Narrow phones: the idle timer is just its moon, leaving room for the voice name. */}
+            <span className={player.sleep.mode === 'off' ? 'max-[399px]:sr-only' : undefined}>
+              <SleepLabel />
+            </span>
           </button>
+          <ListeningChips docId={doc.id} onSheet={onSheet} />
         </div>
       </div>
     </div>

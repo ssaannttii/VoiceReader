@@ -13,6 +13,13 @@
  *   `play()` between sentences — it keeps going on a locked phone.
  * - Per-sentence blobs (Safari/iOS, WAV audio, MSE failures): `src` swaps to
  *   the next prefetched sentence on `ended`.
+ *
+ * Queue (reader-queue.ts): near the end of a document the next queued one is
+ * fetched with its first sentence. At the end the player switches documents
+ * itself, from the media event that reached the end — MSE leaves its stream
+ * open so the element waits instead of ending, then rebuilds the MediaSource;
+ * the blob player swaps `src` like between sentences. No React, timer or frame
+ * is involved, so a locked phone carries on into the next document.
  */
 import { useSyncExternalStore } from 'react';
 import { dlog, installDebug } from './reader-debug';
@@ -38,8 +45,15 @@ import {
   wordIndexAt,
 } from './reader-text';
 import { readOfflineSegment } from './offline-store';
-import { offlineBackend, offlineSnapshot, refreshOffline } from './offline-state';
+import { offlineBackend, offlineDocument, offlineSnapshot, refreshOffline } from './offline-state';
 import { readerPrefs, setReaderPrefs } from './reader-prefs';
+import {
+  nextAfter,
+  queueStartSegment,
+  readerQueue,
+  removeFromQueue,
+  subscribeQueue,
+} from './reader-queue';
 import {
   MSE_RETRY_MS,
   MseEngine,
@@ -48,6 +62,7 @@ import {
   type MseLoaded,
   type MseSegmentData,
   type TimelineEntry,
+  type TimelineLocation,
 } from './reader-mse';
 import { UNDO_WINDOW_MS, UndoStack, type UndoEntry } from './reader-undo';
 
@@ -114,12 +129,47 @@ interface CacheEntry {
   ready?: ReadySegment;
 }
 
+/** The next queued document, fetched ahead so the switch at the end is quick. */
+interface UpNext {
+  id: string;
+  /** Settled values, so an `ended` handler can switch synchronously. */
+  doc?: ReaderDocument;
+  index?: number;
+  first?: ReadySegment;
+  failed?: unknown;
+  settled: boolean;
+  promise: Promise<void>;
+}
+
+/** A queue advance, for the reader page to follow (navigation is never needed for playback). */
+export interface QueueAdvance {
+  from: string;
+  to: string;
+  at: number;
+}
+
+/** The newest copy of a queued document (position may have moved since it was cached). */
+async function fetchQueuedDocument(id: string): Promise<ReaderDocument> {
+  try {
+    const doc = await readerApi.get(id);
+    queryClient.setQueryData(readerKeys.document(id), doc);
+    return doc;
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 0)) throw error;
+    const offline = await offlineDocument(id);
+    if (!offline) throw error;
+    return offline;
+  }
+}
+
 const PREFETCH_AHEAD = 3;
 const KEEP_BEHIND = 2;
 const KEEP_AHEAD = 8;
 const PROGRESS_DEBOUNCE_MS = 3000;
 const FADE_MS = 5000;
 const PLAYBACK_SOURCE = 'reader';
+/** A stall this close to the end of an open stream's last sentence is its end. */
+const OPEN_END_TOLERANCE_S = 0.6;
 
 /** 0.1 s of 8 kHz 8-bit silence; played inside a tap so iOS unlocks the element. */
 export function silentWav(): string {
@@ -203,6 +253,26 @@ class ReaderPlayer {
   private starvedAt: number | null = null;
   /** Last failed MSE load ahead of the playhead, surfaced once playback reaches it. */
   private aheadFailure: { index: number; error: unknown } | null = null;
+  private upNext: UpNext | null = null;
+  private advancing = false;
+  /** Document whose queue advance failed: it ends normally instead. */
+  private advanceFailed: string | null = null;
+  /** Latest automatic switch to a queued document. */
+  lastAdvance: QueueAdvance | null = null;
+  /** Element volume (1, or the sleep timer's fade); soundscapes follow it. */
+  private volume = 1;
+  private volumeListeners = new Set<(volume: number) => void>();
+  private sleepListeners = new Set<() => void>();
+
+  constructor() {
+    // A queue edit near the end may change what follows (or that nothing does).
+    subscribeQueue(() => {
+      const doc = this.state.doc;
+      if (this.upNext && this.upNext.id !== (doc ? nextAfter(readerQueue(), doc.id)?.id : null))
+        this.dropUpNext();
+      this.mse?.kick();
+    });
+  }
 
   // ── subscriptions ────────────────────────────────────────────────────────
   subscribe = (listener: () => void) => {
@@ -220,6 +290,23 @@ class ReaderPlayer {
     listener(this.state.segment, this.word);
     return () => void this.highlightListeners.delete(listener);
   }
+  /** Volume changes of the reading audio (sleep-timer fade); called with 0–1. */
+  subscribeVolume(listener: (volume: number) => void): () => void {
+    this.volumeListeners.add(listener);
+    return () => void this.volumeListeners.delete(listener);
+  }
+  /** The sleep timer stopped playback. */
+  subscribeSleep(listener: () => void): () => void {
+    this.sleepListeners.add(listener);
+    return () => void this.sleepListeners.delete(listener);
+  }
+  private setVolume(volume: number) {
+    if (this.audio) this.audio.volume = volume;
+    if (volume === this.volume) return;
+    this.volume = volume;
+    this.volumeListeners.forEach((listener) => listener(volume));
+  }
+
   /** Word timings of a segment when its render is loaded. */
   wordsFor(segment: number): ReaderWord[] | null {
     return (
@@ -290,6 +377,9 @@ class ReaderPlayer {
       this.set({ status: 'playing', error: null, blocked: null });
       this.startFrames();
       this.updatePosition();
+      // Playing the last stretch (e.g. resumed there): get the queued document ready.
+      const count = this.state.doc?.segments.length ?? 0;
+      if (this.state.segment >= count - 1 - PREFETCH_AHEAD) this.prepareUpNext();
     });
     audio.addEventListener('waiting', () => {
       if (!this.isCurrent() || !this.wantPlay) return;
@@ -403,28 +493,47 @@ class ReaderPlayer {
     }
     this.flushProgress();
     this.stopAudio();
-    this.resetCache();
+    this.dropUpNext();
+    this.advanceFailed = null;
+    const last = Math.max(0, doc.segments.length - 1);
+    this.adopt(doc, Math.min(Math.max(0, doc.position_segment), last), {
+      status: 'paused',
+      sleep: { mode: 'off' },
+    });
+  }
+
+  /**
+   * Make `doc` the player's document at `segment`: fresh caches, undo stack,
+   * cover and lock-screen metadata. `detach: false` leaves the element alone
+   * (a queue advance keeps it attached until the next MediaSource replaces it).
+   */
+  private adopt(
+    doc: ReaderDocument,
+    segment: number,
+    patch: Partial<ReaderPlayerState>,
+    detach = true,
+  ) {
+    this.resetCache(detach);
     this.durations.clear();
     this.prefix = null;
     this.undoStack.clear();
+    this.progressHoldUntil = 0;
     revokeObjectUrl(this.state.coverUrl);
     const last = Math.max(0, doc.segments.length - 1);
-    const segment = Math.min(Math.max(0, doc.position_segment), last);
-    this.savedSegment = segment;
+    this.savedSegment = Math.min(Math.max(0, doc.position_segment), last);
     this.word = -1;
     this.set({
       doc,
       segment,
-      status: 'paused',
       error: null,
       voice: doc.voice_id,
       engine: doc.engine,
-      sleep: { mode: 'off' },
       coverUrl: null,
       offline: false,
       blocked: null,
       undo: null,
       furthest: Math.min(last, Math.max(segment, doc.furthest_segment ?? 0)),
+      ...patch,
     });
     this.emitHighlight(-1, true);
     this.publishClock(0, 0);
@@ -446,6 +555,7 @@ class ReaderPlayer {
   unload() {
     this.flushProgress();
     this.stopAudio();
+    this.dropUpNext();
     this.resetCache();
     this.durations.clear();
     this.prefix = null;
@@ -466,14 +576,15 @@ class ReaderPlayer {
       navigator.mediaSession.metadata = null;
   }
 
-  private resetCache() {
+  private resetCache(detach = true) {
     this.epoch++;
     this.prefetchToken++;
     for (const entry of this.cache.values()) this.dropReady(entry.ready);
     this.cache.clear();
     this.current = null;
     this.aheadFailure = null;
-    this.mse?.reset();
+    if (detach) this.mse?.reset();
+    else this.mse?.forget();
   }
 
   private dropReady(ready: ReadySegment | undefined) {
@@ -490,8 +601,8 @@ class ReaderPlayer {
     if (audio) {
       this.current = null;
       audio.pause();
-      audio.volume = 1;
     }
+    this.setVolume(1);
     this.mse?.reset();
     this.releaseClaim();
   }
@@ -505,11 +616,14 @@ class ReaderPlayer {
     };
   }
 
-  private async offlineCopy(docId: string, index: number, anyVoice: boolean) {
+  private async offlineCopy(docId: string, index: number, choice: ReaderVoiceChoice | null) {
     if (!offlineSnapshot().ready) await refreshOffline();
     const meta = offlineSnapshot().downloaded[docId];
     if (!meta) return null;
-    if (!anyVoice && (meta.voice !== this.state.voice || meta.engine !== this.state.engine))
+    if (
+      choice &&
+      (meta.voice !== (choice.voice ?? null) || meta.engine !== (choice.engine ?? null))
+    )
       return null;
     return readOfflineSegment(offlineBackend(), docId, index).catch(() => null);
   }
@@ -520,7 +634,31 @@ class ReaderPlayer {
     const doc = this.state.doc;
     if (!doc) return Promise.reject(new Error('No document'));
     const epoch = this.epoch;
-    const choice = this.choice();
+    const promise = this.loadSegment(doc, this.choice(), index);
+    const entry: CacheEntry = { promise };
+    this.cache.set(index, entry);
+    promise.then(
+      (loaded) => {
+        if (epoch !== this.epoch) return;
+        entry.ready = loaded;
+        if (this.durations.get(index) !== loaded.render.duration_s) {
+          this.durations.set(index, loaded.render.duration_s);
+          this.prefix = null;
+        }
+      },
+      () => {
+        if (this.cache.get(index) === entry) this.cache.delete(index);
+      },
+    );
+    return promise;
+  }
+
+  /** One sentence's timing and audio: the offline copy in this voice, else the PC. */
+  private loadSegment(
+    doc: ReaderDocument,
+    choice: ReaderVoiceChoice,
+    index: number,
+  ): Promise<ReadySegment> {
     const ready = (render: ReaderRender, blob: Blob, offline: boolean): ReadySegment => ({
       segment: index,
       render,
@@ -528,9 +666,9 @@ class ReaderPlayer {
       offline,
       owned: false,
     });
-    const promise = (async () => {
+    return (async () => {
       const t0 = performance.now();
-      const local = await this.offlineCopy(doc.id, index, false);
+      const local = await this.offlineCopy(doc.id, index, choice);
       if (local) {
         dlog('seg_load', {
           seg: index,
@@ -560,28 +698,12 @@ class ReaderPlayer {
         // Unreachable PC: any downloaded voice beats silence.
         const fallback =
           error instanceof ApiError && error.status === 0
-            ? await this.offlineCopy(doc.id, index, true)
+            ? await this.offlineCopy(doc.id, index, null)
             : null;
         if (fallback) return ready(fallback.render, fallback.blob, true);
         throw error;
       }
     })();
-    const entry: CacheEntry = { promise };
-    this.cache.set(index, entry);
-    promise.then(
-      (loaded) => {
-        if (epoch !== this.epoch) return;
-        entry.ready = loaded;
-        if (this.durations.get(index) !== loaded.render.duration_s) {
-          this.durations.set(index, loaded.render.duration_s);
-          this.prefix = null;
-        }
-      },
-      () => {
-        if (this.cache.get(index) === entry) this.cache.delete(index);
-      },
-    );
-    return promise;
   }
 
   /** The blob transport's `src` for a loaded sentence (object URL, else the network URL). */
@@ -609,6 +731,7 @@ class ReaderPlayer {
     const token = ++this.prefetchToken;
     const count = this.state.doc?.segments.length ?? 0;
     this.pruneCache(from);
+    if (this.wantPlay && from + PREFETCH_AHEAD >= count - 1) this.prepareUpNext();
     for (let index = from + 1; index <= Math.min(count - 1, from + PREFETCH_AHEAD); index++) {
       if (token !== this.prefetchToken) return;
       try {
@@ -761,16 +884,164 @@ class ReaderPlayer {
       return;
     }
     if (next >= doc.segments.length) {
-      this.wantPlay = false;
-      this.stopFrames();
-      this.releaseClaim();
-      this.set({ status: 'ended' });
-      this.flushProgress();
+      if (this.queueContinues()) this.advanceQueue('ended');
+      else this.finishDocument();
       return;
     }
     // Stays synchronous when the next sentence is prefetched, which keeps
     // playback going on a locked iPhone.
     this.startAt(next, 0, true);
+  }
+
+  /** The end of the document, with nothing queued after it. */
+  private finishDocument() {
+    this.wantPlay = false;
+    // The MSE stream may still be open (a queue advance that failed): stop waiting.
+    if (this.audio && !this.audio.paused) this.audio.pause();
+    this.stopFrames();
+    this.releaseClaim();
+    this.set({ status: 'ended', blocked: null });
+    this.flushProgress();
+  }
+
+  // ── queue ────────────────────────────────────────────────────────────────
+  /** A queued document follows this one (the end-of-chapter timer stops first). */
+  private queueContinues(): boolean {
+    const doc = this.state.doc;
+    return Boolean(
+      doc &&
+      this.state.sleep.mode !== 'chapter' &&
+      this.advanceFailed !== doc.id &&
+      nextAfter(readerQueue(), doc.id),
+    );
+  }
+
+  private dropUpNext() {
+    const first = this.upNext?.first;
+    this.upNext = null;
+    this.dropReady(first);
+  }
+
+  /** Fetch the next queued document and its first sentence ahead of the end. */
+  private prepareUpNext(): UpNext | null {
+    const doc = this.state.doc;
+    if (!doc || !this.queueContinues()) return null;
+    const item = nextAfter(readerQueue(), doc.id);
+    if (!item) return null;
+    if (this.upNext?.id === item.id) return this.upNext;
+    this.dropUpNext();
+    const upNext: UpNext = { id: item.id, settled: false, promise: Promise.resolve() };
+    upNext.promise = (async () => {
+      try {
+        const next = await fetchQueuedDocument(item.id);
+        upNext.doc = next;
+        upNext.index = queueStartSegment(next);
+        if (!next.segments.length) return;
+        const choice = { voice: next.voice_id, engine: next.engine, language: next.language };
+        upNext.first = await this.loadSegment(next, choice, upNext.index).catch(() => undefined);
+      } catch (error) {
+        upNext.failed = error;
+      } finally {
+        upNext.settled = true;
+      }
+    })();
+    this.upNext = upNext;
+    return upNext;
+  }
+
+  /**
+   * The playhead reached the end and a queued document follows: switch to it in
+   * place. Runs from the media event that saw the end (`waiting` / `ended` /
+   * `timeupdate`), and continues from promises — never from React or a timer.
+   */
+  private advanceQueue(trigger: string) {
+    const from = this.state.doc;
+    if (!from || this.advancing) return;
+    const upNext = this.prepareUpNext();
+    if (!upNext) {
+      this.finishDocument();
+      return;
+    }
+    this.advancing = true;
+    const token = ++this.playToken;
+    const t0 = performance.now();
+    this.clearReconnect();
+    this.stopFrames();
+    // The end was reached: save it (the server marks the document finished).
+    const last = Math.max(0, from.segments.length - 1);
+    if (this.state.segment !== last) this.set({ segment: last });
+    this.progressHoldUntil = 0;
+    this.flushProgress();
+    this.set({ status: 'buffering', blocked: null, error: null });
+    const go = () => {
+      this.advancing = false;
+      // The user moved (seek, another document) while the next one loaded.
+      if (token !== this.playToken || this.state.doc?.id !== from.id) return;
+      // The queue was edited meanwhile: continue with whatever leads it now.
+      if (nextAfter(readerQueue(), from.id)?.id !== upNext.id) {
+        if (this.upNext === upNext) this.dropUpNext();
+        this.advanceQueue(trigger);
+        return;
+      }
+      const doc = upNext.doc;
+      if (!doc || !doc.segments.length) {
+        const missing = upNext.failed instanceof ApiError && upNext.failed.status === 404;
+        dlog('queue_advance', {
+          ok: false,
+          trigger,
+          reason: missing ? 'missing' : doc ? 'empty' : 'load_failed',
+          ms: Math.round(performance.now() - t0),
+        });
+        this.upNext = null;
+        if (missing || doc) {
+          // Deleted or empty: skip it and try what comes after.
+          removeFromQueue(upNext.id);
+          if (this.queueContinues()) {
+            this.advanceQueue(trigger);
+            return;
+          }
+        } else this.advanceFailed = from.id;
+        this.finishDocument();
+        return;
+      }
+      this.switchToQueued(from, doc, upNext, trigger, t0);
+    };
+    // Prepared in time: switch inside this event (keeps the blob player going on iOS).
+    if (upNext.settled) go();
+    else void upNext.promise.then(go);
+  }
+
+  private switchToQueued(
+    from: ReaderDocument,
+    doc: ReaderDocument,
+    upNext: UpNext,
+    trigger: string,
+    t0: number,
+  ) {
+    const index = upNext.index ?? queueStartSegment(doc);
+    const first = upNext.first;
+    this.upNext = null;
+    this.advanceFailed = null;
+    removeFromQueue(doc.id);
+    this.lastAdvance = { from: from.id, to: doc.id, at: Date.now() };
+    // Keep the element, the playback claim, the rate and a timed sleep running.
+    this.adopt(doc, index, { status: this.wantPlay ? 'buffering' : 'paused' }, false);
+    if (first?.render.voice && !doc.voice_id) this.adoptAutoVoice(doc.id, first.render.voice);
+    if (first && first.segment === index) {
+      this.cache.set(index, { promise: Promise.resolve(first), ready: first });
+      this.durations.set(index, first.render.duration_s);
+    }
+    dlog('queue_advance', {
+      ok: true,
+      trigger,
+      seg: index,
+      segments: doc.segments.length,
+      prepared: Boolean(first),
+      ms: Math.round(performance.now() - t0),
+      visible: typeof document === 'undefined' ? null : document.visibilityState,
+      engine: this.mse ? 'mse' : 'blob',
+    });
+    this.startAt(index, 0, this.wantPlay);
   }
 
   // ── MSE transport ────────────────────────────────────────────────────────
@@ -781,6 +1052,7 @@ class ReaderPlayer {
         const { sleep, doc } = this.state;
         return sleep.mode === 'chapter' ? sleep.endSegment : (doc?.segments.length ?? 0);
       },
+      continues: () => this.queueContinues(),
       playing: () => this.wantPlay,
       load: (index: number): Promise<MseLoaded> => this.ensure(index),
       release: (index: number) => {
@@ -904,6 +1176,19 @@ class ReaderPlayer {
     if (!engine) return;
     engine.kick();
     const { sleep, doc } = this.state;
+    // The last sentence played out and a queued document follows (`waiting` may come later).
+    if (doc && this.wantPlay) {
+      // Everything is appended (e.g. resumed near the end): fetch the next document now.
+      const last = engine.timeline?.last();
+      if (!this.upNext && last && last.segment >= doc.segments.length - 1) this.prepareUpNext();
+      const location = engine.locate();
+      if (location?.atEnd && location.entry.segment >= doc.segments.length - 1) {
+        if (this.queueContinues()) {
+          this.advanceQueue('timeupdate');
+          return;
+        }
+      }
+    }
     // End-of-chapter sleep: nothing beyond the chapter is appended, so the end of
     // the buffer is the end of the chapter.
     if (sleep.mode === 'chapter' && doc && sleep.endSegment < doc.segments.length) {
@@ -918,6 +1203,12 @@ class ReaderPlayer {
     const audio = this.audio;
     if (!engine || !audio) return;
     const location = engine.locate();
+    if (this.atOpenDocumentEnd(location)) {
+      if (this.queueContinues()) this.advanceQueue('waiting');
+      // Nothing follows any more (queue emptied, sleep timer set): end the stream.
+      else engine.kick(true);
+      return;
+    }
     if (location && !location.atEnd) {
       // A stall inside a sentence: the thing continuous playback must avoid.
       dlog('waiting', {
@@ -931,6 +1222,12 @@ class ReaderPlayer {
     const { sleep, doc } = this.state;
     if (sleep.mode === 'chapter' && next >= sleep.endSegment) {
       this.sleepNow(Math.min(next, (doc?.segments.length ?? 1) - 1));
+      return;
+    }
+    if (doc && next >= doc.segments.length) {
+      // The open stream ran out at the end of the document: the queue continues.
+      if (this.queueContinues()) this.advanceQueue('waiting');
+      else engine.kick(true);
       return;
     }
     // Starved at a sentence boundary: the next one was not ready in time.
@@ -947,8 +1244,26 @@ class ReaderPlayer {
     engine.kick(true);
   }
 
+  /**
+   * The playhead stalled in the document's last sentence with nothing left to
+   * append (the stream is left open for the queue). Chrome holds back the final
+   * MP3 frame of an open stream, so the element waits ~0.1 s short of the
+   * appended end: that is the end of the document, not a stall.
+   */
+  private atOpenDocumentEnd(location: TimelineLocation<MseSegmentData> | null): boolean {
+    const doc = this.state.doc;
+    const last = this.mse?.timeline?.last();
+    if (!doc || !location || !last || location.entry.segment !== last.segment) return false;
+    if (last.segment < doc.segments.length - 1) return false;
+    const left = location.entry.end - location.entry.start - location.offset;
+    return location.atEnd || left < OPEN_END_TOLERANCE_S;
+  }
+
   private onMseAppended(entry: TimelineEntry<MseSegmentData>) {
     if (this.aheadFailure && this.aheadFailure.index <= entry.segment) this.aheadFailure = null;
+    // The whole document is buffered while playing: fetch what the queue continues with.
+    if (this.wantPlay && entry.segment >= (this.state.doc?.segments.length ?? 0) - 1)
+      this.prepareUpNext();
     if (this.state.blocked) this.set({ blocked: null });
     if (this.durations.get(entry.segment) !== entry.data.render.duration_s) {
       this.durations.set(entry.segment, entry.data.render.duration_s);
@@ -1250,7 +1565,7 @@ class ReaderPlayer {
   // ── sleep timer ──────────────────────────────────────────────────────────
   setSleep(option: { mode: 'off' } | { mode: 'time'; minutes: number } | { mode: 'chapter' }) {
     const doc = this.state.doc;
-    if (this.audio) this.audio.volume = 1;
+    this.setVolume(1);
     this.stopSleepTimer();
     if (!doc || option.mode === 'off') {
       this.set({ sleep: { mode: 'off' } });
@@ -1284,19 +1599,21 @@ class ReaderPlayer {
         this.sleepNow();
         return;
       }
-      if (audio && this.wantPlay) audio.volume = Math.min(1, Math.max(0, left / FADE_MS));
+      if (audio && this.wantPlay) this.setVolume(Math.min(1, Math.max(0, left / FADE_MS)));
       this.publishClock(this.clock.time, this.clock.duration);
     } else if (sleep.mode === 'chapter' && audio && this.current) {
       const last = this.state.segment === sleep.endSegment - 1;
       const left = (this.segmentDuration() - this.segmentTime()) * 1000;
-      audio.volume = last ? Math.min(1, Math.max(0, left / FADE_MS)) : 1;
+      this.setVolume(last ? Math.min(1, Math.max(0, left / FADE_MS)) : 1);
     }
   }
 
   private sleepNow(resumeAt?: number) {
     this.stopSleepTimer();
     this.pause();
-    if (this.audio) this.audio.volume = 1;
+    dlog('sleep_stop', { seg: this.state.segment, mode: this.state.sleep.mode });
+    this.sleepListeners.forEach((listener) => listener());
+    this.setVolume(1);
     this.set({ sleep: { mode: 'off' } });
     if (resumeAt !== undefined && resumeAt !== this.state.segment) this.startAt(resumeAt, 0, false);
     this.publishClock(this.clock.time, this.clock.duration);

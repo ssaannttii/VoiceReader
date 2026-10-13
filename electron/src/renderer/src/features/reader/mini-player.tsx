@@ -1,8 +1,13 @@
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react';
+import { ListOrderedIcon, Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CoverTile } from './cover-tile';
+import { QueueSheet } from './queue-sheet';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
+import { useReaderQueue } from './reader-queue';
+// Soundscapes follow the voice wherever playback starts (library included).
+import './reader-soundscape';
 
 function MiniProgress() {
   const clock = useReaderClock();
@@ -18,8 +23,11 @@ function MiniProgress() {
 export function MiniPlayer() {
   const { t } = useTranslation();
   const player = useReaderPlayer();
+  const queue = useReaderQueue();
+  const [queueOpen, setQueueOpen] = useState(false);
   const doc = player.doc;
   if (!doc) return null;
+  const queued = queue.filter((item) => item.id !== doc.id).length;
   const busy = player.status === 'buffering';
   const playing = player.status === 'playing' || busy;
   const sentence = doc.segments[player.segment]?.text ?? '';
@@ -42,6 +50,19 @@ export function MiniPlayer() {
         </Link>
         <button
           type="button"
+          className="rd-icon-btn relative text-muted-foreground"
+          aria-label={t('reader.queue_open', { count: queued })}
+          onClick={() => setQueueOpen(true)}
+        >
+          <ListOrderedIcon className="size-5" aria-hidden="true" />
+          {queued > 0 && (
+            <span className="rd-chip-badge" aria-hidden="true">
+              {queued}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
           className="rd-icon-btn bg-foreground text-background"
           aria-label={t(playing ? 'reader.pause' : 'reader.play')}
           onClick={() => readerPlayer.toggle()}
@@ -56,6 +77,7 @@ export function MiniPlayer() {
         </button>
         <MiniProgress />
       </div>
+      <QueueSheet open={queueOpen} onOpenChange={setQueueOpen} />
     </div>
   );
 }

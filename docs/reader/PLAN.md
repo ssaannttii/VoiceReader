@@ -57,14 +57,14 @@ plano en Android) durante sesiones largas. Es el criterio principal de 1.1.
 |---|---|---|
 | 4.1 | **Marcadores con notas** | Tabla `reader_bookmarks` (migración); aviso con "Deshacer" y "Añadir nota"; hoja de marcadores con "Escuchar desde aquí" y exportar a Markdown. |
 | 4.2 | **Cola** | "Añadir a la cola", reordenar, pasar al siguiente al terminar; el temporizador respeta la cola. |
-| 4.3 | **Sonidos de ambiente** | 4–6 bucles CC0 (lluvia, café, ruido marrón, chimenea) en un segundo `<audio>` con volumen propio; se apagan con el temporizador. |
+| 4.3 | **Sonidos de ambiente** | 5 bucles sintetizados en el dispositivo (lluvia, ruido marrón y rosa, cafetería, chimenea; sin audio con licencia) en un segundo `<audio loop>` con volumen propio; se apagan con el temporizador. |
 | 4.4 | **Selector de voces** | Búsqueda, recientes, filtro por idioma (por defecto el del documento). |
 
 ## Fase 5 — Extras
 
 | # | Mejora | Diseño |
 |---|---|---|
-| 5.2 | **Modo solo audio** | Oculta el texto; orbe en canvas que reacciona al audio (`AnalyserNode`). |
+| 5.2 | **Modo solo audio** | Oculta el texto; orbe en canvas que sigue el ritmo de las palabras (tiempos del resaltado). Sin `AnalyserNode`: pasar el audio por Web Audio rompería la reproducción en segundo plano. |
 | 5.3 | **Contenido rico** | El importador emite listas, citas e imágenes además de párrafos. |
 | 5.4 | **Paginado / dos columnas** | Modo alternativo de la vista de texto con zonas de toque. |
 | 5.5 | **Primer arranque** | Documento de ejemplo, elegir voz por defecto, avisos de un solo uso. |
