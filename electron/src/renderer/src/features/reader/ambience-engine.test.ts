@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { AmbienceEngine, type BedElement } from './ambience-engine';
-import { DUCK_VOICE, MIN_HOLD_SECONDS, bedLevel, type AmbienceScene } from './ambience-schedule';
-import type { BedId } from './soundscape-synth';
+import {
+  DUCK_VOICE,
+  MIN_HOLD_SECONDS,
+  bedLevel,
+  synthChoice,
+  type AmbienceScene,
+  type AmbienceSceneTag,
+  type BedChoice,
+  type BedKey,
+} from './ambience-schedule';
 
 class FakeElement implements BedElement {
   src = '';
@@ -28,10 +36,16 @@ const scenes: AmbienceScene[] = [
   { start_segment: 20, end_segment: 29, tag: 'none', confidence: 0, intensity: 0 },
 ];
 
-function setup() {
+interface SetupOptions {
+  bedFor?: (tag: AmbienceSceneTag) => BedChoice | null;
+  /** Keys whose load fails (a recording offline and not cached). */
+  fail?: ReadonlySet<string>;
+}
+
+function setup(options: SetupOptions = {}) {
   let clock = 0;
   const elements: FakeElement[] = [];
-  const loads: BedId[] = [];
+  const loads: BedKey[] = [];
   const logs: Record<string, unknown>[] = [];
   const engine = new AmbienceEngine({
     createElement: () => {
@@ -41,12 +55,14 @@ function setup() {
     },
     loadBed: (id) => {
       loads.push(id);
+      if (options.fail?.has(id)) return Promise.reject(new DOMException('offline', 'NetworkError'));
       return Promise.resolve(new Blob([id]));
     },
     createUrl: () => `blob:${loads.length}`,
     revokeUrl: () => {},
     now: () => clock,
     log: (type, data) => logs.push({ type, ...data }),
+    bedFor: options.bedFor,
   });
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   /** Listen (voice playing) for `seconds`, ticking like `timeupdate` at 4 Hz. */
@@ -62,8 +78,8 @@ function setup() {
   return { engine, elements, loads, logs, flush, listen, advance };
 }
 
-async function playing() {
-  const t = setup();
+async function playing(options: SetupOptions = {}) {
+  const t = setup(options);
   t.engine.setEnabled(true);
   t.engine.setMaster(1);
   t.engine.setActive(true);
@@ -189,5 +205,67 @@ describe('AmbienceEngine', () => {
     t.listen(60);
     await t.flush();
     expect(t.loads).toEqual([]);
+  });
+});
+
+describe('AmbienceEngine with recorded beds', () => {
+  const RECORDED: Partial<Record<AmbienceSceneTag, BedChoice>> = {
+    rain: { key: 'rec:rain.ogg', rms: 0.1, fallback: synthChoice('rain') },
+  };
+  let recorded = true;
+  const bedFor = (tag: AmbienceSceneTag) =>
+    (recorded ? RECORDED[tag] : undefined) ?? synthChoice(tag);
+
+  it('plays the recording, trimmed to the ambient level by its loudness', async () => {
+    recorded = true;
+    const t = await playing({ bedFor });
+    expect(t.loads).toEqual(['rec:rain.ogg']);
+    expect(t.engine.beds()).toEqual(['rec:rain.ogg', null]);
+    t.listen(10);
+    expect(t.elements[0].volume).toBeCloseTo(bedLevel('rec:rain.ogg', 1, 0.1), 6);
+    expect(bedLevel('rec:rain.ogg', 1, 0.1)).toBeLessThan(1);
+  });
+
+  it('falls back to the synthesized bed when the recording cannot load', async () => {
+    recorded = true;
+    const t = await playing({ bedFor, fail: new Set(['rec:rain.ogg']) });
+    await t.flush();
+    expect(t.loads).toEqual(['rec:rain.ogg', 'rain']);
+    expect(t.engine.beds()).toEqual(['rain', null]);
+    expect(t.logs.some((log) => log.event === 'error' && log.bed === 'rec:rain.ogg')).toBe(true);
+  });
+
+  it('crossfades the current scene to its new bed when the choice changes', async () => {
+    recorded = false;
+    const t = await playing({ bedFor });
+    t.listen(10);
+    expect(t.engine.beds()).toEqual(['rain', null]);
+    recorded = true;
+    t.engine.refreshBeds();
+    await t.flush();
+    expect(t.loads).toEqual(['rain', 'rec:rain.ogg']);
+    expect(t.engine.beds()).toEqual(['rain', 'rec:rain.ogg']);
+    t.listen(11);
+    expect(t.engine.beds()).toEqual([null, 'rec:rain.ogg']);
+    expect(t.engine.tag()).toBe('rain');
+    // Same bed again: nothing reloads.
+    t.engine.refreshBeds();
+    await t.flush();
+    expect(t.loads).toEqual(['rain', 'rec:rain.ogg']);
+  });
+
+  it('keeps silent for a tag without any bed (no recording, no stand-in)', async () => {
+    const t = setup({ bedFor });
+    t.engine.setEnabled(true);
+    t.engine.setMaster(1);
+    t.engine.setActive(true);
+    t.engine.setSegment(0, false);
+    t.engine.setScenes([
+      { start_segment: 0, end_segment: 9, tag: 'river', confidence: 0.9, intensity: 1 },
+    ]);
+    await t.flush();
+    expect(t.loads).toEqual([]);
+    expect(t.engine.tag()).toBe('river');
+    expect(t.engine.beds()).toEqual([null, null]);
   });
 });

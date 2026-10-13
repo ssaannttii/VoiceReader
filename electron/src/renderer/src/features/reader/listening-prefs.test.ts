@@ -43,6 +43,13 @@ describe('sanitizeListening', () => {
       soundscapeVolume: 62,
       soundscapeWithVoice: false,
       audioOnly: true,
+      soundscapeRecorded: true,
     });
+  });
+
+  it('prefers recorded beds unless turned off', () => {
+    expect(DEFAULT_LISTENING.soundscapeRecorded).toBe(true);
+    expect(sanitizeListening({ soundscapeRecorded: false }).soundscapeRecorded).toBe(false);
+    expect(sanitizeListening({ soundscapeRecorded: 'no' }).soundscapeRecorded).toBe(true);
   });
 });

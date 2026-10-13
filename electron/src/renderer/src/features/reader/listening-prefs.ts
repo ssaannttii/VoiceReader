@@ -14,6 +14,8 @@ export interface ListeningPrefs {
   soundscapeWithVoice: boolean;
   /** Hide the text and show the calm player with the orb. */
   audioOnly: boolean;
+  /** Prefer recorded beds (the PC's ambience pack) over synthesized ones when available. */
+  soundscapeRecorded: boolean;
 }
 
 const KEY = 'voicestudio.reader.listening';
@@ -22,6 +24,7 @@ export const DEFAULT_LISTENING: ListeningPrefs = {
   soundscapeVolume: 35,
   soundscapeWithVoice: true,
   audioOnly: false,
+  soundscapeRecorded: true,
 };
 
 export function sanitizeListening(value: unknown): ListeningPrefs {
@@ -43,6 +46,10 @@ export function sanitizeListening(value: unknown): ListeningPrefs {
         ? raw.soundscapeWithVoice
         : DEFAULT_LISTENING.soundscapeWithVoice,
     audioOnly: raw.audioOnly === true,
+    soundscapeRecorded:
+      typeof raw.soundscapeRecorded === 'boolean'
+        ? raw.soundscapeRecorded
+        : DEFAULT_LISTENING.soundscapeRecorded,
   };
 }
 

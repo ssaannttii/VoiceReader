@@ -82,6 +82,29 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
 - **Teclado (PC)**: Espacio reproducir/pausa, ←/→ frase anterior/siguiente, +/− velocidad,
   B marcador.
 
+## Sonidos de ambiente grabados (opcional)
+
+Los ambientes (lluvia, chimenea, cafetería y el modo *Automático*) pueden usar grabaciones reales
+de dominio público (CC0, de Freesound.org) en lugar de los sonidos sintetizados. El audio no va en
+git: se descarga y prepara una vez en una carpeta del PC.
+
+```powershell
+uv run --no-sync python scripts/reader/fetch-ambience.py --out E:\VoiceReaderData\ambience
+```
+
+Después indica al backend dónde está, añadiendo esta línea a
+`%APPDATA%\OmniVoice\reader-env.ps1` (el lanzador lo carga al arrancar) y reinicia Reader:
+
+```powershell
+$env:OMNIVOICE_AMBIENCE_DIR = 'E:\VoiceReaderData\ambience'
+```
+
+(Sin la variable se busca en `%APPDATA%\OmniVoice\reader\ambience`.) En la hoja de sonido del
+móvil aparece **Sonidos grabados** (activado por defecto); cada grabación se descarga una vez y
+queda guardada para escuchar sin conexión. Si falta alguna, suena la versión sintetizada. Fuentes,
+autores y licencias: `scripts/reader/ambience-sources.json` y la tabla de créditos de
+[SPEC.md](SPEC.md#recorded-beds-ambience-pack).
+
 ## Voces
 
 Si un documento no tiene voz elegida, Reader usa la voz por defecto de su idioma: márcala con la

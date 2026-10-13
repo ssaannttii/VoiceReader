@@ -40,8 +40,9 @@ rendered on the PC GPU.
   once finished) and leaves the queue. The end-of-chapter/end-of-document sleep timer stops
   instead of continuing; a timed sleep keeps running across documents.
 - Soundscapes (per device): off, Automatic, rain, brown noise, pink noise, café, fireplace —
-  synthesized on the device — with their own volume and "only while the voice plays"; the sleep
-  timer fades and stops them too. Automatic follows the document's scenes (see "Automatic
+  synthesized on the device, or real CC0 recordings from the PC's optional ambience pack ("Recorded
+  sounds", see "Recorded beds" below) — with their own volume and "only while the voice plays"; the
+  sleep timer fades and stops them too. Automatic follows the document's scenes (see "Automatic
   ambience" below); the sheet shows "Now: rain" and the fixed sounds below switch back.
 - Audio-only mode (top bar headphones, or options): the text gives way to the cover, title,
   chapter and an orb whose motion follows the word timings; tapping it plays/pauses.
@@ -221,7 +222,8 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
   the reader page navigates to it whenever it next renders. Diagnostics: `queue_advance`.
 - Soundscapes play on a second `<audio loop>` element (WAV loops rendered once with
   `OfflineAudioContext`, 32 s with a 2 s equal-power crossfade, cached in IndexedDB
-  `reader-soundscapes`). The reading audio is never routed through Web Audio. The element follows
+  `reader-soundscapes`; recorded beds are cached there compressed and decoded to WAV with an
+  `OfflineAudioContext`). The reading audio is never routed through Web Audio. The element follows
   player events (state, sleep fade, sleep stop), so it pauses/resumes with the voice on a locked
   phone. iOS ignores element volume (system volume applies). Diagnostics: `soundscape` on/off.
 - Safari/iOS, WAV audio (no ffmpeg) and any MSE failure use the per-sentence blob player.
@@ -424,12 +426,23 @@ wrong sound; the reading audio is never routed through Web Audio and its player 
   `#`, `⁂`…); otherwise windows of ~10 paragraphs (≤ 4000 chars; a tail under 4 paragraphs joins
   the window before it).
 - **Tags:** `rain`, `storm`, `wind`, `sea`, `forest`, `night`, `fire`, `tavern`, `city`,
-  `interior`, `cave`, `none`. A weighted Spanish/English lexicon (per language, since words collide
-  across them) scores each window per 100 words; a tag needs a minimum density and weight, a 1.6×
-  margin over any conflicting tag (compatible pairs such as rain + storm or tavern + city
-  reinforce each other) and confidence ≥ 0.35. Figurative "lluvia de / sea of" barely counts, a
-  repeated word counts at most 3 times, and lexicon words used as names in the document ("Brisa")
-  are ignored. Documents in other languages get no ambience.
+  `interior`, `cave`, `mist` (bruma, niebla, fog), `snow`, `river`, `crowd` (market, throng),
+  `temple` (church, cathedral, monastery), `library` (study, books, a clock), `road` (horses,
+  carriages), `town`, `none`. A weighted Spanish/English lexicon (per language, since words
+  collide across them) scores each window per 100 words; a tag needs a minimum density (1.0 per
+  100 words; room tone 1.8, night 1.5, city 1.4, road and mist 1.3) and weight (4), a 1.45× margin
+  over any conflicting tag (compatible pairs such as rain + storm, mist + night or tavern + crowd
+  reinforce each other; the more eventful one wins) and confidence ≥ 0.32. Figurative "lluvia de /
+  sea of" barely counts, a repeated word counts at most 3 times, lexicon words used as names in the
+  document ("Brisa") are ignored, and phrases that are not about the setting do not count ("una
+  nacida de la bruma" is a person, "una capa de bruma" a garment; "se rio" is not a river: only
+  "el/del/al río" is). Documents in other languages get no ambience.
+- **Era:** a long document (≥ 3000 words) that almost never mentions cars, phones, trains,
+  taxis… (< 1.5 per 10 000 words) is pre-modern: its `city` scenes become `town` (footsteps and
+  voices in a square, no traffic).
+- **Chapter priors:** a chapter's overall setting (all its windows scored together) fills its
+  quiet windows that mention that setting at least weakly (weight ≥ 2) and have no stronger
+  incompatible evidence (confidence ≤ 0.5).
 - **Optional refinement:** close calls are re-ranked by cosine similarity (local Ollama,
   `bge-m3` via `/api/embed`, CPU only with `num_gpu: 0`) to short per-tag descriptions, only among
   tags the lexicon already found, and only when the embedding agrees (closest tag overall, ahead
@@ -438,7 +451,15 @@ wrong sound; the reading audio is never routed through Web Audio and its player 
   `OMNIVOICE_READER_AMBIENCE_OLLAMA=0` disables it; `OMNIVOICE_READER_AMBIENCE_EMBED_MODEL`
   picks another model.
 - **Smoothing:** a one-window blip between two agreeing windows of the same section takes their
-  tag; equal neighbours merge; a sounding scene shorter than ~90 s (1350 chars) becomes silence.
+  tag; **scene persistence**: a setting carries over the quiet windows after it (dialogue,
+  thoughts) inside its section, its confidence × 0.8 per window until it drops under 0.3, and
+  stops at the section's end or at real evidence of an incompatible setting (one strong word); the
+  opening window of a section takes a confident setting (≥ 0.45) established right after it;
+  equal neighbours merge; a sounding scene shorter than ~90 s (1350 chars) becomes silence.
+- **Evaluation:** `scripts/reader/ambience-eval.py <content.json>` prints the share of the text
+  per tag and sample scenes with the words that decided them (read-only). On "El Pozo de la
+  Ascensión" (Sanderson, es) coverage went from 2.7 % (version 1) to ~45 % (version 2: mist 17 %,
+  library 6 %, snow 5 %, room 4 %, road 4 %, crowd 3 %…).
 - **Storage:** `<doc>/ambience.json` `{version, content_version, segment_count, language,
   fingerprint, refined, computed_at, scenes}`; recomputed when the algorithm version,
   segmentation version, segment count, language or text fingerprint differs. Computed on a
@@ -453,11 +474,15 @@ wrong sound; the reading audio is never routed through Web Audio and its player 
 Scenes are contiguous and cover the whole document (inclusive segment ranges).
 
 ### Client
-- **Beds:** the manual rain, café (tavern) and fireplace loops, trimmed to the ambient level, plus
-  eight synthesized beds — wind, sea (waves), storm (heavy rain + distant rumbles), forest (leaves
-  + rare bird calls), night (crickets), room tone, city murmur, cave drips — seamless 32 s loops at
-  ≈ −25 dBFS RMS (peaks ≤ 0.5), rendered the first time they are needed and cached in IndexedDB
-  like the manual loops (memory keeps only the manual ones).
+- **Beds:** a recording of the PC's ambience pack when it has one for the tag and "Recorded
+  sounds" is on (below); otherwise the synthesized bed exactly as before: the manual rain, café
+  (tavern) and fireplace loops, trimmed to the ambient level, plus eight synthesized beds — wind,
+  sea (waves), storm (heavy rain + distant rumbles), forest (leaves + rare bird calls), night
+  (crickets), room tone, city murmur, cave drips — seamless 32 s loops at ≈ −25 dBFS RMS (peaks ≤
+  0.5), rendered the first time they are needed and cached in IndexedDB like the manual loops
+  (memory keeps only the manual ones). The newer tags borrow a synthesized stand-in where one fits
+  (mist and snow → wind, crowd and town → city murmur, temple and library → room tone); river and
+  road have none, so without their recording they stay silent.
 - **Playback:** two alternating `<audio loop>` elements; equal-power crossfades (8 s from silence,
   10 s between beds, 12 s to silence); at most one change per 45 s of listening (the first
   decision for a document is immediate); unsure scenes (confidence < 0.3) are silent.
@@ -469,7 +494,76 @@ Scenes are contiguous and cover the whole document (inclusive segment ranges).
   soundscape.
 - **Scenes** are fetched when a document opens with Automatic on; `computing` is polled every 4 s
   (up to ~3 min); errors and `unavailable` mean silence.
-- **Diagnostics:** `ambience` events (`scenes`, `scene`, `crossfade`, `error`, `play_error`).
+- **Diagnostics:** `ambience` events (`scenes`, `scene`, `crossfade`, `error`, `play_error`,
+  `pack`); `soundscape_load` with `recorded: true` for recordings.
+
+### Recorded beds (ambience pack)
+Optional real field recordings, all **CC0 (public domain)**, kept **outside git** in a folder on
+the PC: `$OMNIVOICE_AMBIENCE_DIR` when set, else `<data dir>/reader/ambience`
+(`%APPDATA%\OmniVoice\reader\ambience` on Windows). On this machine the launcher's local env file
+`%APPDATA%\OmniVoice\reader-env.ps1` sets `$env:OMNIVOICE_AMBIENCE_DIR = 'E:\VoiceReaderData\ambience'`.
+Without a pack nothing changes (synthesized beds).
+
+- **Build / rebuild:** `uv run --no-sync python scripts/reader/fetch-ambience.py --out <folder>`
+  reads `scripts/reader/ambience-sources.json` (Freesound sound page, preview URL, author, licence,
+  trim points and level per bed), checks on each page that the licence is still CC0, downloads the
+  public HQ previews to `<folder>/_downloads`, and writes seamless loops plus `manifest.json`
+  `{version, beds: [{id, tag, file, rms, duration, pad, sha256, title, author, license, source_url}]}`.
+  Processing: 48 kHz, the chosen stretch (60–75 s), a slow gain rider that holds loud moments to
+  the median + 4 dB (nothing startles under the voice), the loop length (±1.5 s) whose seam matches
+  best, a 3 s equal-power crossfade of the tail into the head, optional low-pass (crowds blur into
+  murmur, no intelligible words) or high-pass, loudness per bed (−20 dBFS for rain/fire/café so the
+  manual sounds keep their level; room tone, library, temple and mist quieter) with a 5 ms
+  look-ahead peak limiter at −3 dBFS, then Ogg Opus 80 kb/s stereo (~0.6–0.8 MB per bed) with
+  0.5 s of the loop's own tail before it and head after it (`pad`), which the client trims after
+  decoding so codec edge effects never land on the seam.
+- **Serving:** only files listed in the manifest, with a plain name and an audio extension; the
+  same PIN/Tailscale access as every Reader route.
+
+| method | path | returns |
+|---|---|---|
+| GET | `/reader/ambience/pack` | `{"available": bool, "beds": [...]}` (beds whose file is missing are left out) |
+| GET | `/reader/ambience/pack/{file}` | the loop (`audio/ogg`), 404 unless the manifest lists it |
+
+- **Client** (`ambience-pack.ts`): the manifest is fetched when Reader starts, when Automatic is
+  turned on and when the sound sheet opens (at most every 10 min) and remembered in localStorage
+  for offline starts. A recording is downloaded once and kept in IndexedDB (`reader-soundscapes`,
+  key `rec:<file>@<sha256>`; stale ones are pruned when the pack changes), then decoded with an
+  OfflineAudioContext (never a realtime one) to a 32 kHz WAV so `<audio loop>` repeats it without a
+  codec gap; a browser that cannot decode it plays the Ogg directly when it can. Level: trimmed to
+  the ambient level by the bed's `rms` (never above unity). A recording that cannot load (offline
+  and not cached) gives way to the synthesized stand-in, else to silence. Recordings arriving or
+  the switch changing crossfade the current scene to its new bed. The manual rain, café and
+  fireplace use their recording too (falling back to the synthesized loop).
+- **Sheet:** a "Recorded sounds" switch (per device, on by default; disabled with "No recordings
+  on the PC yet" when there is no pack) and, with a pack, a sheet description that says the sounds
+  are real recordings.
+
+#### Credits (CC0 recordings from Freesound.org)
+CC0 needs no attribution; the authors are credited anyway. Sources, trim points and levels live in
+`scripts/reader/ambience-sources.json`.
+
+| tag | recording | author |
+|---|---|---|
+| `rain` | [Rain_06.wav](https://freesound.org/people/Q.K./sounds/56311/) | Q.K. |
+| `storm` | [Rain and Thunder Ambience](https://freesound.org/people/sagamusix/sounds/700358/) | sagamusix |
+| `wind` | [Wind singing in the mountain, some night cricket in background](https://freesound.org/people/felix.blume/sounds/165526/) | felix.blume |
+| `sea` | [Beach Waves 04.wav](https://freesound.org/people/DylanTheFish/sounds/463250/) | DylanTheFish |
+| `forest` | [sfx_amb_forest_spring_afternoon-01.wav](https://freesound.org/people/bajko/sounds/385280/) | bajko |
+| `night` | [Night Crickets Back Porch.aiff](https://freesound.org/people/hdfreema/sounds/333221/) | hdfreema |
+| `fire` | [Lit Fireplace](https://freesound.org/people/lurpsis/sounds/444127/) | lurpsis |
+| `tavern` | [General Chatter In Bar](https://freesound.org/people/squareal/sounds/237398/) | squareal |
+| `crowd` | [market.wav](https://freesound.org/people/ninebilly/sounds/173013/) | ninebilly |
+| `town` | [0403201225_piazza della signoria.wav](https://freesound.org/people/uauaua/sounds/14529/) | uauaua |
+| `city` | [Night city atmosphere](https://freesound.org/people/Soundkrampf/sounds/237329/) | Soundkrampf |
+| `interior` | [House Room Tone](https://freesound.org/people/aleclubin/sounds/641306/) | aleclubin |
+| `library` | [Old Clock Pendulum](https://freesound.org/people/Tom_Kaszuba/sounds/657255/) | Tom_Kaszuba |
+| `temple` | [AMB Dans une grande eglise.WAV](https://freesound.org/people/Zetheyo/sounds/475954/) | Zetheyo |
+| `cave` | [Ambiance_Atmosphere_Cave_Loop_Stereo.ogg](https://freesound.org/people/Nox_Sound/sounds/553080/) | Nox_Sound |
+| `snow` | [Howling winter storm ambient sounds](https://freesound.org/people/DBlover/sounds/505999/) | DBlover |
+| `river` | [small stream forest](https://freesound.org/people/Yuval/sounds/197023/) | Yuval |
+| `mist` | [Ambience City Quiet Night Air Tone](https://freesound.org/people/leonelmail/sounds/427841/) | leonelmail |
+| `road` | [horses-and-carriage.wav](https://freesound.org/people/ondrosik/sounds/121129/) | ondrosik |
 
 ## Prepared reading ("Lectura preparada")
 

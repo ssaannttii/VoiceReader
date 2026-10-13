@@ -31,11 +31,12 @@ function openDb(): Promise<IDBDatabase> {
 
 const cacheKey = (id: BedId) => `${id}@${SOUNDSCAPE_VERSION}`;
 
-async function cachedLoop(id: BedId): Promise<ArrayBuffer | null> {
+/** Bytes stored under `key` (synthesized loops and recorded beds share the store). */
+export async function cachedBytes(key: string): Promise<ArrayBuffer | null> {
   try {
     const db = await openDb();
     return await new Promise((resolve) => {
-      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(cacheKey(id));
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
       req.onsuccess = () => resolve(req.result instanceof ArrayBuffer ? req.result : null);
       req.onerror = () => resolve(null);
     });
@@ -44,12 +45,27 @@ async function cachedLoop(id: BedId): Promise<ArrayBuffer | null> {
   }
 }
 
-async function storeLoop(id: BedId, bytes: ArrayBuffer): Promise<void> {
+export async function storeBytes(key: string, bytes: ArrayBuffer): Promise<void> {
   try {
     const db = await openDb();
-    db.transaction(STORE, 'readwrite').objectStore(STORE).put(bytes, cacheKey(id));
+    db.transaction(STORE, 'readwrite').objectStore(STORE).put(bytes, key);
   } catch {
     // Not cached: rendered again next time (about a second).
+  }
+}
+
+/** Remove stored entries whose key starts with `prefix`, except those in `keep`. */
+export async function pruneBytes(prefix: string, keep: ReadonlySet<string>): Promise<void> {
+  try {
+    const db = await openDb();
+    const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+    const req = store.getAllKeys();
+    req.onsuccess = () => {
+      for (const key of req.result)
+        if (typeof key === 'string' && key.startsWith(prefix) && !keep.has(key)) store.delete(key);
+    };
+  } catch {
+    // Kept until next time.
   }
 }
 
@@ -61,11 +77,11 @@ export function loadBed(id: BedId): Promise<Blob> {
   if (!loop) {
     loop = (async () => {
       const t0 = performance.now();
-      let bytes = await cachedLoop(id);
+      let bytes = await cachedBytes(cacheKey(id));
       const cached = Boolean(bytes);
       if (!bytes) {
         bytes = await renderSoundscape(id);
-        void storeLoop(id, bytes);
+        void storeBytes(cacheKey(id), bytes);
       }
       dlog('soundscape_load', {
         id,

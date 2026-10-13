@@ -894,6 +894,31 @@ async def get_ambience(doc_id: str):
         raise _not_found() from None
 
 
+@router.get("/reader/ambience/pack")
+async def get_ambience_pack():
+    """Recorded beds available on this PC (``services/reader_ambience_pack.py``):
+    ``{available, beds: [{id, tag, file, rms, duration, sha256, title, author, license, source_url}]}``."""
+    from services import reader_ambience_pack
+
+    return await asyncio.to_thread(reader_ambience_pack.manifest)
+
+
+@router.get("/reader/ambience/pack/{name}")
+async def get_ambience_pack_file(name: str):
+    """One recorded loop of the pack (only files its manifest lists)."""
+    from services import reader_ambience_pack
+
+    found = await asyncio.to_thread(reader_ambience_pack.bed_path, name)
+    if not found:
+        raise HTTPException(status_code=404, detail="No such ambience")
+    path, media_type = found
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 def _after_import(doc_id: str) -> None:
     """Background scene analysis of a new text/URL document (only once Automático has been used)."""
     from services import reader_ambience

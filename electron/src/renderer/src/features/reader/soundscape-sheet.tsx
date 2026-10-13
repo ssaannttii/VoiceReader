@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CoffeeIcon,
@@ -15,10 +15,12 @@ import { cn } from '@/lib/utils';
 import type { AmbienceSceneTag } from './ambience-schedule';
 import {
   SOUNDSCAPES,
+  setListeningPrefs,
   useListeningPrefs,
   type SoundscapeChoice,
   type SoundscapeId,
 } from './listening-prefs';
+import { ambiencePack, useAmbiencePack } from './ambience-pack';
 import { useAmbienceInfo, type AmbienceInfo } from './reader-ambience';
 import { soundscapePlayer, useSoundscapeStatus } from './reader-soundscape';
 import { ReaderSheet, SheetRow } from './reader-sheet';
@@ -51,6 +53,14 @@ const AMBIENCE_LABELS: Record<AmbienceSceneTag, string> = {
   city: 'reader.ambience_city',
   interior: 'reader.ambience_interior',
   cave: 'reader.ambience_cave',
+  mist: 'reader.ambience_mist',
+  snow: 'reader.ambience_snow',
+  river: 'reader.ambience_river',
+  crowd: 'reader.ambience_crowd',
+  temple: 'reader.ambience_temple',
+  library: 'reader.ambience_library',
+  road: 'reader.ambience_road',
+  town: 'reader.ambience_town',
 };
 
 /** Icon of the chosen soundscape (dock chip, options row). */
@@ -81,14 +91,20 @@ export function SoundscapeSheet({
   const status = useSoundscapeStatus();
   const ambience = useAmbienceInfo();
   const ambienceDetail = useAmbienceDetail(ambience);
+  const pack = useAmbiencePack();
+  const recordings = pack.status === 'ready' && pack.beds.length > 0;
   const volume = prefs.soundscapeVolume;
   const auto = prefs.soundscape === 'auto';
+  // Opening the sheet asks the PC again which recordings it has (cheap; at most every 10 min).
+  useEffect(() => {
+    if (open) void ambiencePack.refresh();
+  }, [open]);
   return (
     <ReaderSheet
       open={open}
       onOpenChange={onOpenChange}
       title={t('reader.soundscape')}
-      description={t('reader.soundscape_hint')}
+      description={t(recordings ? 'reader.soundscape_hint_recorded' : 'reader.soundscape_hint')}
     >
       <div className="space-y-3 pb-1">
         <div className="space-y-0.5">
@@ -172,6 +188,18 @@ export function SoundscapeSheet({
           aria-checked={prefs.soundscapeWithVoice}
           checked={prefs.soundscapeWithVoice}
           onClick={() => soundscapePlayer.setWithVoice(!prefs.soundscapeWithVoice)}
+        />
+        <SheetRow
+          label={t('reader.soundscape_recorded')}
+          detail={t(
+            recordings ? 'reader.soundscape_recorded_hint' : 'reader.soundscape_recorded_missing',
+          )}
+          role="switch"
+          aria-checked={recordings && prefs.soundscapeRecorded}
+          checked={recordings && prefs.soundscapeRecorded}
+          disabled={!recordings}
+          className={cn(!recordings && 'opacity-50')}
+          onClick={() => setListeningPrefs({ soundscapeRecorded: !prefs.soundscapeRecorded })}
         />
       </div>
     </ReaderSheet>

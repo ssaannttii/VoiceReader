@@ -20,6 +20,8 @@ import {
 import { ambienceController } from './reader-ambience';
 import { dlog } from './reader-debug';
 import { readerPlayer, silentWav } from './reader-player';
+import { ambiencePack } from './ambience-pack';
+import { isRecordedKey, type BedKey } from './ambience-schedule';
 import { loadBed } from './soundscape-cache';
 
 export type SoundscapeStatus = 'off' | 'loading' | 'playing' | 'paused' | 'error';
@@ -35,7 +37,8 @@ export function soundscapeGain(volume: number, fade: number): number {
 class SoundscapePlayer {
   private audio: HTMLAudioElement | null = null;
   private url: string | null = null;
-  private loadedId: SoundscapeId | null = null;
+  /** The bed in the element: the synthesized loop or its recording. */
+  private loadedKey: BedKey | null = null;
   private loadToken = 0;
   /** May play: set by choosing a sound or by the voice starting, cleared by the sleep timer. */
   private armed = false;
@@ -87,6 +90,8 @@ class SoundscapePlayer {
       this.sync();
     });
     subscribeListening(() => this.sync());
+    // Which recordings the PC has (manual and automatic sounds prefer them).
+    void ambiencePack.refresh();
     // Automático fetches the document's scenes ahead of the first play.
     ambienceController.setEnabled(listeningPrefs().soundscape === 'auto');
     this.applyVolume();
@@ -182,18 +187,21 @@ class SoundscapePlayer {
     }
     const id = prefs.soundscape as SoundscapeId;
     const audio = this.element();
-    if (this.loadedId === id && this.url && audio.src === this.url) {
+    const key = ambiencePack.manualKey(id);
+    if (this.loadedKey === key && this.url && audio.src === this.url) {
       if (audio.paused) this.play();
       return;
     }
     const token = ++this.loadToken;
     this.setStatus('loading');
-    loadBed(id).then(
+    // A recording that cannot load (offline and not cached yet) gives way to the synthesized loop.
+    const load = isRecordedKey(key) ? ambiencePack.load(key).catch(() => loadBed(id)) : loadBed(id);
+    load.then(
       (blob) => {
         if (token !== this.loadToken || !this.wanted()) return;
         revokeObjectUrl(this.url);
         this.url = createObjectUrl(blob);
-        this.loadedId = id;
+        this.loadedKey = key;
         if (!this.url) {
           this.setStatus('error');
           return;
