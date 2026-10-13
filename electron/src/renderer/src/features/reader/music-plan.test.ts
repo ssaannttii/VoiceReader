@@ -121,7 +121,8 @@ describe('lookups, gain and fades', () => {
 
   it('maps the volume in dB, corrects the loudness and never exceeds 1', () => {
     expect(musicGain(0, -30, 1)).toBeCloseTo(1);
-    expect(musicGain(MUSIC_VOLUME_DEFAULT_DB, -30, 1)).toBeCloseTo(10 ** (-3 / 20));
+    expect(musicGain(MUSIC_VOLUME_DEFAULT_DB, -24, 1)).toBeCloseTo(10 ** (-6 / 20));
+    expect(musicGain(6, -24, 1)).toBeCloseTo(1);
     expect(musicGain(-6, -30, 0.5)).toBeCloseTo(0.5 * 10 ** (-6 / 20));
     // Clips mastered 6 dB hotter play 6 dB lower; quieter ones cannot go above unity.
     expect(musicGain(0, -24, 1)).toBeCloseTo(10 ** (-6 / 20));
@@ -301,7 +302,7 @@ describe('music prefs', () => {
     expect(DEFAULT_MUSIC.offline).toBe(false);
     expect(
       sanitizeMusicPrefs({ mode: 'continuous', volumeDb: 40, offline: true, docs: ['a', 'a', 3] }),
-    ).toEqual({ mode: 'continuous', volumeDb: 0, offline: true, docs: ['a'] });
-    expect(sanitizeMusicPrefs({ volumeDb: -99 }).volumeDb).toBe(-24);
+    ).toEqual({ mode: 'continuous', volumeDb: 6, offline: true, docs: ['a'] });
+    expect(sanitizeMusicPrefs({ volumeDb: -99 }).volumeDb).toBe(-18);
   });
 });

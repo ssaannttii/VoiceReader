@@ -88,11 +88,12 @@ export interface ReaderMusic {
 
 /** The PC masters every clip to this loudness. */
 export const DESIGN_LUFS = -30;
-/** Volume slider, in dB relative to the PC's master (0 dB = the clips as mastered). */
-export const MUSIC_VOLUME_MIN_DB = -24;
-export const MUSIC_VOLUME_MAX_DB = 0;
-/** A little under the master, so there is room both ways (an element cannot go above 1). */
-export const MUSIC_VOLUME_DEFAULT_DB = -3;
+/** Volume slider, in dB relative to the design level (0 dB = −30 LUFS under the voice). The PC
+ * masters hotter (``level_lufs``) so the slider has room upward: an element cannot go above 1. */
+export const MUSIC_VOLUME_MIN_DB = -18;
+export const MUSIC_VOLUME_MAX_DB = 6;
+/** The level the listener chose in the listening test. */
+export const MUSIC_VOLUME_DEFAULT_DB = 0;
 /** From silence into a cue. */
 export const FADE_IN_SECONDS = 6;
 /** Leaving a spot (or to silence in Continuous). */
