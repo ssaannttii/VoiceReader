@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Standard",
     "default_voice_make": "{{name}} standardmäßig für diese Sprache verwenden",
     "default_voice_clear": "{{name}} nicht mehr standardmäßig verwenden",
-    "default_voice_set": "{{name}} liest Dokumente in dieser Sprache jetzt standardmäßig vor."
+    "default_voice_set": "{{name}} liest Dokumente in dieser Sprache jetzt standardmäßig vor.",
+    "debug_mark": "Problem jetzt melden",
+    "debug_mark_hint": "Speichert diesen Moment im Diagnoseprotokoll",
+    "debug_marked": "Markiert. Erzähl Claude, was nicht stimmte.",
+    "debug_hud": "Diagnose-Overlay",
+    "debug_log": "Diagnoseprotokoll",
+    "debug_log_hint": "Zeiten und Fehler auf deinem PC gespeichert, ohne Text"
   }
 }

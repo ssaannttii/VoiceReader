@@ -8,6 +8,7 @@
  * - `subscribeHighlight()` — imperative (segment, word) callbacks per frame.
  */
 import { useSyncExternalStore } from 'react';
+import { dlog, installDebug } from './reader-debug';
 import { claimPlayback } from '@/lib/audio/playback';
 import { createObjectUrl, revokeObjectUrl } from '@/lib/audio/object-url';
 import { ApiError, apiPath, describeError, isAbortError } from '@/lib/api/client';
@@ -167,9 +168,30 @@ class ReaderPlayer {
     return this.cache.get(segment)?.ready?.render.words ?? null;
   }
 
+  private statusSince = 0;
+
   private set(patch: Partial<ReaderPlayerState>) {
+    const before = this.state.status;
     this.state = { ...this.state, ...patch };
+    if (patch.status && patch.status !== before) {
+      const now = performance.now();
+      dlog('status', {
+        from: before,
+        to: patch.status,
+        seg: this.state.segment,
+        after_ms: this.statusSince ? Math.round(now - this.statusSince) : null,
+      });
+      this.statusSince = now;
+    }
     this.listeners.forEach((listener) => listener());
+  }
+
+  /** Live numbers for the diagnostics overlay. */
+  debugSnapshot(): { segment: number; total: number; readyAhead: number; status: string } {
+    const total = this.state.doc?.segments.length ?? 0;
+    let readyAhead = 0;
+    for (let i = this.state.segment + 1; i < total && this.cache.get(i)?.ready; i++) readyAhead++;
+    return { segment: this.state.segment, total, readyAhead, status: this.state.status };
   }
 
   private emitHighlight(word: number, force = false) {
@@ -193,7 +215,9 @@ class ReaderPlayer {
       this.updatePosition();
     });
     audio.addEventListener('waiting', () => {
-      if (this.isCurrent() && this.wantPlay) this.set({ status: 'buffering' });
+      if (!this.isCurrent() || !this.wantPlay) return;
+      dlog('waiting', { seg: this.state.segment, at: Math.round(audio.currentTime * 1000) });
+      this.set({ status: 'buffering' });
     });
     audio.addEventListener('pause', () => {
       // Source swaps and the end of a sentence also pause; only an external
@@ -215,6 +239,7 @@ class ReaderPlayer {
     audio.addEventListener('ratechange', () => this.updatePosition());
     audio.addEventListener('error', () => {
       if (!this.isCurrent() || !audio.error) return;
+      dlog('media_error', { seg: this.state.segment, code: audio.error.code });
       this.fail(tr('reader.error_playback'));
     });
     this.audio = audio;
@@ -389,12 +414,32 @@ class ReaderPlayer {
       };
     };
     const promise = (async () => {
+      const t0 = performance.now();
       const local = await this.offlineCopy(doc.id, index, false);
-      if (local) return fromBlob(local.render, local.blob, true);
+      if (local) {
+        dlog('seg_load', {
+          seg: index,
+          offline: true,
+          total_ms: Math.round(performance.now() - t0),
+        });
+        return fromBlob(local.render, local.blob, true);
+      }
       try {
         const render = await readerApi.render(doc.id, index, choice);
+        const t1 = performance.now();
         this.adoptAutoVoice(doc.id, render.voice);
         const blob = await readerApi.audio(render.audio_url);
+        const t2 = performance.now();
+        dlog('seg_load', {
+          seg: index,
+          cached: render.cached,
+          render_ms: Math.round(t1 - t0),
+          audio_ms: Math.round(t2 - t1),
+          total_ms: Math.round(t2 - t0),
+          kb: Math.round(blob.size / 1024),
+          dur_s: render.duration_s,
+          current: this.state.segment,
+        });
         return fromBlob(render, blob, false);
       } catch (error) {
         // Unreachable PC: any downloaded voice beats silence.
@@ -460,6 +505,12 @@ class ReaderPlayer {
     this.emitHighlight(-1, true);
     this.scheduleProgress();
     const ready = this.cache.get(index)?.ready;
+    dlog('start', {
+      seg: index,
+      offset: Math.round(offset * 1000),
+      autoplay,
+      ready: Boolean(ready),
+    });
     if (ready) {
       this.attach(ready, offset, autoplay);
       return;
@@ -520,6 +571,7 @@ class ReaderPlayer {
   }
 
   private fail(message: string) {
+    dlog('fail', { seg: this.state.segment, message: message.slice(0, 300) });
     this.wantPlay = false;
     this.stopFrames();
     this.releaseClaim();
@@ -551,6 +603,7 @@ class ReaderPlayer {
   play() {
     const { doc, status, segment } = this.state;
     if (!doc) return;
+    dlog('user_play', { seg: segment, status });
     if (status === 'ended') {
       this.startAt(0, 0, true);
       return;
@@ -957,3 +1010,6 @@ export function useReaderClock(): ReaderClock {
     readerPlayer.getClock,
   );
 }
+
+// Reader diagnostics start with the player: only Reader pages pay for them.
+if (typeof window !== 'undefined') installDebug();

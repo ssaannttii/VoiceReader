@@ -3558,6 +3558,12 @@
     "default_voice_badge": "預設",
     "default_voice_make": "將 {{name}} 設為此語言的預設語音",
     "default_voice_clear": "不再將 {{name}} 設為預設",
-    "default_voice_set": "此後此語言的文件將預設由 {{name}} 朗讀。"
+    "default_voice_set": "此後此語言的文件將預設由 {{name}} 朗讀。",
+    "debug_mark": "立即標記問題",
+    "debug_mark_hint": "把此刻儲存到診斷記錄",
+    "debug_marked": "已標記。告訴 Claude 哪裡不對勁。",
+    "debug_hud": "診斷浮層",
+    "debug_log": "診斷記錄",
+    "debug_log_hint": "計時和錯誤儲存在你的電腦上，不含文字"
   }
 }

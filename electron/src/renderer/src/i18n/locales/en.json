@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Default",
     "default_voice_make": "Use {{name}} by default in this language",
     "default_voice_clear": "Stop using {{name}} by default",
-    "default_voice_set": "{{name}} will now read documents in this language by default."
+    "default_voice_set": "{{name}} will now read documents in this language by default.",
+    "debug_mark": "Report a problem now",
+    "debug_mark_hint": "Saves this moment in the diagnostics log",
+    "debug_marked": "Marked. Tell Claude what felt wrong.",
+    "debug_hud": "Diagnostics overlay",
+    "debug_log": "Diagnostics log",
+    "debug_log_hint": "Timings and errors saved on your PC, no text"
   }
 }

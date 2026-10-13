@@ -3566,6 +3566,12 @@
     "default_voice_badge": "افتراضي",
     "default_voice_make": "استخدام {{name}} افتراضيًا في هذه اللغة",
     "default_voice_clear": "إيقاف استخدام {{name}} افتراضيًا",
-    "default_voice_set": "سيقرأ {{name}} المستندات بهذه اللغة افتراضيًا."
+    "default_voice_set": "سيقرأ {{name}} المستندات بهذه اللغة افتراضيًا.",
+    "debug_mark": "الإبلاغ عن مشكلة الآن",
+    "debug_mark_hint": "يحفظ هذه اللحظة في سجل التشخيص",
+    "debug_marked": "تم التحديد. أخبر Claude بما لم يعمل جيدًا.",
+    "debug_hud": "لوحة التشخيص",
+    "debug_log": "سجل التشخيص",
+    "debug_log_hint": "توقيتات وأخطاء محفوظة على حاسوبك، دون نصوص"
   }
 }

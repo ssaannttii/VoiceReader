@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Standaard",
     "default_voice_make": "{{name}} standaard gebruiken in deze taal",
     "default_voice_clear": "{{name}} niet meer standaard gebruiken",
-    "default_voice_set": "{{name}} leest documenten in deze taal nu standaard voor."
+    "default_voice_set": "{{name}} leest documenten in deze taal nu standaard voor.",
+    "debug_mark": "Nu een probleem melden",
+    "debug_mark_hint": "Bewaart dit moment in het diagnoselogboek",
+    "debug_marked": "Gemarkeerd. Vertel Claude wat er misging.",
+    "debug_hud": "Diagnose-overlay",
+    "debug_log": "Diagnoselogboek",
+    "debug_log_hint": "Tijden en fouten op je pc bewaard, zonder tekst"
   }
 }

@@ -3562,6 +3562,12 @@
     "default_voice_badge": "Domyślny",
     "default_voice_make": "Używaj {{name}} domyślnie w tym języku",
     "default_voice_clear": "Przestań używać {{name}} domyślnie",
-    "default_voice_set": "{{name}} będzie teraz domyślnie czytać dokumenty w tym języku."
+    "default_voice_set": "{{name}} będzie teraz domyślnie czytać dokumenty w tym języku.",
+    "debug_mark": "Zgłoś problem teraz",
+    "debug_mark_hint": "Zapisuje tę chwilę w dzienniku diagnostycznym",
+    "debug_marked": "Oznaczono. Powiedz Claude, co było nie tak.",
+    "debug_hud": "Panel diagnostyczny",
+    "debug_log": "Dziennik diagnostyczny",
+    "debug_log_hint": "Czasy i błędy zapisane na Twoim PC, bez tekstu"
   }
 }

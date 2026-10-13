@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Bawaan",
     "default_voice_make": "Gunakan {{name}} secara bawaan untuk bahasa ini",
     "default_voice_clear": "Berhenti menggunakan {{name}} secara bawaan",
-    "default_voice_set": "{{name}} kini membacakan dokumen dalam bahasa ini secara bawaan."
+    "default_voice_set": "{{name}} kini membacakan dokumen dalam bahasa ini secara bawaan.",
+    "debug_mark": "Laporkan masalah sekarang",
+    "debug_mark_hint": "Menyimpan momen ini di log diagnostik",
+    "debug_marked": "Ditandai. Ceritakan ke Claude apa yang terasa salah.",
+    "debug_hud": "Panel diagnostik",
+    "debug_log": "Log diagnostik",
+    "debug_log_hint": "Waktu dan galat disimpan di PC Anda, tanpa teks"
   }
 }

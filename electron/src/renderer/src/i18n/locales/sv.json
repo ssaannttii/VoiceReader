@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Standard",
     "default_voice_make": "Använd {{name}} som standard för det här språket",
     "default_voice_clear": "Sluta använda {{name}} som standard",
-    "default_voice_set": "{{name}} läser nu dokument på det här språket som standard."
+    "default_voice_set": "{{name}} läser nu dokument på det här språket som standard.",
+    "debug_mark": "Rapportera ett problem nu",
+    "debug_mark_hint": "Sparar det här ögonblicket i diagnostikloggen",
+    "debug_marked": "Markerat. Berätta för Claude vad som kändes fel.",
+    "debug_hud": "Diagnostiköverlägg",
+    "debug_log": "Diagnostiklogg",
+    "debug_log_hint": "Tider och fel sparas på din dator, ingen text"
   }
 }

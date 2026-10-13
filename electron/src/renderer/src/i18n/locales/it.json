@@ -3560,6 +3560,12 @@
     "default_voice_badge": "Predefinita",
     "default_voice_make": "Usa {{name}} come predefinita in questa lingua",
     "default_voice_clear": "Non usare più {{name}} come predefinita",
-    "default_voice_set": "{{name}} leggerà ora per impostazione predefinita i documenti in questa lingua."
+    "default_voice_set": "{{name}} leggerà ora per impostazione predefinita i documenti in questa lingua.",
+    "debug_mark": "Segnala un problema ora",
+    "debug_mark_hint": "Salva questo momento nel registro di diagnostica",
+    "debug_marked": "Segnato. Racconta a Claude cosa non andava.",
+    "debug_hud": "Pannello di diagnostica",
+    "debug_log": "Registro di diagnostica",
+    "debug_log_hint": "Tempi ed errori salvati sul tuo PC, senza testo"
   }
 }

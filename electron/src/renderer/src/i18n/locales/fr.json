@@ -3560,6 +3560,12 @@
     "default_voice_badge": "Par défaut",
     "default_voice_make": "Utiliser {{name}} par défaut dans cette langue",
     "default_voice_clear": "Ne plus utiliser {{name}} par défaut",
-    "default_voice_set": "{{name}} lira désormais par défaut les documents dans cette langue."
+    "default_voice_set": "{{name}} lira désormais par défaut les documents dans cette langue.",
+    "debug_mark": "Signaler un problème maintenant",
+    "debug_mark_hint": "Enregistre ce moment dans le journal de diagnostic",
+    "debug_marked": "Marqué. Dites à Claude ce qui n'allait pas.",
+    "debug_hud": "Panneau de diagnostic",
+    "debug_log": "Journal de diagnostic",
+    "debug_log_hint": "Temps et erreurs enregistrés sur votre PC, sans texte"
   }
 }

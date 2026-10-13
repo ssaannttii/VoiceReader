@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Mặc định",
     "default_voice_make": "Dùng {{name}} làm mặc định cho ngôn ngữ này",
     "default_voice_clear": "Bỏ {{name}} khỏi mặc định",
-    "default_voice_set": "Từ giờ {{name}} sẽ đọc mặc định các tài liệu bằng ngôn ngữ này."
+    "default_voice_set": "Từ giờ {{name}} sẽ đọc mặc định các tài liệu bằng ngôn ngữ này.",
+    "debug_mark": "Báo sự cố ngay",
+    "debug_mark_hint": "Lưu thời điểm này vào nhật ký chẩn đoán",
+    "debug_marked": "Đã đánh dấu. Hãy kể với Claude điều gì không ổn.",
+    "debug_hud": "Bảng chẩn đoán",
+    "debug_log": "Nhật ký chẩn đoán",
+    "debug_log_hint": "Thời gian và lỗi lưu trên PC của bạn, không có văn bản"
   }
 }

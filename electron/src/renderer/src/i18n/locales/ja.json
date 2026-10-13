@@ -3558,6 +3558,12 @@
     "default_voice_badge": "既定",
     "default_voice_make": "この言語で {{name}} を既定にする",
     "default_voice_clear": "{{name}} を既定から外す",
-    "default_voice_set": "この言語のドキュメントは今後 {{name}} が既定で読み上げます。"
+    "default_voice_set": "この言語のドキュメントは今後 {{name}} が既定で読み上げます。",
+    "debug_mark": "今すぐ問題を記録",
+    "debug_mark_hint": "この瞬間を診断ログに保存します",
+    "debug_marked": "記録しました。何が変だったか Claude に伝えてください。",
+    "debug_hud": "診断オーバーレイ",
+    "debug_log": "診断ログ",
+    "debug_log_hint": "タイミングとエラーを PC に保存（テキストは含みません）"
   }
 }

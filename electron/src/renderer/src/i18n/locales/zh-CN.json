@@ -3558,6 +3558,12 @@
     "default_voice_badge": "默认",
     "default_voice_make": "将 {{name}} 设为此语言的默认语音",
     "default_voice_clear": "不再将 {{name}} 设为默认",
-    "default_voice_set": "此后此语言的文档将默认由 {{name}} 朗读。"
+    "default_voice_set": "此后此语言的文档将默认由 {{name}} 朗读。",
+    "debug_mark": "立即标记问题",
+    "debug_mark_hint": "把此刻保存到诊断日志",
+    "debug_marked": "已标记。告诉 Claude 哪里不对劲。",
+    "debug_hud": "诊断浮层",
+    "debug_log": "诊断日志",
+    "debug_log_hint": "计时和错误保存在你的电脑上，不含文本"
   }
 }

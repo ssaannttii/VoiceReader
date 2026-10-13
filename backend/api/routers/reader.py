@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from services import reader_import, reader_render, reader_store
+from services import reader_debug, reader_import, reader_render, reader_store
 
 router = APIRouter()
 logger = logging.getLogger("omnivoice.reader")
@@ -93,7 +94,7 @@ def _clean_lang(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
-# ── Library ──────────────────────────────────────────────────────────────────
+# â”€â”€ Library â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get("/reader/documents")
@@ -181,7 +182,7 @@ async def get_cover(doc_id: str):
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
 
 
-# ── Rendering ────────────────────────────────────────────────────────────────
+# â”€â”€ Rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _render_settings(doc: dict, req: RenderRequest) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -265,7 +266,7 @@ def _default_voice(language: Optional[str]) -> Optional[str]:
         chosen = _default_voice_prefs().get(language or "")
         if chosen and any(row["id"] == chosen for row in rows):
             return chosen
-    except Exception:  # noqa: BLE001 — rendering still works with the engine default
+    except Exception:  # noqa: BLE001 â€” rendering still works with the engine default
         logger.warning("Reader: default voice lookup failed", exc_info=True)
         return None
 
@@ -304,14 +305,25 @@ async def render_segment(doc_id: str, index: int, req: Optional[RenderRequest] =
     if index < 0 or index >= len(segments):
         raise HTTPException(status_code=404, detail="Segment not found")
     voice, engine, language = _render_settings(doc, req)
+    started = time.perf_counter()
     try:
         result = await reader_render.render_segment(
             segments[index]["text"], voice=voice, engine=engine, language=language
         )
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 — mapped to a typed HTTP error
-        raise _render_error(exc) from None
+    except Exception as exc:  # noqa: BLE001 â€” mapped to a typed HTTP error
+        error = _render_error(exc)
+        await asyncio.to_thread(
+            reader_debug.server_event, "server_render_error",
+            doc=doc_id, seg=index, status=error.status_code, detail=str(error.detail)[:300],
+        )
+        raise error from None
+    await asyncio.to_thread(
+        reader_debug.server_event, "server_render",
+        doc=doc_id, seg=index, cached=result.get("cached"),
+        ms=round((time.perf_counter() - started) * 1000), dur_s=result.get("duration_s"), voice=voice,
+    )
     # Remember the last voice/engine the listener chose for this document.
     changes = {}
     # An auto-picked default is pinned too, so the document keeps one voice
@@ -360,7 +372,7 @@ async def _idle_status(doc_id: str) -> dict:
             engine=engine,
             language=doc.get("language"),
         )
-    except Exception:  # noqa: BLE001 — status must not fail on engine lookup
+    except Exception:  # noqa: BLE001 â€” status must not fail on engine lookup
         done = 0
     return {
         "running": False,
@@ -403,7 +415,7 @@ async def get_audio(key: str):
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": _AUDIO_CACHE_CONTROL})
 
 
-# ── Voices / status ──────────────────────────────────────────────────────────
+# â”€â”€ Voices / status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _list_voices(engine: Optional[str]) -> list[dict]:
@@ -425,7 +437,7 @@ def _list_voices(engine: Optional[str]) -> list[dict]:
                 "language": None if language.lower() in ("", "auto") else language,
                 "description": (row["description"] or None),
             })
-    except Exception:  # noqa: BLE001 — presets still list without the DB
+    except Exception:  # noqa: BLE001 â€” presets still list without the DB
         logger.warning("Reader: voice profiles could not be loaded", exc_info=True)
     try:
         from services import tts_backend
@@ -443,9 +455,27 @@ def _list_voices(engine: Optional[str]) -> list[dict]:
                 "language": None,
                 "description": "Default voice" if name == default else None,
             })
-    except Exception:  # noqa: BLE001 — unknown engine id: profiles only
+    except Exception:  # noqa: BLE001 â€” unknown engine id: profiles only
         logger.debug("Reader: preset voices unavailable for %r", engine, exc_info=True)
     return voices
+
+
+class DebugBatch(BaseModel):
+    session: str = Field(min_length=1, max_length=40)
+    device: Optional[dict] = None
+    events: list[dict] = Field(default_factory=list, max_length=500)
+
+
+@router.post("/reader/debug/events")
+async def debug_events(batch: DebugBatch, request: Request):
+    """Diagnostics from a Reader client, appended to the local debug log."""
+    client = request.client.host if request.client else None
+    records = []
+    if batch.device:
+        records.append({"session": batch.session, "type": "device", "client": client, **batch.device})
+    records.extend({"session": batch.session, **event} for event in batch.events)
+    stored = await asyncio.to_thread(reader_debug.append, records)
+    return {"ok": True, "stored": stored}
 
 
 @router.get("/reader/voices")

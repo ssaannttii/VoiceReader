@@ -16,6 +16,7 @@ import {
 import { describeError } from '@/lib/api/client';
 import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
+import { DebugHud, DiagnosticsRows } from './debug-hud';
 import { OfflineRow } from './document-actions-sheet';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
@@ -138,6 +139,7 @@ function OptionsSheet({
           />
           <OfflineRow id={doc.id} />
         </div>
+        <DiagnosticsRows />
       </div>
     </ReaderSheet>
   );
@@ -383,6 +385,7 @@ export function ReaderDocumentPage() {
       {doc && (
         <>
           <PlayerDock doc={doc} active={active} onSheet={openSheet} onActivate={activate} />
+          <DebugHud />
           <OptionsSheet
             doc={doc}
             open={sheet === 'options'}

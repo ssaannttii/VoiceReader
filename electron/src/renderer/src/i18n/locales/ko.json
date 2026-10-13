@@ -3558,6 +3558,12 @@
     "default_voice_badge": "기본값",
     "default_voice_make": "이 언어에서 {{name}}을(를) 기본으로 사용",
     "default_voice_clear": "{{name}} 기본 사용 해제",
-    "default_voice_set": "이제 이 언어의 문서는 기본적으로 {{name}}이(가) 읽습니다."
+    "default_voice_set": "이제 이 언어의 문서는 기본적으로 {{name}}이(가) 읽습니다.",
+    "debug_mark": "지금 문제 표시",
+    "debug_mark_hint": "이 순간을 진단 로그에 저장합니다",
+    "debug_marked": "표시했습니다. Claude에게 무엇이 이상했는지 알려 주세요.",
+    "debug_hud": "진단 오버레이",
+    "debug_log": "진단 로그",
+    "debug_log_hint": "시간과 오류를 PC에 저장하며 텍스트는 저장하지 않음"
   }
 }

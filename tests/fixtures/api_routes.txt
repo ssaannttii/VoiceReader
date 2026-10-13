@@ -289,6 +289,7 @@ POST /projects
 POST /pronunciation
 POST /pronunciation/import
 POST /pronunciation/test
+POST /reader/debug/events
 POST /reader/documents/file
 POST /reader/documents/text
 POST /reader/documents/url

@@ -442,3 +442,36 @@ def test_chosen_default_voice_wins_and_can_be_cleared(env, monkeypatch, tmp_path
     other = _create(client, "Otra frase distinta en español para leer en voz alta.", language="es")
     client.post(f"/reader/documents/{other['id']}/segments/0/render", json={})
     assert env.calls[-1][1] == "es-reader"
+
+
+def test_debug_events_are_appended_with_server_render_timings(env):
+    import json
+
+    from services import reader_debug
+
+    client = TestClient(env.app)
+    doc = _create(client)
+    batch = {
+        "session": "abc123",
+        "device": {"ua": "Pixel", "viewport": "412x915@2.6"},
+        "events": [{"t": 1, "type": "seg_load", "seg": 0, "total_ms": 900}, {"t": 2, "type": "user_marker"}],
+    }
+    assert client.post("/reader/debug/events", json=batch).json() == {"ok": True, "stored": 3}
+    client.post(f"/reader/documents/{doc['id']}/segments/0/render", json={})
+
+    files = list((env.data_dir / "reader-debug").glob("*.jsonl"))
+    assert len(files) == 1
+    records = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines()]
+    types = [r["type"] for r in records]
+    assert types == ["device", "seg_load", "user_marker", "server_render"]
+    assert records[0]["session"] == "abc123" and records[0]["ua"] == "Pixel"
+    assert records[-1]["session"] == "server" and records[-1]["seg"] == 0 and "ms" in records[-1]
+    assert all("recv" in r for r in records)
+
+    big = {"session": "s", "events": [{"t": 3, "type": "x", "blob": "y" * 5000}]}
+    client.post("/reader/debug/events", json=big)
+    last = json.loads(files[0].read_text(encoding="utf-8").splitlines()[-1])
+    assert last["truncated"] is True and "blob" not in last
+
+    assert client.post("/reader/debug/events", json={"session": "s", "events": [{}] * 501}).status_code == 422
+    assert reader_debug.RETENTION_DAYS == 14

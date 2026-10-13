@@ -3558,6 +3558,12 @@
     "default_voice_badge": "Varsayılan",
     "default_voice_make": "Bu dilde {{name}} sesini varsayılan yap",
     "default_voice_clear": "{{name}} sesini varsayılan olmaktan çıkar",
-    "default_voice_set": "Bu dildeki belgeleri artık varsayılan olarak {{name}} okuyacak."
+    "default_voice_set": "Bu dildeki belgeleri artık varsayılan olarak {{name}} okuyacak.",
+    "debug_mark": "Şimdi sorun bildir",
+    "debug_mark_hint": "Bu anı tanılama günlüğüne kaydeder",
+    "debug_marked": "İşaretlendi. Claude'a neyin ters gittiğini anlat.",
+    "debug_hud": "Tanılama paneli",
+    "debug_log": "Tanılama günlüğü",
+    "debug_log_hint": "Süreler ve hatalar bilgisayarına kaydedilir, metin yok"
   }
 }
