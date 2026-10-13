@@ -37,6 +37,10 @@ $logDir = Join-Path $env:APPDATA 'OmniVoice'
 New-Item -ItemType Directory -Force $logDir | Out-Null
 $launcherLog = Join-Path $logDir 'reader-launcher.log'
 
+# Machine-specific overrides (e.g. UV_CACHE_DIR on a bigger drive), kept out of the repo.
+$localEnv = Join-Path $logDir 'reader-env.ps1'
+if (Test-Path $localEnv) { . $localEnv }
+
 function Write-Step($msg) {
   if ($Background) { Add-Content $launcherLog ("{0:yyyy-MM-dd HH:mm:ss}  {1}" -f (Get-Date), $msg) }
   else { Write-Host "==> $msg" -ForegroundColor Cyan }
