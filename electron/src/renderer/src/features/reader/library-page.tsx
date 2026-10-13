@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ArrowDownToLineIcon,
   ArrowDownUpIcon,
   ChevronDownIcon,
   CircleCheckIcon,
@@ -23,6 +24,7 @@ import {
   CloudOffIcon,
   EllipsisIcon,
   HouseIcon,
+  LibraryBigIcon,
   Loader2Icon,
   PauseIcon,
   PlayIcon,
@@ -38,16 +40,26 @@ import {
 import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { AddDocumentSheet } from './add-document-sheet';
+import { useReaderCollections } from './collection-actions';
+import {
+  CollectionHeader,
+  CollectionList,
+  CollectionMenuSheet,
+  CollectionPickerSheet,
+  NewCollectionSheet,
+} from './collection-sheets';
 import { CoverTile } from './cover-tile';
 import { DocumentActionsSheet } from './document-actions-sheet';
 import { hapticsPref, hapticsSupported, setHaptics, tick } from './haptics';
 import {
   deleteMany,
+  removeDownloads,
   setFlagsWithUndo,
   startDownloads,
   useHiddenDocuments,
 } from './library-actions';
-import { DocumentRow, durationLabel, sourceLabel } from './library-row';
+import { liveMembers } from './library-collections';
+import { DocumentRow, sourceLabel } from './library-row';
 import {
   bulkFinishedTarget,
   NO_SELECTION,
@@ -59,10 +71,12 @@ import {
   arrangeLibrary,
   coverArt,
   coverShape,
+  downloadTotals,
+  durationLabel,
   isFinished,
   isReady,
-  LIBRARY_FILTERS,
   LIBRARY_SORTS,
+  matchesFilter,
   matchesQuery,
   rowStatus,
   setLibrarySort,
@@ -71,9 +85,10 @@ import {
   type LibrarySort,
 } from './library-view';
 import { MiniPlayer } from './mini-player';
+import { formatBytes, useOffline } from './offline-state';
 import { PhoneSheet } from './phone-sheet';
 import { fetchReaderDocument } from './reader-actions';
-import type { ReaderDocumentSummary } from './reader-api';
+import type { ReaderCollection, ReaderDocumentSummary } from './reader-api';
 import { useAppearanceProps } from './reader-appearance';
 import { isTouchDevice, titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderPlayer } from './reader-player';
@@ -93,10 +108,14 @@ const SORT_LABELS: Record<LibrarySort, string> = {
   added: 'reader.sort_added',
   oldest: 'reader.lib_sort_oldest',
 };
-const FILTER_LABELS: Record<LibraryFilter, string> = {
+/** The filters plus the Collections tab and (with downloads on this device) Downloads. */
+type LibraryTab = LibraryFilter | 'collections' | 'downloaded';
+const TAB_LABELS: Record<LibraryTab, string> = {
   library: 'reader.library',
+  collections: 'reader.lib_collections',
   archived: 'reader.filter_archived',
   finished: 'reader.filter_finished',
+  downloaded: 'reader.lib_downloads',
 };
 
 /** Play from the library without opening the reader; unlocks audio inside the tap. */
@@ -250,28 +269,36 @@ function ContinueCard({
 
 /** Text tabs with an underline that slides (and stretches a little) between them. */
 function LibraryTabs({
+  tabs,
   value,
   onChange,
 }: {
-  value: LibraryFilter;
-  onChange: (value: LibraryFilter) => void;
+  tabs: readonly LibraryTab[];
+  value: LibraryTab;
+  onChange: (value: LibraryTab) => void;
 }) {
   const { t } = useTranslation();
   const list = useRef<HTMLDivElement>(null);
   const [bar, setBar] = useState<{ left: number; width: number } | null>(null);
+  const shown = tabs.join(' ');
   useLayoutEffect(() => {
     const measure = () => {
       const tab = list.current?.querySelector<HTMLElement>(`[data-tab='${value}']`);
       if (tab) setBar({ left: tab.offsetLeft, width: tab.offsetWidth });
     };
     measure();
+    // With more tabs than fit, keep the active one in view.
+    const row = list.current;
+    const tab = row?.querySelector<HTMLElement>(`[data-tab='${value}']`);
+    if (row && tab && row.scrollWidth > row.clientWidth)
+      row.scrollTo({ left: Math.max(0, tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2) });
     window.addEventListener('resize', measure);
     void document.fonts?.ready.then(measure);
     return () => window.removeEventListener('resize', measure);
-  }, [value, t]);
+  }, [value, t, shown]);
   return (
     <div ref={list} className="rd-tabs" role="tablist" aria-label={t('reader.filter')}>
-      {LIBRARY_FILTERS.map((option) => (
+      {tabs.map((option) => (
         <button
           key={option}
           type="button"
@@ -284,7 +311,7 @@ function LibraryTabs({
             onChange(option);
           }}
         >
-          {t(FILTER_LABELS[option])}
+          {t(TAB_LABELS[option])}
         </button>
       ))}
       {bar && (
@@ -414,15 +441,22 @@ function SelectionBar({
   docs,
   onDone,
   onDelete,
+  onCollect,
 }: {
   docs: readonly ReaderListItem[];
   onDone: () => void;
   onDelete: () => void;
+  /** "Add to collection" (only when the PC has collections). */
+  onCollect?: (ids: string[]) => void;
 }) {
   const { t } = useTranslation();
+  const offline = useOffline();
   const ready = docs.filter((doc) => isReady(doc) && !doc.offlineOnly);
   const archivedAll = docs.length > 0 && docs.every((doc) => doc.archived);
   const finishTarget = bulkFinishedTarget(ready.map(isFinished));
+  // Everything selected is on this device already: the button removes the downloads.
+  const downloadedAll =
+    ready.length > 0 && ready.every((doc) => offline.downloaded[doc.id]?.complete);
   return (
     <div
       className="rd-selbar"
@@ -457,14 +491,23 @@ function SelectionBar({
         }}
       />
       <BarAction
-        icon={CloudDownloadIcon}
-        label={t('reader.lib_download_short')}
+        icon={downloadedAll ? CloudOffIcon : CloudDownloadIcon}
+        label={t(downloadedAll ? 'reader.remove_download' : 'reader.lib_download_short')}
         disabled={!ready.length}
         onClick={() => {
-          startDownloads(ready);
+          if (downloadedAll) removeDownloads(ready);
+          else startDownloads(ready);
           onDone();
         }}
       />
+      {onCollect && (
+        <BarAction
+          icon={LibraryBigIcon}
+          label={t('reader.lib_collection_short')}
+          disabled={!ready.length}
+          onClick={() => onCollect(ready.map((doc) => doc.id))}
+        />
+      )}
       <BarAction
         icon={Trash2Icon}
         label={t('reader.delete')}
@@ -549,7 +592,13 @@ export function ReaderLibraryPage() {
   const sort = useLibrarySort();
   const hidden = useHiddenDocuments();
   const chrome = useScrollChrome();
-  const [filter, setFilter] = useState<LibraryFilter>('library');
+  const offline = useOffline();
+  const { collections, supported: collectionsOn } = useReaderCollections();
+  const [filter, setFilter] = useState<LibraryTab>('library');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [newCollection, setNewCollection] = useState(false);
+  const [collectionMenu, setCollectionMenu] = useState<ReaderCollection | null>(null);
+  const [collectFor, setCollectFor] = useState<string[] | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
@@ -568,14 +617,63 @@ export function ReaderLibraryPage() {
   );
   const offlineOnly = docs.some((doc) => doc.offlineOnly);
   const searching = query.trim().length > 0;
+
+  // Downloads on this device, including any the PC no longer lists.
+  const downloads = useMemo(() => {
+    const byId = new Map(docs.map((doc) => [doc.id, doc]));
+    return Object.entries(offline.downloaded)
+      .filter(([id]) => !hidden.has(id))
+      .map(([id, meta]): ReaderListItem => byId.get(id) ?? { ...meta.summary, offlineOnly: true });
+  }, [docs, offline.downloaded, hidden]);
+  const downloadTotal = downloadTotals(offline.downloaded);
+  const tabs = useMemo<LibraryTab[]>(
+    () => [
+      'library',
+      ...(collectionsOn ? (['collections'] as const) : []),
+      'archived',
+      'finished',
+      ...(downloadTotal.count > 0 || filter === 'downloaded' ? (['downloaded'] as const) : []),
+    ],
+    [collectionsOn, downloadTotal.count, filter],
+  );
+  useEffect(() => {
+    if (filter === 'collections' && !collectionsOn) setFilter('library');
+  }, [filter, collectionsOn]);
+
+  const openCollection =
+    filter === 'collections' && openId
+      ? (collections.find((item) => item.id === openId) ?? null)
+      : null;
+  useEffect(() => {
+    // Deleted here or on another device.
+    if (openId && collectionsOn && !collections.some((item) => item.id === openId))
+      setOpenId(null);
+  }, [openId, collections, collectionsOn]);
+  // A collection lists its documents that are in the library (not archived).
+  const shelved = useMemo(
+    () => new Set(docs.filter((doc) => matchesFilter(doc, 'library')).map((doc) => doc.id)),
+    [docs],
+  );
+  const collectionCounts = useMemo(
+    () => Object.fromEntries(collections.map((item) => [item.id, liveMembers(item, shelved).length])),
+    [collections, shelved],
+  );
+
   const visible = useMemo(() => {
-    if (!searching) return arrangeLibrary(docs, sort, filter);
+    if (!searching) {
+      if (filter === 'collections')
+        return openCollection
+          ? arrangeLibrary(docs, sort, 'library', new Set(openCollection.doc_ids))
+          : [];
+      if (filter === 'downloaded') return arrangeLibrary(downloads, sort, 'all');
+      return arrangeLibrary(docs, sort, filter);
+    }
     // Search looks everywhere: the library first, then the archive.
     return [
       ...arrangeLibrary(docs, sort, 'library'),
       ...arrangeLibrary(docs, sort, 'archived'),
     ].filter((doc) => matchesQuery(doc, query));
-  }, [docs, query, searching, sort, filter]);
+  }, [docs, downloads, openCollection, query, searching, sort, filter]);
   const visibleIds = useMemo(() => visible.map((doc) => doc.id), [visible]);
   useEffect(() => dispatch({ type: 'prune', ids: visibleIds }), [visibleIds]);
 
@@ -672,21 +770,45 @@ export function ReaderLibraryPage() {
         {!searching && (
           <div className="rd-lib-controls">
             <LibraryTabs
+              tabs={tabs}
               value={filter}
               onChange={(next) => {
                 setFilter(next);
+                // Tapping Collections again goes back to the list of collections.
+                setOpenId(null);
                 chrome.scroller.current?.scrollTo({ top: 0 });
               }}
             />
-            <button
-              type="button"
-              className="rd-sort-label"
-              aria-label={t('reader.sort_by_current', { sort: t(SORT_LABELS[sort]) })}
-              onClick={() => setSorting(true)}
-            >
-              {t(SORT_LABELS[sort])}
-              <ChevronDownIcon aria-hidden="true" />
-            </button>
+            {openCollection && (
+              <CollectionHeader
+                collection={openCollection}
+                count={collectionCounts[openCollection.id] ?? 0}
+                onBack={() => {
+                  exitSelection();
+                  setOpenId(null);
+                }}
+                onMore={() => setCollectionMenu(openCollection)}
+              />
+            )}
+            {(filter !== 'collections' || openCollection) && (
+              <button
+                type="button"
+                className="rd-sort-label"
+                aria-label={t('reader.sort_by_current', { sort: t(SORT_LABELS[sort]) })}
+                onClick={() => setSorting(true)}
+              >
+                {t(SORT_LABELS[sort])}
+                <ChevronDownIcon aria-hidden="true" />
+              </button>
+            )}
+            {filter === 'downloaded' && downloadTotal.count > 0 && (
+              <p className="rd-dl-total">
+                {t('reader.lib_downloads_total', {
+                  items: t('reader.lib_items', { count: downloadTotal.count }),
+                  size: formatBytes(downloadTotal.bytes),
+                })}
+              </p>
+            )}
           </div>
         )}
         {swipeHint && (
@@ -694,10 +816,36 @@ export function ReaderLibraryPage() {
             {t('reader.lib_swipe_hint')}
           </span>
         )}
-        {visible.length ? (
+        {filter === 'collections' && !searching && !openCollection ? (
+          collections.length ? (
+            <CollectionList
+              collections={collections}
+              counts={collectionCounts}
+              onOpen={(id) => {
+                setOpenId(id);
+                chrome.scroller.current?.scrollTo({ top: 0 });
+              }}
+              onNew={() => setNewCollection(true)}
+            />
+          ) : (
+            <EmptyState
+              compact
+              art={<StackedCards icon={LibraryBigIcon} />}
+              title={t('reader.lib_collections_empty')}
+              body={t('reader.lib_collections_empty_hint')}
+              primary={{
+                label: t('reader.lib_collection_new'),
+                icon: PlusIcon,
+                onClick: () => setNewCollection(true),
+              }}
+            />
+          )
+        ) : visible.length ? (
           <ul
             className="rd-lib-list"
-            aria-label={t(searching ? 'reader.search' : FILTER_LABELS[filter])}
+            aria-label={
+              searching ? t('reader.search') : (openCollection?.name ?? t(TAB_LABELS[filter]))
+            }
           >
             {visible.map((doc) => (
               <DocumentRow
@@ -706,6 +854,9 @@ export function ReaderLibraryPage() {
                 onMore={() => setActionsFor(doc)}
                 onLongPress={() => dispatch({ type: 'enter', id: doc.id })}
                 swipeHintId={swipeHint}
+                onRemoveDownload={
+                  filter === 'downloaded' && !searching ? () => removeDownloads([doc]) : undefined
+                }
                 selection={{
                   active: selection.active,
                   selected: selection.ids.includes(doc.id),
@@ -738,6 +889,20 @@ export function ReaderLibraryPage() {
             art={<StackedCards icon={CircleCheckIcon} />}
             title={t('reader.empty_finished')}
             body={t('reader.lib_empty_finished_hint')}
+          />
+        ) : filter === 'collections' ? (
+          <EmptyState
+            compact
+            art={<StackedCards icon={LibraryBigIcon} />}
+            title={t('reader.lib_collection_empty')}
+            body={t('reader.lib_collection_empty_hint')}
+          />
+        ) : filter === 'downloaded' ? (
+          <EmptyState
+            compact
+            art={<StackedCards icon={ArrowDownToLineIcon} />}
+            title={t('reader.lib_downloads_empty')}
+            body={t('reader.lib_downloads_empty_hint')}
           />
         ) : (
           <EmptyState
@@ -890,6 +1055,7 @@ export function ReaderLibraryPage() {
           docs={selectedDocs}
           onDone={exitSelection}
           onDelete={() => setConfirmDelete(selectedDocs.filter((doc) => !doc.offlineOnly))}
+          onCollect={collectionsOn ? setCollectFor : undefined}
         />
       ) : (
         loaded && <MiniPlayer hidden={chrome.miniHidden} />
@@ -901,6 +1067,7 @@ export function ReaderLibraryPage() {
           setAdding(false);
           if (doc.import_status === 'importing') {
             setFilter('library');
+            setOpenId(null);
             closeSearch();
             toast(t('reader.import_started', { title: doc.title }));
             return;
@@ -931,6 +1098,30 @@ export function ReaderLibraryPage() {
         }
       />
       <DocumentActionsSheet doc={actionsFor} onClose={() => setActionsFor(null)} />
+      <CollectionPickerSheet
+        docIds={collectFor}
+        onClose={() => {
+          setCollectFor(null);
+          exitSelection();
+        }}
+      />
+      <NewCollectionSheet
+        open={newCollection}
+        onOpenChange={setNewCollection}
+        onCreated={(created) => {
+          setNewCollection(false);
+          setFilter('collections');
+          setOpenId(created.id);
+        }}
+      />
+      <CollectionMenuSheet
+        collection={collectionMenu}
+        onClose={() => setCollectionMenu(null)}
+        onDeleted={() => {
+          setCollectionMenu(null);
+          setOpenId(null);
+        }}
+      />
       <DeleteManySheet
         docs={confirmDelete}
         onClose={() => setConfirmDelete(null)}

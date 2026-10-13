@@ -3,7 +3,12 @@ import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { describeError, isAbortError } from '@/lib/api/client';
 import { tr } from '@/lib/i18n-text';
-import { readerApi, type ReaderDocument, type ReaderVoiceChoice } from './reader-api';
+import {
+  readerApi,
+  type ReaderDocument,
+  type ReaderDocumentSummary,
+  type ReaderVoiceChoice,
+} from './reader-api';
 import {
   createIndexedDbOfflineBackend,
   createMemoryOfflineBackend,
@@ -20,6 +25,8 @@ export interface OfflineDocMeta {
   segments: number;
   total: number;
   bytes: number;
+  /** The document as it was downloaded (for the downloads list without the PC). */
+  summary: ReaderDocumentSummary;
 }
 
 export interface ActiveDownload {
@@ -53,6 +60,7 @@ function publish(next: Partial<OfflineSnapshot>) {
 }
 
 function meta(record: OfflineDocRecord): OfflineDocMeta {
+  const { segments: _segments, chapters: _chapters, ...summary } = record.doc;
   return {
     voice: record.voice,
     engine: record.engine,
@@ -60,6 +68,7 @@ function meta(record: OfflineDocRecord): OfflineDocMeta {
     segments: record.segments,
     total: record.doc.segments.length,
     bytes: record.bytes,
+    summary,
   };
 }
 

@@ -240,6 +240,84 @@
     outline-offset: 2px;
     border-radius: var(--rd-r-sm);
   }
+  .rd-dl-total {
+    margin-bottom: 0.25rem;
+    color: var(--rd-text-3);
+    font-size: 14px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Collections ────────────────────────────────────────────────────── */
+  .rd-coll-list {
+    margin-inline: -1.25rem;
+  }
+  .rd-coll-row {
+    display: flex;
+    width: 100%;
+    min-height: 4.5rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    color: inherit;
+    text-align: left;
+  }
+  .rd-coll-row:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ring);
+    border-radius: var(--rd-r-md);
+    outline: none;
+  }
+  @media (hover: hover) {
+    .rd-coll-row:hover {
+      background: color-mix(in srgb, var(--rd-text) 4%, var(--background));
+    }
+  }
+  .rd-coll-row:active {
+    background: var(--rd-fill-hover);
+  }
+  .rd-coll-tile {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: var(--rd-r-sm);
+    background: var(--rd-fill-subtle);
+    color: var(--rd-text-2);
+  }
+  .rd-coll-tile[data-new] {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--rd-hairline);
+    color: var(--rd-text-3);
+  }
+  .rd-coll-tile > svg {
+    width: 22px;
+    height: 22px;
+  }
+  .rd-coll-chevron {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--rd-text-3);
+  }
+  .rd-coll-head {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0.5rem -0.75rem 0;
+  }
+  .rd-coll-name {
+    overflow: hidden;
+    font-family: var(--rd-serif);
+    font-size: 20px;
+    line-height: 28px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rd-coll-head .rd-row-meta {
+    margin-top: 0;
+  }
 
   /* ── Rows ───────────────────────────────────────────────────────────── */
   .rd-lib-list {
@@ -998,7 +1076,9 @@
     bottom: 0;
     z-index: 20;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Four or five equal buttons (Collection appears with collections). */
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
     gap: 0.25rem;
     padding: 0.375rem max(0.5rem, var(--rd-safe-right)) calc(0.375rem + var(--rd-safe-bottom))
       max(0.5rem, var(--rd-safe-left));

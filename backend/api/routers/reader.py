@@ -878,6 +878,67 @@ async def delete_bookmark(bookmark_id: str):
     return {"ok": True}
 
 
+# ── Collections (named groups of documents; deleting one never deletes documents) ──
+
+
+class CollectionCreate(BaseModel):
+    name: str = Field(..., max_length=reader_store.MAX_COLLECTION_NAME * 2)
+    doc_ids: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class CollectionPatch(BaseModel):
+    name: str = Field(..., max_length=reader_store.MAX_COLLECTION_NAME * 2)
+
+
+class CollectionDocuments(BaseModel):
+    doc_ids: list[str] = Field(..., min_length=1, max_length=1000)
+
+
+async def _collection_call(fn, *args):
+    """Run a collection store call, mapping its errors to 400 / 404 / 409."""
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except reader_store.CollectionNotFound:
+        raise HTTPException(status_code=404, detail="Collection not found") from None
+    except reader_store.DocumentNotFound:
+        raise _not_found() from None
+    except reader_store.CollectionNameTaken:
+        raise HTTPException(status_code=409, detail="A collection with that name already exists") from None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Collection name cannot be empty") from None
+
+
+@router.get("/reader/collections")
+async def list_collections():
+    return await asyncio.to_thread(reader_store.list_collections)
+
+
+@router.post("/reader/collections")
+async def create_collection(req: CollectionCreate):
+    return await _collection_call(reader_store.create_collection, req.name, req.doc_ids)
+
+
+@router.patch("/reader/collections/{collection_id}")
+async def rename_collection(collection_id: str, req: CollectionPatch):
+    return await _collection_call(reader_store.rename_collection, collection_id, req.name)
+
+
+@router.delete("/reader/collections/{collection_id}")
+async def delete_collection(collection_id: str):
+    await _collection_call(reader_store.delete_collection, collection_id)
+    return {"ok": True}
+
+
+@router.post("/reader/collections/{collection_id}/documents")
+async def add_to_collection(collection_id: str, req: CollectionDocuments):
+    return await _collection_call(reader_store.add_to_collection, collection_id, req.doc_ids)
+
+
+@router.delete("/reader/collections/{collection_id}/documents/{doc_id}")
+async def remove_from_collection(collection_id: str, doc_id: str):
+    return await _collection_call(reader_store.remove_from_collection, collection_id, doc_id)
+
+
 # ── Automatic ambience (scene analysis; services/reader_ambience.py) ────────
 # One self-contained block: scene analysis is independent of rendering and speech.
 

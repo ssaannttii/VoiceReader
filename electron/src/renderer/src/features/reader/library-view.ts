@@ -43,7 +43,11 @@ export function isReady(doc: Pick<Doc, 'import_status'>): boolean {
   return !doc.import_status || doc.import_status === 'ready';
 }
 
-export function matchesFilter(doc: Doc, filter: LibraryFilter): boolean {
+/** A tab's base filter; `all` (the downloads list) keeps archived documents too. */
+export type LibraryScope = LibraryFilter | 'all';
+
+export function matchesFilter(doc: Doc, filter: LibraryScope): boolean {
+  if (filter === 'all') return true;
   if (filter === 'archived') return doc.archived === true;
   if (doc.archived) return false;
   return filter === 'finished' ? isReady(doc) && isFinished(doc) : true;
@@ -65,16 +69,18 @@ const comparators: Record<LibrarySort, (a: Doc, b: Doc) => number> = {
 
 /**
  * Filtered and sorted copy. Imports in flight (or failed) stay on top so a
- * new upload is always visible; ties fall back to recency.
+ * new upload is always visible; ties fall back to recency. `only` keeps just
+ * those ids (a collection's documents).
  */
-export function arrangeLibrary<T extends Doc>(
+export function arrangeLibrary<T extends Doc & { id?: string }>(
   docs: readonly T[],
   sort: LibrarySort,
-  filter: LibraryFilter,
+  filter: LibraryScope,
+  only?: ReadonlySet<string>,
 ): T[] {
   const compare = comparators[sort];
   return docs
-    .filter((doc) => matchesFilter(doc, filter))
+    .filter((doc) => matchesFilter(doc, filter) && (!only || only.has(doc.id ?? '')))
     .sort(
       (a, b) => Number(isReady(a)) - Number(isReady(b)) || compare(a, b) || recency(b) - recency(a),
     );
@@ -134,10 +140,45 @@ export function rowStatus(doc: Doc & Pick<ReaderDocumentSummary, 'est_duration_s
   };
 }
 
-/** Long durations read as hours: 1560 min → 26 h 0 min; under an hour stays in minutes. */
+/** Long durations read as hours: 1560 min → 26 h, 95 min → 1 h 35 min; under an hour stays in minutes. */
 export function splitMinutes(total: number): { hours: number; minutes: number } {
   if (total < 60) return { hours: 0, minutes: total };
   return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
+/** The i18n key and values for "25 min", "3 h 10 min", "26 h" (no "0 min"), or the same "left". */
+export function durationText(
+  parts: { hours: number; minutes: number },
+  left: boolean,
+): { key: string; values: Record<string, number> } {
+  const { hours, minutes } = parts;
+  if (!hours)
+    return { key: left ? 'reader.lib_minutes_left' : 'reader.minutes_total', values: { minutes } };
+  if (!minutes)
+    return { key: left ? 'reader.lib_hours_only_left' : 'reader.duration_h', values: { hours } };
+  return {
+    key: left ? 'reader.lib_hours_left' : 'reader.lib_hours_total',
+    values: { hours, minutes },
+  };
+}
+
+/** "25 min", "3 h 10 min", "26 h" (total minutes) or the same with "left". */
+export function durationLabel(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  total: number,
+  left: boolean,
+): string {
+  const { key, values } = durationText(splitMinutes(total), left);
+  return t(key, values);
+}
+
+/** Documents downloaded on this device and the space they take. */
+export function downloadTotals(downloaded: Readonly<Record<string, { bytes: number }>>): {
+  count: number;
+  bytes: number;
+} {
+  const items = Object.values(downloaded);
+  return { count: items.length, bytes: items.reduce((sum, item) => sum + (item.bytes || 0), 0) };
 }
 
 const KEY = 'voicestudio.reader.library';

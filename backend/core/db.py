@@ -252,6 +252,23 @@ _BASE_SCHEMA = """
     );
     CREATE INDEX IF NOT EXISTS idx_reader_bookmarks_doc ON reader_bookmarks(doc_id);
 
+    -- Reader collections (alembic 0016_reader_collections): named groups of
+    -- documents; a document can be in several. Deleting a collection never
+    -- deletes documents; membership rows go with either side.
+    CREATE TABLE IF NOT EXISTS reader_collections (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reader_collection_items (
+        collection_id TEXT NOT NULL,
+        doc_id TEXT NOT NULL,
+        added_at REAL NOT NULL,
+        PRIMARY KEY (collection_id, doc_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reader_collection_items_doc ON reader_collection_items(doc_id);
+
     -- Legacy tables kept for existing installs; the feature moved to VoiceStudio Pro.
     CREATE TABLE IF NOT EXISTS remote_workers (
         id TEXT PRIMARY KEY,

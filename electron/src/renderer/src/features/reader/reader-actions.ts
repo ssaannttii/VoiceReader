@@ -6,6 +6,7 @@ import {
   type ReaderDocument,
   type ReaderDocumentSummary,
 } from './reader-api';
+import { forgetDocumentInCollections } from './collection-actions';
 import { removeOfflineDownload, startOfflineDownload } from './offline-state';
 import { readerPlayer } from './reader-player';
 import { refreshQueueTitles, removeFromQueue } from './reader-queue';
@@ -47,6 +48,7 @@ export async function deleteDocument(id: string): Promise<void> {
   await readerApi.remove(id);
   if (readerPlayer.getState().doc?.id === id) readerPlayer.unload();
   removeFromQueue(id);
+  forgetDocumentInCollections(id);
   await removeOfflineDownload(id).catch(() => {});
   queryClient.setQueryData<ReaderDocumentSummary[]>(readerKeys.documents, (list) =>
     list?.filter((item) => item.id !== id),

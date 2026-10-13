@@ -65,6 +65,14 @@ class BookmarkNotFound(LookupError):
     """No Reader bookmark with that id."""
 
 
+class CollectionNotFound(LookupError):
+    """No Reader collection with that id."""
+
+
+class CollectionNameTaken(ValueError):
+    """Another collection already has that name (compared case-insensitively)."""
+
+
 def reader_dir() -> str:
     from core.config import DATA_DIR
 
@@ -505,6 +513,7 @@ def delete_document(doc_id: str) -> None:
     with db_conn() as conn:
         conn.execute("DELETE FROM reader_documents WHERE id=?", (doc_id,))
         conn.execute("DELETE FROM reader_bookmarks WHERE doc_id=?", (doc_id,))
+        conn.execute("DELETE FROM reader_collection_items WHERE doc_id=?", (doc_id,))
     shutil.rmtree(document_dir(doc_id), ignore_errors=True)
 
 
@@ -568,6 +577,177 @@ def delete_bookmark(bookmark_id: str) -> None:
     get_bookmark(bookmark_id)
     with db_conn() as conn:
         conn.execute("DELETE FROM reader_bookmarks WHERE id=?", (bookmark_id,))
+
+
+# ── Collections ──────────────────────────────────────────────────────────────
+# Named groups of documents (shelves). A document can be in several; deleting a
+# collection only drops its membership rows, never a document.
+
+MAX_COLLECTION_NAME = 100
+
+
+def _collection_name(name: str) -> str:
+    """Whitespace-collapsed name; ``ValueError`` when empty."""
+    clean = " ".join((name or "").split())[:MAX_COLLECTION_NAME]
+    if not clean:
+        raise ValueError("name is empty")
+    return clean
+
+
+def _check_name_free(conn, name: str, except_id: Optional[str] = None) -> None:
+    wanted = name.casefold()
+    for row in conn.execute("SELECT id, name FROM reader_collections").fetchall():
+        if row["id"] != except_id and row["name"].casefold() == wanted:
+            raise CollectionNameTaken(name)
+
+
+def _require_collection(conn, collection_id: str):
+    if not valid_id(collection_id):
+        raise CollectionNotFound(collection_id)
+    row = conn.execute("SELECT * FROM reader_collections WHERE id=?", (collection_id,)).fetchone()
+    if row is None:
+        raise CollectionNotFound(collection_id)
+    return row
+
+
+def _require_documents(conn, doc_ids) -> list[str]:
+    """Unique, existing document ids in the given order (``DocumentNotFound`` otherwise)."""
+    ids = list(dict.fromkeys(doc_ids))
+    for doc_id in ids:
+        if not valid_id(doc_id):
+            raise DocumentNotFound(doc_id)
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        found = {
+            r["id"]
+            for r in conn.execute(f"SELECT id FROM reader_documents WHERE id IN ({marks})", ids)  # noqa: S608 — placeholders only
+        }
+        missing = [doc_id for doc_id in ids if doc_id not in found]
+        if missing:
+            raise DocumentNotFound(missing[0])
+    return ids
+
+
+def _collections(conn, collection_id: Optional[str] = None) -> list[dict]:
+    where, args = ("WHERE id=?", (collection_id,)) if collection_id else ("", ())
+    rows = conn.execute(
+        f"SELECT * FROM reader_collections {where} ORDER BY created_at, id", args  # noqa: S608 — fixed clauses
+    ).fetchall()
+    members: dict[str, list[str]] = {row["id"]: [] for row in rows}
+    # Only documents that exist (a row deleted outside the store never shows).
+    item_where = "WHERE i.collection_id=?" if collection_id else ""
+    for item in conn.execute(
+        "SELECT i.collection_id, i.doc_id FROM reader_collection_items i"
+        f" JOIN reader_documents d ON d.id = i.doc_id {item_where}"  # noqa: S608 — fixed clauses
+        " ORDER BY i.added_at, i.doc_id",
+        args,
+    ):
+        if item["collection_id"] in members:
+            members[item["collection_id"]].append(item["doc_id"])
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "doc_ids": members[row["id"]],
+        }
+        for row in rows
+    ]
+
+
+@_with_schema
+def list_collections() -> list[dict]:
+    """Every collection (oldest first) with its document ids (in the order added)."""
+    with db_conn() as conn:
+        return _collections(conn)
+
+
+@_with_schema
+def get_collection(collection_id: str) -> dict:
+    with db_conn() as conn:
+        _require_collection(conn, collection_id)
+        return _collections(conn, collection_id)[0]
+
+
+def _add_items(conn, collection_id: str, doc_ids: list[str], now: float) -> None:
+    for offset, doc_id in enumerate(doc_ids):
+        # A tiny offset keeps the given order for documents added together.
+        conn.execute(
+            "INSERT OR IGNORE INTO reader_collection_items (collection_id, doc_id, added_at) VALUES (?,?,?)",
+            (collection_id, doc_id, now + offset * 1e-6),
+        )
+
+
+@_with_schema
+def create_collection(name: str, doc_ids=()) -> dict:
+    """New collection, optionally with documents already in it.
+
+    Raises ``ValueError`` (empty name), :class:`CollectionNameTaken` or
+    :class:`DocumentNotFound`.
+    """
+    clean = _collection_name(name)
+    collection_id = uuid.uuid4().hex
+    now = time.time()
+    with db_conn() as conn:
+        _check_name_free(conn, clean)
+        ids = _require_documents(conn, doc_ids)
+        conn.execute(
+            "INSERT INTO reader_collections (id, name, created_at, updated_at) VALUES (?,?,?,?)",
+            (collection_id, clean, now, now),
+        )
+        _add_items(conn, collection_id, ids, now)
+    return get_collection(collection_id)
+
+
+@_with_schema
+def rename_collection(collection_id: str, name: str) -> dict:
+    clean = _collection_name(name)
+    with db_conn() as conn:
+        _require_collection(conn, collection_id)
+        _check_name_free(conn, clean, except_id=collection_id)
+        conn.execute(
+            "UPDATE reader_collections SET name=?, updated_at=? WHERE id=?",
+            (clean, time.time(), collection_id),
+        )
+    return get_collection(collection_id)
+
+
+@_with_schema
+def delete_collection(collection_id: str) -> None:
+    """Remove the collection and its membership rows; documents are untouched."""
+    with db_conn() as conn:
+        _require_collection(conn, collection_id)
+        conn.execute("DELETE FROM reader_collection_items WHERE collection_id=?", (collection_id,))
+        conn.execute("DELETE FROM reader_collections WHERE id=?", (collection_id,))
+
+
+@_with_schema
+def add_to_collection(collection_id: str, doc_ids) -> dict:
+    """Add documents (already present ones are kept where they are)."""
+    now = time.time()
+    with db_conn() as conn:
+        _require_collection(conn, collection_id)
+        ids = _require_documents(conn, doc_ids)
+        _add_items(conn, collection_id, ids, now)
+        conn.execute("UPDATE reader_collections SET updated_at=? WHERE id=?", (now, collection_id))
+    return get_collection(collection_id)
+
+
+@_with_schema
+def remove_from_collection(collection_id: str, doc_id: str) -> dict:
+    """Take a document out of a collection (a no-op when it was not in it)."""
+    with db_conn() as conn:
+        _require_collection(conn, collection_id)
+        removed = conn.execute(
+            "DELETE FROM reader_collection_items WHERE collection_id=? AND doc_id=?",
+            (collection_id, doc_id),
+        ).rowcount
+        if removed:
+            conn.execute(
+                "UPDATE reader_collections SET updated_at=? WHERE id=?", (time.time(), collection_id)
+            )
+    return get_collection(collection_id)
 
 
 def _md_inline(text: str) -> str:

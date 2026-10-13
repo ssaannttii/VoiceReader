@@ -25,13 +25,13 @@ import { deleteWithUndo, setFlagsWithUndo, toggleDownload } from './library-acti
 import {
   coverArt,
   coverShape,
+  durationLabel,
   isFinished,
   isReady,
   isUnread,
   rowStatus,
-  splitMinutes,
 } from './library-view';
-import { useOffline } from './offline-state';
+import { formatBytes, useOffline } from './offline-state';
 import { readerApi, readerKeys, type ReaderDocumentSummary } from './reader-api';
 import { SwipeRow, type SwipeAction } from './swipe-row';
 import type { ReaderListItem } from './use-reader-data';
@@ -43,17 +43,6 @@ export function sourceLabel(doc: Doc, t: (key: string) => string): string {
   if (doc.author) return doc.author;
   if (doc.source_type === 'scan') return t('reader.lib_source_scan');
   return doc.source_name || t('reader.source_text');
-}
-
-/** "25 min", "3 h 10 min" (total) or the same with "left". */
-export function durationLabel(
-  t: (key: string, options?: Record<string, unknown>) => string,
-  total: number,
-  left: boolean,
-): string {
-  const { hours, minutes } = splitMinutes(total);
-  if (!hours) return t(left ? 'reader.lib_minutes_left' : 'reader.minutes_total', { minutes });
-  return t(left ? 'reader.lib_hours_left' : 'reader.lib_hours_total', { hours, minutes });
 }
 
 /** Cover in its 2:3 or square shape, with the import ring, error badge or selection check. */
@@ -121,13 +110,28 @@ function ProgressRing({ value }: { value: number | null }) {
   );
 }
 
+/** The space a download takes on this device, on its own line (downloads list). */
+function SizeLine({ id }: { id: string }) {
+  const { t } = useTranslation();
+  const saved = useOffline().downloaded[id];
+  if (!saved) return null;
+  const size = formatBytes(saved.bytes);
+  return (
+    <span className="rd-row-status">
+      <ArrowDownToLineIcon className={cn(saved.complete && 'rd-ok')} aria-hidden="true" />
+      {saved.complete ? size : t('reader.lib_download_partial', { size })}
+    </span>
+  );
+}
+
 /** "12 min", "17 % · 25 min left" or "Finished", plus the download state. */
-function StatusLine({ doc }: { doc: ReaderListItem }) {
+function StatusLine({ doc, showSize }: { doc: ReaderListItem; showSize?: boolean }) {
   const { t } = useTranslation();
   const offline = useOffline();
   const status = rowStatus(doc);
   const active = offline.active[doc.id];
-  const downloaded = offline.downloaded[doc.id]?.complete;
+  // The downloads list shows the size on a line of its own instead of the icon.
+  const downloaded = offline.downloaded[doc.id]?.complete && !showSize;
   return (
     <span className="rd-row-status">
       {status.kind === 'finished' ? (
@@ -285,22 +289,35 @@ export function DocumentRow({
   selection,
   onLongPress,
   swipeHintId,
+  onRemoveDownload,
 }: {
   doc: ReaderListItem;
   onMore: () => void;
   selection: RowSelection;
   onLongPress: () => void;
   swipeHintId?: string;
+  /** Downloads list: show the size and a remove button (works offline) instead of •••. */
+  onRemoveDownload?: () => void;
 }) {
   const { t } = useTranslation();
   const swipe = useSwipeActions(doc);
   if (!isReady(doc)) return <PendingRow doc={doc} onMore={onMore} selection={selection} />;
   const unread = isUnread(doc);
+  const downloads = onRemoveDownload !== undefined;
   const body = (
     <RowBody
       doc={doc}
       cover={<RowCover doc={doc} selected={selection.active ? selection.selected : undefined} />}
-      status={<StatusLine doc={doc} />}
+      status={
+        downloads ? (
+          <>
+            <StatusLine doc={doc} showSize />
+            <SizeLine id={doc.id} />
+          </>
+        ) : (
+          <StatusLine doc={doc} />
+        )
+      }
       trailing={
         unread ? <span className="rd-row-dot" role="img" aria-label={t('reader.lib_new')} /> : null
       }
@@ -329,7 +346,18 @@ export function DocumentRow({
             {body}
           </Link>
         )}
-        {!doc.offlineOnly && !selection.active && <MoreButton doc={doc} onMore={onMore} />}
+        {selection.active ? null : onRemoveDownload ? (
+          <button
+            type="button"
+            className="rd-icon-btn rd-row-more"
+            aria-label={t('reader.lib_remove_download_named', { title: doc.title })}
+            onClick={onRemoveDownload}
+          >
+            <Trash2Icon className="size-5" aria-hidden="true" />
+          </button>
+        ) : (
+          !doc.offlineOnly && <MoreButton doc={doc} onMore={onMore} />
+        )}
       </div>
     </SwipeRow>
   );

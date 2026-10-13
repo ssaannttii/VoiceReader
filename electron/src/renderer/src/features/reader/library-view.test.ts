@@ -4,6 +4,9 @@ import {
   arrangeLibrary,
   coverArt,
   coverShape,
+  downloadTotals,
+  durationLabel,
+  durationText,
   isFinished,
   isReady,
   isUnread,
@@ -187,5 +190,55 @@ describe('splitMinutes', () => {
     expect(splitMinutes(60)).toEqual({ hours: 1, minutes: 0 });
     expect(splitMinutes(1560)).toEqual({ hours: 26, minutes: 0 });
     expect(splitMinutes(95)).toEqual({ hours: 1, minutes: 35 });
+  });
+});
+
+describe('durationLabel', () => {
+  // A fake `t` that shows which key and values were used.
+  const t = (key: string, values?: Record<string, unknown>) =>
+    `${key.replace('reader.', '')}${JSON.stringify(values)}`;
+
+  it('drops "0 min" from whole hours (26 h, not 26 h 0 min)', () => {
+    expect(durationLabel(t, 1560, false)).toBe('duration_h{"hours":26}');
+    expect(durationLabel(t, 1560, true)).toBe('lib_hours_only_left{"hours":26}');
+    expect(durationLabel(t, 60, true)).toBe('lib_hours_only_left{"hours":1}');
+  });
+
+  it('keeps hours with minutes and plain minutes', () => {
+    expect(durationLabel(t, 95, false)).toBe('lib_hours_total{"hours":1,"minutes":35}');
+    expect(durationLabel(t, 95, true)).toBe('lib_hours_left{"hours":1,"minutes":35}');
+    expect(durationLabel(t, 25, false)).toBe('minutes_total{"minutes":25}');
+    expect(durationLabel(t, 25, true)).toBe('lib_minutes_left{"minutes":25}');
+  });
+
+  it('has the same rule for any hours/minutes split', () => {
+    expect(durationText({ hours: 2, minutes: 0 }, false).key).toBe('reader.duration_h');
+    expect(durationText({ hours: 0, minutes: 0 }, false).key).toBe('reader.minutes_total');
+  });
+});
+
+describe('collections and downloads lists', () => {
+  const a = doc({ title: 'a', created_at: 3 });
+  const b = doc({ title: 'b', created_at: 2, archived: true });
+  const c = doc({ title: 'c', created_at: 1 });
+
+  it('keeps only the given ids (a collection), still sorted and filtered', () => {
+    const members = new Set([a.id, b.id]);
+    expect(arrangeLibrary([a, b, c], 'title', 'library', members)).toEqual([a]);
+    expect(arrangeLibrary([c, a], 'title', 'library', new Set([a.id, c.id]))).toEqual([a, c]);
+    expect(arrangeLibrary([a, b, c], 'title', 'library', new Set())).toEqual([]);
+  });
+
+  it('lists archived documents too with the "all" scope', () => {
+    expect(arrangeLibrary([c, b, a], 'title', 'all')).toEqual([a, b, c]);
+    expect(matchesFilter(b, 'all')).toBe(true);
+  });
+
+  it('adds up downloads on this device', () => {
+    expect(downloadTotals({})).toEqual({ count: 0, bytes: 0 });
+    expect(downloadTotals({ x: { bytes: 1024 }, y: { bytes: 2048 } })).toEqual({
+      count: 2,
+      bytes: 3072,
+    });
   });
 });

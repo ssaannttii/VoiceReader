@@ -26,6 +26,7 @@ import {
 import { ApiError, describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { DebugHud } from './debug-hud';
+import { durationLabel } from './library-view';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
 import type { ReaderDocument } from './reader-api';
@@ -191,7 +192,7 @@ function HeaderSubtitle({ doc, active }: { doc: ReaderDocument; active: boolean 
     doc.author ||
     chapter ||
     distinctSource(doc.title, doc.source_name) ||
-    t('reader.minutes_total', { minutes: minutesLeft(doc.est_duration_s) });
+    durationLabel(t, minutesLeft(doc.est_duration_s), false);
   return <span className="rd-head-sub">{text}</span>;
 }
 
@@ -414,7 +415,7 @@ export function ReaderDocumentPage() {
     if (!doc) return null;
     const meta = [
       doc.author || doc.source_name,
-      t('reader.minutes_total', { minutes: minutesLeft(doc.est_duration_s) }),
+      durationLabel(t, minutesLeft(doc.est_duration_s), false),
     ]
       .filter(Boolean)
       .join(' · ');
