@@ -1,3 +1,4 @@
+@import './reader-tokens.css';
 /* Reader: phone-first, full-screen listening workspace. */
 /* In the components layer so Tailwind utilities on the same element win. */
 @layer components {

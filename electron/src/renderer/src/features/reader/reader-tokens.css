@@ -1,0 +1,129 @@
+/*
+ * Reader design tokens: one monochrome gray ramp per reading surface, semantic roles,
+ * spacing, radii, type, elevation and motion. The only hue is the reader's chosen
+ * highlight (`--rd-accent`, set by reader-appearance.ts), used for highlights, reading
+ * progress, focus and selected states. Serif stays reserved for reading text and the
+ * large library titles; chrome uses the app sans.
+ *
+ * Surfaces follow `data-rd-surface` (light | dark | paper) set on Reader roots and
+ * sheets; the light ramp is the default.
+ */
+@layer components {
+  :root,
+  [data-rd-surface='light'] {
+    --rd-g1: #fbfbfa;
+    --rd-g2: #f6f6f5;
+    --rd-g3: #efefee;
+    --rd-g4: #e7e7e6;
+    --rd-g5: #dfdfde;
+    --rd-g6: #d6d6d5;
+    --rd-g7: #c9c9c8;
+    --rd-g8: #b5b5b4;
+    --rd-g9: #8a8a89;
+    --rd-g10: #7f7f7e;
+    --rd-g11: #5f5f5e;
+    --rd-g12: #1d1d1c;
+    --rd-raised: #ffffff;
+    --rd-shadow-strength: 16%;
+  }
+  .dark,
+  [data-rd-surface='dark'] {
+    --rd-g1: #111110;
+    --rd-g2: #181817;
+    --rd-g3: #21211f;
+    --rd-g4: #292927;
+    --rd-g5: #31312f;
+    --rd-g6: #3a3a37;
+    --rd-g7: #484845;
+    --rd-g8: #5f5f5b;
+    --rd-g9: #6d6d69;
+    --rd-g10: #7a7a76;
+    --rd-g11: #b2b2ad;
+    --rd-g12: #ededea;
+    /* In dark, raised surfaces are lighter grays; a shadow alone does not read. */
+    --rd-raised: var(--rd-g3);
+    --rd-shadow-strength: 40%;
+  }
+  [data-rd-surface='paper'] {
+    --rd-g1: #f6efe2;
+    --rd-g2: #f1e9da;
+    --rd-g3: #eae1d0;
+    --rd-g4: #e2d8c5;
+    --rd-g5: #d9ceba;
+    --rd-g6: #cec2ad;
+    --rd-g7: #bfb29c;
+    --rd-g8: #a89a83;
+    --rd-g9: #857863;
+    --rd-g10: #786c58;
+    --rd-g11: #5b5043;
+    --rd-g12: #2b241c;
+    --rd-raised: #fbf6ec;
+    --rd-shadow-strength: 14%;
+  }
+
+  :root {
+    /* roles */
+    --rd-bg: var(--rd-g1);
+    --rd-text: var(--rd-g12);
+    --rd-text-2: var(--rd-g11);
+    --rd-text-3: var(--rd-g9);
+    --rd-text-4: var(--rd-g8);
+    --rd-fill-subtle: var(--rd-g3);
+    --rd-fill-hover: color-mix(in srgb, var(--rd-g12) 4%, transparent);
+    --rd-hairline: color-mix(in srgb, var(--rd-g12) 8%, transparent);
+    --rd-scrim: rgb(0 0 0 / 40%);
+    --rd-danger: #e5484d;
+    --rd-positive: #2f9e72;
+
+    /* spacing (4px base) */
+    --rd-s1: 4px;
+    --rd-s1_5: 6px;
+    --rd-s2: 8px;
+    --rd-s3: 12px;
+    --rd-s4: 16px;
+    --rd-s5: 20px;
+    --rd-s6: 24px;
+    --rd-s8: 32px;
+    --rd-s12: 48px;
+    --rd-s14: 56px;
+
+    /* radii */
+    --rd-r-cover: 6px;
+    --rd-r-sm: 8px;
+    --rd-r-md: 12px;
+    --rd-r-lg: 16px;
+    --rd-r-xl: 24px;
+    --rd-r-full: 999px;
+
+    /* type (font shorthand fragments: size/line-height) */
+    --rd-t-xs: 12px/16px;
+    --rd-t-sm: 14px/20px;
+    --rd-t-base: 16px/24px;
+    --rd-t-lg: 20px/28px;
+    --rd-t-xl: 24px/32px;
+    --rd-t-2xl: 32px/40px;
+
+    /* elevation */
+    --rd-shadow-float: 0 8px 32px -6px rgb(0 0 0 / var(--rd-shadow-strength));
+    --rd-shadow-toast: 0 8px 32px rgb(0 0 0 / var(--rd-shadow-strength));
+    --rd-shadow-cover: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 12px -4px rgb(0 0 0 / 10%);
+
+    /* motion */
+    --rd-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+    --rd-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --rd-dur-press: 120ms;
+    --rd-dur-fast: 160ms;
+    --rd-dur-base: 240ms;
+    --rd-dur-sheet: 420ms;
+    --rd-press-scale: 0.965;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --rd-dur-press: 0ms;
+      --rd-dur-fast: 0ms;
+      --rd-dur-base: 0ms;
+      --rd-press-scale: 1;
+    }
+  }
+}
