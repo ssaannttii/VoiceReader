@@ -3,6 +3,7 @@ import type { ReaderDocument, ReaderPrerenderStatus, ReaderRender } from './read
 import {
   createMemoryOfflineBackend,
   downloadForOffline,
+  readOfflineAsset,
   readOfflineSegment,
   segmentKey,
   type OfflineDownloadApi,
@@ -139,5 +140,29 @@ describe('downloadForOffline', () => {
     await backend.deleteDoc('doc1');
     expect(await backend.listDocs()).toEqual([]);
     expect(await backend.segmentIndexes('doc1')).toEqual([]);
+  });
+
+  it('keeps the images too, skipping ones that fail and ones already stored', async () => {
+    const backend = createMemoryOfflineBackend();
+    const doc = makeDoc(2);
+    const image = (i: number, src: string) => ({ i, text: '', para: i, kind: 'img' as const, src });
+    doc.segments.push(image(2, '/a.png'), image(3, '/broken.png'), image(4, '/a.png'));
+    const api = fakeApi();
+    api.asset = vi.fn(async (src: string) => {
+      if (src === '/broken.png') throw new Error('404');
+      return new Blob([new Uint8Array([9, 9])], { type: 'image/png' });
+    });
+    const record = await downloadForOffline({ backend, api, doc, choice: {} });
+    expect(record.complete).toBe(true);
+    expect(api.asset).toHaveBeenCalledTimes(2);
+    expect(record.bytes).toBe(5 * 4 + 2);
+    const stored = await readOfflineAsset(backend, 'doc1', '/a.png');
+    expect(stored?.type).toBe('image/png');
+    expect(await readOfflineAsset(backend, 'doc1', '/broken.png')).toBeNull();
+
+    await downloadForOffline({ backend, api, doc, choice: {} });
+    expect(api.asset).toHaveBeenCalledTimes(3); // only the broken one is retried
+    await backend.deleteDoc('doc1');
+    expect(await readOfflineAsset(backend, 'doc1', '/a.png')).toBeNull();
   });
 });

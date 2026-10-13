@@ -119,7 +119,8 @@ All JSON. Errors use FastAPI's `{"detail": "..."}`.
   ]
 }
 ```
-`kind`: `h` heading (its own paragraph), `p` body sentence. Segments are sentences from
+`kind`: `h` heading (its own paragraph), `p` body sentence; rich content adds `li`, `quote`
+and `img` (see "Rich content" below). Segments are sentences from
 `services.sentence_chunker.SentenceChunker`; very long sentences are split at ≤ 300 chars on
 clause punctuation/whitespace. `text` is the display text (not normalized); normalization
 (`services.text_normalization.normalize_for_tts`) is applied only at synthesis time.
@@ -355,3 +356,59 @@ sync, in-document search, queue, soundscapes, voice picker search/recents, share
   `span`, and word timings are recomputed when one final text serves another display text.
 - **Bookmarks** also carry `doc_id`; a `word` of a regrouped (segmentation-upgraded) document is
   cleared because it indexed the old segment.
+
+## Rich content (lists, quotes, images)
+
+Additive: documents imported before keep their `h`/`p` segments unchanged (no rich fields are
+invented, `SEGMENTATION_VERSION` stays 3).
+
+### Segment kinds
+| kind | extra fields | rules |
+|---|---|---|
+| `li` | `list` (int, unique per document), `ordered` (bool), `n` (item number), `depth` (1–2, omitted at 0) | each item is its own paragraph: never grouped with siblings or neighbours, never joined by the PDF repair; several paragraphs of one item share `list` + `n` |
+| `quote` | – | block-quotation paragraphs; sentences group only within the same paragraph |
+| `img` | `src`, optional `alt`, `caption`, `w`/`h` (pixels) | one segment with `text: ""` (rendered as 0.4 s of silence) |
+
+In `content.json` an image's `src` is its asset name (`img-001.jpg`); `GET /reader/documents/{id}`
+returns it as the API path `/reader/documents/{id}/assets/img-001.jpg`. A document of only images
+is refused ("no readable text found"). The bookmark export quotes an image's alt/caption.
+
+### Endpoint
+| method | path | returns |
+|---|---|---|
+| GET | `/reader/documents/{id}/assets/{name}` | image bytes with its content type, `Cache-Control: public, max-age=86400`, `X-Content-Type-Options: nosniff`; 404 for any name the importer would not write (`img-NNN.(jpg\|png\|gif\|webp\|avif)`, no separators) or outside `<id>/assets/` |
+
+Images live in `<DATA_DIR>/reader/<id>/assets/` and are deleted with the document.
+
+### Import
+- **HTML / URL:** `ul`/`ol` (incl. `start`) → `li` with nesting depth ≤ 3 levels; `blockquote` → `quote`;
+  `<figure>` → one image with its `<figcaption>` (other text inside a figure stays unread, as before);
+  loose `<img>` → an image after its paragraph. Decoration is skipped: width/height < 48 px, icon/logo/
+  avatar/emoji/tracking class or path hints, `aria-hidden`/`role=presentation`, SVG, lazy-load
+  placeholders (real source from `data-src`/`srcset`). Existing noise filtering is unchanged.
+- **Downloads:** only for URL imports (the page, or a `.md` fetched by URL), through the same
+  SSRF-checked fetch, ≤ 5 MB per image, ≤ 40 images and 100 MB per document, 10 s per image, 45 s in
+  total (6 in parallel). Local files never make network requests: they keep `data:` URIs and package
+  members only.
+- **Markdown / pasted text:** `-`/`*`/`+`/`1.` lists (nesting by indentation, numbering from the
+  first item, lazy continuation lines), `>` quotes, `![alt](src "title")` images (title = caption).
+- **DOCX:** list paragraphs by `w:numPr` (paragraph or style; bullet vs numbered from
+  `numbering.xml`), `Quote`/`Intense Quote` styles (and localized names) → `quote`, inline
+  DrawingML/VML pictures from `word/media` (alt from `docPr descr`).
+- **EPUB:** the audiobook extractor plus marks for `ul`/`ol`/`li`, `blockquote`, `img`/SVG `image`
+  (package members) and `figcaption`; sections with only images are still skipped. Source line breaks
+  inside XHTML text read as spaces.
+- **PDF / scans:** unchanged.
+- Every kept image must sniff as JPEG, PNG, GIF, WebP or AVIF and be at least 48 px on each side.
+
+### Client
+- Lists render as `ul`/`ol` (numbers from `n`, nested lists inside their item), quotes as one
+  `blockquote` per run of quote paragraphs (left rule, reading font), images as a `figure` that
+  reserves `w`/`h`, loads lazily (near the screen) through the API and shows caption or alt below.
+  The spoken image gets an accent ring; list items and quotes keep the sentence and word highlight.
+- Windowing groups blocks by paragraph as before (`groupBlocks`); `layoutBlocks` nests the visible
+  window's list items, so a window may start inside a nested list.
+- Search covers `li`/`quote` text; bookmarks and the scrubber preview show an image's alt/caption
+  or "Image".
+- Offline downloads (IndexedDB `reader-offline` v2, `assets` store) also keep the images; a failed
+  image never fails the download, and offline reading falls back to the stored copy.

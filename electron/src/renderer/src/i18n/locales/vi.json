@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Xóa dấu trang",
     "bookmark_deleted": "Đã xóa dấu trang",
     "bookmark_missing": "(câu không còn nữa)",
+    "image": "Hình ảnh",
+    "image_unavailable": "Hình ảnh không khả dụng",
     "bookmarks_empty": "Chưa có dấu trang. Nhấn “Thêm dấu trang tại đây” hoặc phím B.",
     "bookmarks_export": "Xuất sang Markdown",
     "bookmarks_export_hint": "Tải dấu trang và ghi chú xuống dưới dạng tệp .md",

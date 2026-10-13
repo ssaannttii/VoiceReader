@@ -3678,6 +3678,8 @@
     "bookmark_delete": "刪除書籤",
     "bookmark_deleted": "書籤已刪除",
     "bookmark_missing": "（該句已不存在）",
+    "image": "圖片",
+    "image_unavailable": "圖片無法使用",
     "bookmarks_empty": "還沒有書籤。點選「在此新增書籤」或按 B 鍵。",
     "bookmarks_export": "匯出為 Markdown",
     "bookmarks_export_hint": "將書籤和筆記下載為 .md 檔案",

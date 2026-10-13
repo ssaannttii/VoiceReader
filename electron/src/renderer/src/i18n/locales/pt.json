@@ -3680,6 +3680,8 @@
     "bookmark_delete": "Eliminar marcador",
     "bookmark_deleted": "Marcador eliminado",
     "bookmark_missing": "(frase já não disponível)",
+    "image": "Imagem",
+    "image_unavailable": "Imagem indisponível",
     "bookmarks_empty": "Ainda não há marcadores. Toque em «Adicionar marcador aqui» ou prima B.",
     "bookmarks_export": "Exportar para Markdown",
     "bookmarks_export_hint": "Transfira os marcadores e notas como ficheiro .md",

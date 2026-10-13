@@ -4,6 +4,7 @@ Layout (docs/reader/SPEC.md)::
 
     <DATA_DIR>/reader/<id>/content.json   {"version", "segments", "chapters"}
     <DATA_DIR>/reader/<id>/cover.<ext>    optional (jpg | png | webp)
+    <DATA_DIR>/reader/<id>/assets/        images of ``img`` segments (img-001.jpg …)
     <DATA_DIR>/reader/<id>/source/        upload awaiting a background import
                                           (removed once the import succeeds)
 
@@ -32,6 +33,12 @@ COVER_EXTENSIONS = ("jpg", "png", "webp")
 COVER_MEDIA_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
+ASSETS_DIR = "assets"
+#: Asset names as the importer writes them; anything else is never served.
+_ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.(jpg|png|gif|webp|avif)$")
+ASSET_MEDIA_TYPES = {
+    "jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp", "avif": "image/avif",
+}
 _UPDATABLE = ("title", "voice_id", "engine", "language", "archived", "completed")
 _BOOL_COLUMNS = ("has_cover", "archived", "completed")
 _COLUMNS = (
@@ -112,8 +119,17 @@ def _write_json_atomic(path: str, payload: Any) -> None:
     os.replace(tmp, path)
 
 
-def _write_content(folder: str, segments: list[dict], chapters: list[dict], cover) -> bool:
-    """Write content.json (+ cover); returns whether a cover was stored."""
+def _write_content(
+    folder: str, segments: list[dict], chapters: list[dict], cover, assets: Optional[dict[str, bytes]] = None
+) -> bool:
+    """Write the images, content.json (+ cover); returns whether a cover was stored."""
+    if assets:
+        target = os.path.join(folder, ASSETS_DIR)
+        os.makedirs(target, exist_ok=True)
+        for name, data in assets.items():
+            if _ASSET_NAME_RE.match(name):
+                with open(os.path.join(target, name), "wb") as fh:
+                    fh.write(data)
     _write_json_atomic(
         os.path.join(folder, "content.json"),
         {"version": _segmentation_version(), "segments": segments, "chapters": chapters},
@@ -137,13 +153,14 @@ def create_document(
     source_url: Optional[str] = None,
     language: Optional[str] = None,
     cover: Optional[tuple[bytes, str]] = None,
+    assets: Optional[dict[str, bytes]] = None,
 ) -> dict:
     """Persist a new document and return its ``DocumentSummary``."""
     doc_id = uuid.uuid4().hex
     folder = document_dir(doc_id)
     os.makedirs(folder, exist_ok=True)
     try:
-        has_cover = _write_content(folder, segments, chapters, cover)
+        has_cover = _write_content(folder, segments, chapters, cover, assets)
         now = time.time()
         with db_conn() as conn:
             conn.execute(
@@ -264,6 +281,7 @@ def complete_import(
     author: Optional[str] = None,
     language: Optional[str] = None,
     cover: Optional[tuple[bytes, str]] = None,
+    assets: Optional[dict[str, bytes]] = None,
 ) -> Optional[dict]:
     """Write the imported content and mark the row ready.
 
@@ -271,7 +289,7 @@ def complete_import(
     (its folder is removed again).
     """
     folder = document_dir(doc_id)
-    has_cover = _write_content(folder, segments, chapters, cover)
+    has_cover = _write_content(folder, segments, chapters, cover, assets)
     with db_conn() as conn:
         updated = conn.execute(
             "UPDATE reader_documents SET title=?, author=?, language=?, segment_count=?,"
@@ -423,9 +441,32 @@ def open_document(doc_id: str) -> dict:
             "UPDATE reader_documents SET last_opened_at=? WHERE id=?", (time.time(), doc_id)
         )
     content = load_content(doc_id)  # first: it may regroup and renumber the summary fields
+    for segment in content["segments"]:
+        # Stored by asset name; served as the API path of the image.
+        if segment.get("kind") == "img" and segment.get("src") and "/" not in segment["src"]:
+            segment["src"] = asset_url(doc_id, segment["src"])
     doc = get_summary(doc_id)
     doc.update(content)
     return doc
+
+
+def asset_url(doc_id: str, name: str) -> str:
+    return f"/reader/documents/{doc_id}/assets/{name}"
+
+
+def asset_path(doc_id: str, name: str) -> Optional[tuple[str, str]]:
+    """``(path, media_type)`` of one of the document's images, or ``None``.
+
+    Only names the importer writes are accepted (no separators, no dot segments,
+    raster extensions), and the resolved path must stay inside the asset folder.
+    """
+    if not _ASSET_NAME_RE.match(name or ""):
+        return None
+    folder = os.path.realpath(os.path.join(document_dir(doc_id), ASSETS_DIR))
+    path = os.path.realpath(os.path.join(folder, name))
+    if os.path.dirname(path) != folder or not os.path.isfile(path):
+        return None
+    return path, ASSET_MEDIA_TYPES[name.rsplit(".", 1)[1]]
 
 
 @_with_schema
@@ -558,7 +599,9 @@ def bookmarks_markdown(doc_id: str) -> str:
             lines += [f"## {_md_inline(chapter['title'])}", ""]
             current_chapter = chapter
         index = mark["segment"]
-        text = segments[index]["text"] if 0 <= index < len(segments) else ""
+        segment = segments[index] if 0 <= index < len(segments) else {}
+        # An image has no text: quote its description instead.
+        text = segment.get("text") or segment.get("alt") or segment.get("caption") or ""
         if text:
             lines += [f"> {_md_inline(text)}", ""]
         note = (mark.get("note") or "").strip()

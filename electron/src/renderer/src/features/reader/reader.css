@@ -168,6 +168,132 @@
     margin: 1.6em 0 0.6em;
     color: var(--foreground);
   }
+
+  /* Lists: real markers and numbers, nested lists indented under their item. A
+     window that starts inside a nested list indents it by its depth. */
+  .rd-article .rd-list {
+    margin: 0 0 1em;
+    padding-inline-start: 1.35em;
+    list-style: disc;
+  }
+  .rd-article ol.rd-list {
+    list-style: decimal;
+  }
+  .rd-article > .rd-list[data-depth] {
+    margin-inline-start: calc(var(--rd-list-depth, 0) * 1.35em);
+  }
+  .rd-article li .rd-list {
+    margin: 0.3em 0 0;
+  }
+  .rd-article ul.rd-list ul.rd-list {
+    list-style: circle;
+  }
+  .rd-article ul.rd-list ul.rd-list ul.rd-list {
+    list-style: square;
+  }
+  .rd-article .rd-list > li {
+    padding-inline-start: 0.2em;
+    margin-bottom: 0.4em;
+  }
+  .rd-article .rd-list > li::marker {
+    color: var(--rd-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .rd-article .rd-list > li > p {
+    margin: 0 0 0.4em;
+  }
+  .rd-article .rd-list > li > p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Block quotations: a quiet rule and indent in the reading font. */
+  .rd-article .rd-quote {
+    margin: 0 0 1em;
+    padding: 0.05em 0 0.05em 1em;
+    border-inline-start: 3px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+    color: color-mix(in srgb, var(--foreground) 78%, var(--background));
+  }
+  .rd-article .rd-quote > p {
+    margin: 0 0 0.6em;
+  }
+  .rd-article .rd-quote > p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Images: lazy loaded, never wider than the column or their own size; the
+     frame keeps the image's proportions while it loads. */
+  .rd-article .rd-figure {
+    position: relative;
+    margin: 1.4em 0;
+    cursor: pointer;
+  }
+  .rd-figure-frame {
+    position: relative;
+    margin-inline: auto;
+    min-height: 3em;
+    border-radius: var(--rd-r-md);
+    overflow: hidden;
+    background: var(--rd-fill-subtle);
+    transition: box-shadow 180ms ease;
+  }
+  .rd-figure[data-state='ready'] .rd-figure-frame {
+    min-height: 0;
+    background: none;
+  }
+  .rd-figure-frame img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+  }
+  .rd-figure-missing {
+    display: grid;
+    place-items: center;
+    min-height: 6em;
+    height: 100%;
+    color: var(--rd-text-4);
+  }
+  .rd-figure-missing svg {
+    width: 1.5em;
+    height: 1.5em;
+  }
+  .rd-article .rd-figure figcaption {
+    margin-top: 0.55em;
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 0.72em;
+    line-height: 1.45;
+    text-align: center;
+    color: var(--rd-text-3);
+  }
+  .rd-figure[data-active='true'] .rd-figure-frame {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--rd-accent) 55%, transparent);
+  }
+  /* Bookmarked image: the ribbon hangs from the picture's top edge. */
+  .rd-figure[data-bookmark] .rd-figure-frame::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0.6em;
+    z-index: 1;
+    width: 0.6em;
+    height: 1em;
+    background: var(--rd-accent);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  }
+  .rd-figure[data-revealed='true'] .rd-figure-frame {
+    animation: rd-reveal-ring 1.6s ease-out both;
+  }
+  @keyframes rd-reveal-ring {
+    0%,
+    35% {
+      box-shadow: 0 0 0 4px color-mix(in oklab, var(--rd-accent) 45%, transparent);
+    }
+  }
+  @media (forced-colors: active) {
+    .rd-figure[data-active='true'] .rd-figure-frame {
+      outline: 3px solid Highlight;
+    }
+  }
   /* Sentence box: one rounded box per line (cloned), wider sideways than up/down
      so the lines read as separate bands with a gap between them. */
   .rd-sent {

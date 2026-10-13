@@ -3684,6 +3684,8 @@
     "bookmark_delete": "Usuń zakładkę",
     "bookmark_deleted": "Zakładka usunięta",
     "bookmark_missing": "(zdanie nie jest już dostępne)",
+    "image": "Obraz",
+    "image_unavailable": "Obraz niedostępny",
     "bookmarks_empty": "Brak zakładek. Stuknij „Dodaj zakładkę tutaj” lub naciśnij B.",
     "bookmarks_export": "Eksportuj do Markdown",
     "bookmarks_export_hint": "Pobierz zakładki i notatki jako plik .md",

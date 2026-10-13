@@ -6,12 +6,17 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
-import type { ReaderSegment } from './reader-api';
+import { useTranslation } from 'react-i18next';
+import { ImageOffIcon } from 'lucide-react';
+import { createObjectUrl, revokeObjectUrl } from '@/lib/audio/object-url';
+import { readerApi, type ReaderSegment } from './reader-api';
+import { offlineAsset } from './offline-state';
 import { REVEAL_EVENT, type RevealDetail } from './reader-events';
 import { readerPlayer } from './reader-player';
 import { readerPrefs } from './reader-prefs';
@@ -21,9 +26,13 @@ import { tapOutcome } from './player-chrome';
 import {
   blockIndexBySegment,
   groupBlocks,
+  layoutBlocks,
   splitWords,
   windowAround,
   type BlockWindow,
+  type LayoutNode,
+  type ListNode,
+  type ReaderBlock,
 } from './reader-text';
 
 const reducedMotion = () =>
@@ -156,6 +165,10 @@ export const ReaderTextView = memo(function ReaderTextView({
   );
   const rangeRef = useRef(range);
   rangeRef.current = range;
+  const nodes = useMemo(
+    () => layoutBlocks(blocks.slice(range.start, range.end)),
+    [blocks, range.start, range.end],
+  );
   /** Element (by segment) whose on-screen offset must survive the next window change. */
   const anchor = useRef<{ segment: number; offset: number } | null>(null);
   /** Re-applies the highlight after the window changed (set by the highlight effect). */
@@ -505,36 +518,181 @@ export const ReaderTextView = memo(function ReaderTextView({
     >
       {range.start === 0 && header}
       <div ref={topSentinel} aria-hidden="true" />
-      {blocks.slice(range.start, range.end).map((block) =>
-        block.kind === 'h' ? (
-          <h2 key={block.key} className="rd-heading">
-            <span
-              className="rd-sent"
-              data-seg={block.segments[0].i}
-              data-bookmark={marked?.has(block.segments[0].i) ? '' : undefined}
-            >
-              {block.segments[0].text}
-            </span>
-          </h2>
-        ) : (
-          <p key={block.key}>
-            {block.segments.map((segment, index) => (
-              <Fragment key={segment.i}>
-                {index > 0 && ' '}
-                <span
-                  className="rd-sent"
-                  data-seg={segment.i}
-                  data-bookmark={marked?.has(segment.i) ? '' : undefined}
-                >
-                  {segment.text}
-                </span>
-              </Fragment>
-            ))}
-          </p>
-        ),
-      )}
+      {nodes.map((node) => renderNode(node, docId, marked))}
       <div ref={bottomSentinel} aria-hidden="true" />
     </article>
+  );
+});
+
+/** The sentences of one paragraph, each a highlightable `.rd-sent`. */
+function sentences(block: ReaderBlock, marked: ReadonlySet<number> | undefined) {
+  return block.segments.map((segment, index) => (
+    <Fragment key={segment.i}>
+      {index > 0 && ' '}
+      <span
+        className="rd-sent"
+        data-seg={segment.i}
+        data-bookmark={marked?.has(segment.i) ? '' : undefined}
+      >
+        {segment.text}
+      </span>
+    </Fragment>
+  ));
+}
+
+function renderList(list: ListNode, marked: ReadonlySet<number> | undefined) {
+  const Tag = list.ordered ? 'ol' : 'ul';
+  return (
+    <Tag
+      key={list.key}
+      className="rd-list"
+      data-depth={list.depth || undefined}
+      style={list.depth ? ({ '--rd-list-depth': list.depth } as CSSProperties) : undefined}
+    >
+      {list.items.map((item) => (
+        <li key={item.key} value={list.ordered ? item.n : undefined}>
+          {item.blocks.map((block) => (
+            <p key={block.key}>{sentences(block, marked)}</p>
+          ))}
+          {item.lists.map((child) => renderList(child, marked))}
+        </li>
+      ))}
+    </Tag>
+  );
+}
+
+function renderNode(node: LayoutNode, docId: string, marked: ReadonlySet<number> | undefined) {
+  if (node.type === 'list') return renderList(node, marked);
+  if (node.type === 'quote')
+    return (
+      <blockquote key={node.key} className="rd-quote">
+        {node.blocks.map((block) => (
+          <p key={block.key}>{sentences(block, marked)}</p>
+        ))}
+      </blockquote>
+    );
+  const { block } = node;
+  if (block.kind === 'h')
+    return (
+      <h2 key={block.key} className="rd-heading">
+        <span
+          className="rd-sent"
+          data-seg={block.segments[0].i}
+          data-bookmark={marked?.has(block.segments[0].i) ? '' : undefined}
+        >
+          {block.segments[0].text}
+        </span>
+      </h2>
+    );
+  if (block.kind === 'img')
+    return (
+      <ReaderFigure
+        key={block.key}
+        docId={docId}
+        segment={block.segments[0]}
+        bookmarked={Boolean(marked?.has(block.segments[0].i))}
+      />
+    );
+  return <p key={block.key}>{sentences(block, marked)}</p>;
+}
+
+/**
+ * An image segment: loads its picture (or the downloaded copy offline) once it
+ * comes near the screen, reserving its size meanwhile. The figure carries
+ * `data-seg`, so taps, reveals and the playback highlight treat it like a sentence.
+ */
+const ReaderFigure = memo(function ReaderFigure({
+  docId,
+  segment,
+  bookmarked,
+}: {
+  docId: string;
+  segment: ReaderSegment;
+  bookmarked: boolean;
+}) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLElement>(null);
+  const [near, setNear] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const src = segment.src;
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || near) return;
+    if (typeof IntersectionObserver !== 'function') {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setNear(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '600px 0px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [near]);
+
+  useEffect(() => {
+    if (!near || !src) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    setFailed(false);
+    void (async () => {
+      let blob: Blob | null = null;
+      try {
+        blob = await readerApi.asset(src, controller.signal);
+      } catch {
+        if (controller.signal.aborted) return;
+        blob = await offlineAsset(docId, src);
+      }
+      if (controller.signal.aborted) return;
+      objectUrl = blob ? createObjectUrl(blob) : null;
+      if (objectUrl) setUrl(objectUrl);
+      else setFailed(true);
+    })();
+    return () => {
+      controller.abort();
+      revokeObjectUrl(objectUrl);
+      setUrl(null);
+    };
+  }, [near, docId, src]);
+
+  const width = segment.w && segment.w > 0 ? segment.w : undefined;
+  const height = segment.h && segment.h > 0 ? segment.h : undefined;
+  const label = segment.caption || segment.alt;
+  return (
+    <figure
+      ref={ref}
+      className="rd-figure"
+      data-seg={segment.i}
+      data-bookmark={bookmarked ? '' : undefined}
+      data-state={url ? 'ready' : failed ? 'failed' : 'loading'}
+    >
+      <div
+        className="rd-figure-frame"
+        style={{
+          aspectRatio: width && height ? `${width} / ${height}` : undefined,
+          maxWidth: width ? `min(100%, ${width}px)` : undefined,
+        }}
+      >
+        {url ? (
+          <img src={url} alt={segment.alt ?? ''} width={width} height={height} draggable={false} />
+        ) : failed ? (
+          <span className="rd-figure-missing">
+            <ImageOffIcon aria-hidden="true" />
+            <span className="sr-only">{t('reader.image_unavailable')}</span>
+          </span>
+        ) : (
+          <span className="sr-only">{segment.alt || t('reader.image')}</span>
+        )}
+      </div>
+      {label && <figcaption>{label}</figcaption>}
+    </figure>
   );
 });
 

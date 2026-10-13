@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Delete bookmark",
     "bookmark_deleted": "Bookmark deleted",
     "bookmark_missing": "(sentence no longer available)",
+    "image": "Image",
+    "image_unavailable": "Image unavailable",
     "bookmarks_empty": "No bookmarks yet. Tap “Bookmark this spot” or press B.",
     "bookmarks_export": "Export to Markdown",
     "bookmarks_export_hint": "Download your bookmarks and notes as a .md file",

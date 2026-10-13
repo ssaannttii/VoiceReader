@@ -3678,6 +3678,8 @@
     "bookmark_delete": "ブックマークを削除",
     "bookmark_deleted": "ブックマークを削除しました",
     "bookmark_missing": "（この文はもうありません）",
+    "image": "画像",
+    "image_unavailable": "画像を表示できません",
     "bookmarks_empty": "ブックマークはまだありません。「ここにブックマーク」をタップするか B キーを押してください。",
     "bookmarks_export": "Markdown に書き出す",
     "bookmarks_export_hint": "ブックマークとメモを .md ファイルでダウンロード",

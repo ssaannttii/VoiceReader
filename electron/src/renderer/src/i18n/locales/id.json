@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Hapus penanda",
     "bookmark_deleted": "Penanda dihapus",
     "bookmark_missing": "(kalimat tidak tersedia lagi)",
+    "image": "Gambar",
+    "image_unavailable": "Gambar tidak tersedia",
     "bookmarks_empty": "Belum ada penanda. Ketuk “Tambahkan penanda di sini” atau tekan B.",
     "bookmarks_export": "Ekspor ke Markdown",
     "bookmarks_export_hint": "Unduh penanda dan catatan Anda sebagai file .md",

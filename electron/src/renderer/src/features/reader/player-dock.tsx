@@ -21,7 +21,7 @@ import { readerApi, readerKeys, type ReaderDocument } from './reader-api';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
 import { FOLLOW_EVENT } from './player-sheets';
 import { useReaderPrefs } from './reader-prefs';
-import { chapterIndexAt, formatClock, formatSpeed } from './reader-text';
+import { chapterIndexAt, formatClock, formatSpeed, segmentLabel } from './reader-text';
 import { EngineBanner, useEngineView } from './engine-status';
 import { useListeningPrefs } from './listening-prefs';
 import { useReaderQueue } from './reader-queue';
@@ -116,7 +116,7 @@ function Scrubber({ doc }: { doc: ReaderDocument }) {
       {previewSegment !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-full mb-2 flex justify-center">
           <p className="line-clamp-2 max-w-md rounded-xl bg-popover px-3 py-2 text-center font-[family-name:var(--rd-serif)] text-sm shadow-lg ring-1 ring-border">
-            {doc.segments[previewSegment]?.text}
+            {segmentLabel(doc.segments[previewSegment], t('reader.image'))}
           </p>
         </div>
       )}

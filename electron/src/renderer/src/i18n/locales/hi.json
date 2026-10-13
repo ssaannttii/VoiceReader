@@ -3678,6 +3678,8 @@
     "bookmark_delete": "बुकमार्क हटाएँ",
     "bookmark_deleted": "बुकमार्क हटाया गया",
     "bookmark_missing": "(वाक्य अब उपलब्ध नहीं है)",
+    "image": "चित्र",
+    "image_unavailable": "चित्र उपलब्ध नहीं है",
     "bookmarks_empty": "अभी कोई बुकमार्क नहीं। “यहाँ बुकमार्क जोड़ें” पर टैप करें या B दबाएँ।",
     "bookmarks_export": "Markdown में एक्सपोर्ट करें",
     "bookmarks_export_hint": "अपने बुकमार्क और नोट .md फ़ाइल के रूप में डाउनलोड करें",

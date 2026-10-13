@@ -17,6 +17,7 @@ import logging
 import posixpath
 import re
 import zipfile
+from collections.abc import Callable
 from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
 from urllib.parse import unquote, urlsplit
@@ -488,14 +489,17 @@ def epub_to_chapter_script(
     *,
     max_entry_bytes: int = _EPUB_MAX_ENTRY_BYTES,
     max_total_bytes: int = _EPUB_MAX_TOTAL_BYTES,
+    extract: Callable[[str, str], tuple[set[str], str, str]] | None = None,
 ) -> str:
     """Convert EPUB bytes into a ``# Chapter`` / body script in spine order.
 
     Reads the OPF manifest + spine (the publisher's reading order), extracts
     each document's title + visible text, and emits one ``# Title`` block per
     document with renderable text. ``max_entry_bytes`` / ``max_total_bytes``
-    bound the *uncompressed* bytes read (zip-bomb guard). Raises ``ValueError``
-    on a malformed EPUB.
+    bound the *uncompressed* bytes read (zip-bomb guard). ``extract(xhtml,
+    member_path)`` replaces the plain-text extractor (it returns the same
+    ``(epub_types, title, body)``; the Reader's marks lists, quotes and images
+    in the body). Raises ``ValueError`` on a malformed EPUB.
     """
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
@@ -544,7 +548,8 @@ def epub_to_chapter_script(
         raw = _read_member(zf, full, budget)
         if raw is None:
             continue
-        types, title, body = _html_extract(_decode_epub_entry(raw))
+        xhtml = _decode_epub_entry(raw)
+        types, title, body = extract(xhtml, full) if extract is not None else _html_extract(xhtml)
         if not body.strip():
             continue  # nav docs, empty pages
         sections.append((full, types, title, body))

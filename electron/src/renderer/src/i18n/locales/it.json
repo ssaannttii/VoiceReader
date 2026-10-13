@@ -3680,6 +3680,8 @@
     "bookmark_delete": "Elimina segnalibro",
     "bookmark_deleted": "Segnalibro eliminato",
     "bookmark_missing": "(frase non più disponibile)",
+    "image": "Immagine",
+    "image_unavailable": "Immagine non disponibile",
     "bookmarks_empty": "Ancora nessun segnalibro. Tocca «Aggiungi segnalibro qui» o premi B.",
     "bookmarks_export": "Esporta in Markdown",
     "bookmarks_export_hint": "Scarica segnalibri e note come file .md",

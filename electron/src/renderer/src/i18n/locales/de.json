@@ -3678,6 +3678,8 @@
     "bookmark_delete": "Lesezeichen löschen",
     "bookmark_deleted": "Lesezeichen gelöscht",
     "bookmark_missing": "(Satz nicht mehr verfügbar)",
+    "image": "Bild",
+    "image_unavailable": "Bild nicht verfügbar",
     "bookmarks_empty": "Noch keine Lesezeichen. Tippe auf „Lesezeichen hier setzen“ oder drücke B.",
     "bookmarks_export": "Als Markdown exportieren",
     "bookmarks_export_hint": "Lesezeichen und Notizen als .md-Datei herunterladen",
