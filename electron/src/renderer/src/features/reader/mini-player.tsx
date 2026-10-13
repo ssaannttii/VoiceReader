@@ -11,6 +11,8 @@ import { useReaderPrefs } from './reader-prefs';
 import { useReaderQueue } from './reader-queue';
 // Soundscapes follow the voice wherever playback starts (library included).
 import './reader-soundscape';
+// Background music (Labs; off by default) follows it the same way.
+import './reader-music';
 
 function MiniProgress() {
   const clock = useReaderClock();

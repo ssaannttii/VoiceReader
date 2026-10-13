@@ -229,6 +229,7 @@ export const readerKeys = {
     ['reader', 'pronunciations', language ?? '*'] as const,
   bookmarks: (id: string) => ['reader', 'bookmarks', id] as const,
   speech: (id: string) => ['reader', 'speech', id] as const,
+  music: (id: string) => ['reader', 'music', id] as const,
   collections: ['reader', 'collections'] as const,
 };
 
@@ -411,6 +412,20 @@ export const readerApi = {
   ambienceFile: async (file: string, signal?: AbortSignal) =>
     (await apiFetch(`/reader/ambience/pack/${encodeURIComponent(file)}`, { signal })).arrayBuffer(),
 
+  // Background music (Labs): composed on the PC per document (docs/reader/SPEC.md).
+  music: (id: string, signal?: AbortSignal) =>
+    apiJson<ReaderMusicResponse>(`${doc(id)}/music`, { signal }),
+  /** Request (or refresh) the music; `palette` picks a style (`auto` returns to automatic). */
+  prepareMusic: (id: string, palette?: string) =>
+    apiJson<ReaderMusicResponse>(`${doc(id)}/music`, {
+      method: 'POST',
+      body: JSON.stringify(palette ? { palette } : {}),
+    }),
+  deleteMusic: (id: string) => apiFetch(`${doc(id)}/music`, { method: 'DELETE' }),
+  /** One clip (Ogg Opus, loudness-normalized) as compressed bytes. */
+  musicFile: async (id: string, name: string, signal?: AbortSignal) =>
+    (await apiFetch(`${doc(id)}/music/${encodeURIComponent(name)}`, { signal })).arrayBuffer(),
+
   // Prepared reading: what the voice says, never the displayed text.
   speech: (id: string, signal?: AbortSignal) =>
     apiJson<ReaderSpeech>(`${doc(id)}/speech`, { signal }),
@@ -470,6 +485,9 @@ export interface ReaderAmbience {
   }[];
   refined?: boolean;
 }
+
+/** `GET /reader/documents/{id}/music` as sent (validated by music-plan.ts `sanitizeMusic`). */
+export type ReaderMusicResponse = Record<string, unknown>;
 
 /** A recorded bed of the PC's ambience pack (`GET /reader/ambience/pack`). */
 export interface ReaderAmbienceBed {

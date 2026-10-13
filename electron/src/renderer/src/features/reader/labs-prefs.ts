@@ -17,10 +17,12 @@ export interface LabsPrefs {
   voiceQuality: VoiceQuality;
   /** A/B: hide which variant is which (X / Y) until the vote. */
   blind: boolean;
+  /** Background music composed on the PC (set up per document in the sound sheet). */
+  music: boolean;
 }
 
 const KEY = 'voicestudio.reader.labs';
-export const DEFAULT_LABS: LabsPrefs = { voiceQuality: 'normal', blind: true };
+export const DEFAULT_LABS: LabsPrefs = { voiceQuality: 'normal', blind: true, music: false };
 
 export function sanitizeLabs(value: unknown): LabsPrefs {
   const raw = (value && typeof value === 'object' ? value : {}) as Partial<
@@ -31,6 +33,7 @@ export function sanitizeLabs(value: unknown): LabsPrefs {
       ? (raw.voiceQuality as VoiceQuality)
       : DEFAULT_LABS.voiceQuality,
     blind: typeof raw.blind === 'boolean' ? raw.blind : DEFAULT_LABS.blind,
+    music: raw.music === true,
   };
 }
 
@@ -64,13 +67,13 @@ export function setLabsPrefs(patch: Partial<LabsPrefs>): void {
   listeners.forEach((listener) => listener());
 }
 
-function subscribe(listener: () => void) {
+export function subscribeLabs(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 }
 
 export function useLabsPrefs(): LabsPrefs {
-  return useSyncExternalStore(subscribe, labsPrefs, labsPrefs);
+  return useSyncExternalStore(subscribeLabs, labsPrefs, labsPrefs);
 }
 
 /** The player's render request with this device's quality applied (the one Labs hook). */

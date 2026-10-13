@@ -23,6 +23,7 @@ import { readerPlayer, silentWav } from './reader-player';
 import { ambiencePack } from './ambience-pack';
 import { isRecordedKey, type BedKey } from './ambience-schedule';
 import { loadBed } from './soundscape-cache';
+import { ambienceDuckGain, subscribeMusicPresence } from './music-duck';
 
 export type SoundscapeStatus = 'off' | 'loading' | 'playing' | 'paused' | 'error';
 
@@ -90,6 +91,8 @@ class SoundscapePlayer {
       this.sync();
     });
     subscribeListening(() => this.sync());
+    // Background music (Labs) sounding: the ambience sits ~3 dB lower, following its fades.
+    subscribeMusicPresence(() => this.applyVolume());
     // Which recordings the PC has (manual and automatic sounds prefer them).
     void ambiencePack.refresh();
     // Automático fetches the document's scenes ahead of the first play.
@@ -160,7 +163,7 @@ class SoundscapePlayer {
   }
 
   private applyVolume() {
-    const gain = soundscapeGain(listeningPrefs().soundscapeVolume, this.fade);
+    const gain = soundscapeGain(listeningPrefs().soundscapeVolume, this.fade) * ambienceDuckGain();
     if (this.audio) this.audio.volume = gain;
     ambienceController.setMaster(gain);
   }

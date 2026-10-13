@@ -892,3 +892,49 @@ document is downloaded, the bar's Download button becomes "Remove download".
 ### Durations
 Whole hours drop the minutes: "26 h" / "26 h left" instead of "26 h 0 min" (library rows, continue
 card, reader header and the dock's remaining time).
+
+## Background music — client (Labs)
+
+Off by default: Labs → **Music** (`localStorage['voicestudio.reader.labs'].music`), then per document
+in the sound sheet. The reading audio is never routed through Web Audio; the music plays on its own
+two `<audio>` decks driven by player events, like the ambience (`reader-music.ts` wiring,
+`music-plan.ts` decisions, `music-engine.ts` playback, `music-section.tsx` UI).
+
+- **Contract used:** `GET/POST/DELETE /reader/documents/{id}/music` and
+  `GET …/music/{name}` (Ogg Opus clip). `POST` sends `{}` to prepare/refresh, `{"palette": id}` to pick
+  a style and `{"palette": "auto"}` to return to the automatic one. The response is sanitized
+  (unknown status → `error`, a cue is ready only with clips, clip names must be plain file names).
+- **Modes** (per device, `voicestudio.reader.music`): **Moments** (default) follows `spots`: entering a
+  spot whose cue is ready fades it in (6 s; at most a third of the budget), it plays at most
+  `max_seconds` of listening (its fade-out included) and fades out (10 s) early when the narration
+  leaves the spot; adjacent spots crossfade. A played spot is spent for the session: seeking back into
+  it does not replay it unless the reading went back more than 30 segments before its start; another
+  document resets this. **Continuous** follows `timeline`; changes crossfade over 10 s; a cue that is
+  not ready yet keeps the current one (or silence). Cues play as soon as they are ready, also while
+  the PC is still generating others.
+- **Clips:** a cue chains its files at random without an immediate repeat, crossfading equal-power
+  over ~9 s (a third of a short clip). Fades run on the engine's own clock, which advances only while
+  the music may play (voice `timeupdate`, the decks' `timeupdate`, a 250 ms interval while a fade
+  runs on screen; ≤ 2 s per tick), so a fade paused with the voice resumes where it was.
+- **Follows the voice:** plays only while the voice plays (pause, lock screen, headphones), takes the
+  sleep fade and stop, ignores the reading speed; a queue advance or another document lets the old
+  music go in 4 s (even with the same cue ids). The Media Session is not touched.
+- **Volume:** a dB slider relative to the PC's −30 LUFS master, −24…0 dB, default −3 dB (an element
+  cannot exceed 1, so the default leaves 3 dB of headroom); corrected by `level_lufs` when the PC
+  masters at another level. While music sounds, the soundscape/ambience gain is lowered by up to
+  3 dB following the music's fades (`music-duck.ts`).
+- **Cache and offline:** clips are fetched with the app's auth and kept in IndexedDB
+  (`reader-soundscapes`, key `music:<doc>:clip:<palette>:<name>@<duration>`; the last plan as
+  `music:<doc>:meta` for offline starts). Opus plays as is; browsers without Opus get it decoded to
+  WAV by an `OfflineAudioContext`. A ready plan prunes clips of older palettes; "Delete music" removes
+  them. "Include in downloads" (off by default) keeps every ready clip of a downloaded document with
+  music on, when the download completes or the music becomes ready.
+- **Sheet:** switch for this document (turning it on asks the PC to prepare when it has none), status
+  line (not prepared, queued, reading the text, composing x %, ready / "Now: tension", error, "the PC
+  has no music engine"), progress bar, mode, volume, style (Automatic (chosen style) + palettes;
+  unknown ids are shown prettified), Prepare, Delete (tap twice), Include in downloads. The sheet's
+  query polls every 3 s while the PC works; the controller polls every 5 s (≤ 1 h) while the music is
+  on for the document being read.
+- **Diagnostics:** `music` events (`document`, `plan`, `target`, `crossfade`, `clip`, `error`,
+  `play_error`, `plan_error`, `prepare`, `delete`, `switch`, `offline`), `music_load` (cached, ms, kb)
+  and `labs_music`.

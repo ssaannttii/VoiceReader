@@ -16,7 +16,11 @@ describe('sanitizeLabs', () => {
     expect(sanitizeLabs({ voiceQuality: 'high', blind: false })).toEqual({
       voiceQuality: 'high',
       blind: false,
+      music: false,
     });
+    // Background music is off unless switched on explicitly.
+    expect(sanitizeLabs({ music: 'yes' }).music).toBe(false);
+    expect(sanitizeLabs({ music: true }).music).toBe(true);
   });
 });
 
