@@ -1247,6 +1247,21 @@ class ReaderPlayer {
     if (resume) this.startAt(this.state.segment, 0, true);
   }
 
+  /** Forget rendered audio (a pronunciation changed); re-renders from the current sentence. */
+  refreshAudio() {
+    if (!this.state.doc) return;
+    const resume = this.wantPlay;
+    this.stopAudio();
+    this.resetCache();
+    this.durations.clear();
+    this.prefix = null;
+    this.set({ status: 'paused' });
+    if (resume) this.startAt(this.state.segment, 0, true);
+    // stopAudio() cleared the sleep interval; a running timer keeps counting.
+    if (this.state.sleep.mode !== 'off' && this.sleepTimer === null)
+      this.sleepTimer = setInterval(() => this.sleepTick(), 250);
+  }
+
   // ── sleep timer ──────────────────────────────────────────────────────────
   setSleep(option: { mode: 'off' } | { mode: 'time'; minutes: number } | { mode: 'chapter' }) {
     const doc = this.state.doc;

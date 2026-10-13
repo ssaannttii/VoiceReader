@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   BookmarkIcon,
+  CheckCircle2Icon,
   Loader2Icon,
   MinusIcon,
   PlusIcon,
@@ -20,6 +21,7 @@ import { readerApi, readerKeys, type ReaderDocument, type ReaderVoice } from './
 import { readerPlayer, silentWav, useReaderClock, useReaderPlayer } from './reader-player';
 import { ReaderSheet, SheetRow } from './reader-sheet';
 import { SearchField } from './search-field';
+import { chapterStates, type ChapterState } from './chapter-progress';
 import {
   chapterIndexAt,
   clampSpeed,
@@ -147,10 +149,43 @@ export function SleepLabel() {
   return <>{formatClock((clock.sleepLeft ?? 0) / 1000)}</>;
 }
 
+/** Chapter row trailing state: listened ✓, "now", or how far the furthest point got. */
+function ChapterBadge({ state }: { state: ChapterState }) {
+  const { t } = useTranslation();
+  if (state.kind === 'current')
+    return (
+      <span className="shrink-0 rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold text-background">
+        {t('reader.chapter_now')}
+      </span>
+    );
+  if (state.kind === 'done')
+    return (
+      <CheckCircle2Icon
+        className="rd-ok size-5 shrink-0"
+        aria-label={t('reader.chapter_listened')}
+        role="img"
+      />
+    );
+  if (state.kind === 'partial')
+    return (
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        {t('reader.chapter_percent', { percent: state.percent })}
+      </span>
+    );
+  return null;
+}
+
 export function ChaptersSheet({ open, onOpenChange, doc }: SheetProps & { doc: ReaderDocument }) {
   const { t } = useTranslation();
-  const { segment } = useReaderPlayer();
+  const player = useReaderPlayer();
+  const loaded = player.doc?.id === doc.id;
+  const segment = loaded ? player.segment : doc.position_segment;
+  const furthest = loaded ? player.furthest : (doc.furthest_segment ?? doc.position_segment);
   const current = chapterIndexAt(doc.chapters, segment);
+  const states = useMemo(
+    () => chapterStates(doc.chapters, doc.segments.length, segment, furthest),
+    [doc.chapters, doc.segments.length, segment, furthest],
+  );
   return (
     <ReaderSheet open={open} onOpenChange={onOpenChange} title={t('reader.chapters')}>
       <ol className="space-y-0.5 pb-1">
@@ -159,7 +194,8 @@ export function ChaptersSheet({ open, onOpenChange, doc }: SheetProps & { doc: R
             <SheetRow
               icon={BookmarkIcon}
               label={chapter.title}
-              checked={index === current}
+              aria-current={index === current ? 'true' : undefined}
+              trailing={states[index] && <ChapterBadge state={states[index]} />}
               onClick={() => {
                 readerPlayer.seekSegment(chapter.segment);
                 window.dispatchEvent(new Event(FOLLOW_EVENT));

@@ -263,6 +263,32 @@ status). Clients call it when Reader opens.
 Continuous MSE playback, undo seek, configurable controls, reading themes, double-tap, reading
 sync, in-document search, queue, soundscapes, voice picker search/recents, share target.
 
+### v2 client (input & study UI)
+- **Pronunciation.** Long press (500 ms, cancelled by > 10 px of movement; touch/pen) or
+  right-click (mouse, unless text is selected) on a word opens "Pronounce as". *Try* upserts the
+  entry, renders the sentence containing the word and plays ~1 s around it; closing without
+  saving restores the previous entry (or deletes the trial one). Saving calls
+  `readerPlayer.refreshAudio()`, which drops rendered/appended audio and resumes from the current
+  sentence. On touch devices the long press replaces native text selection in the reading view.
+- **Bookmarks.** Options → "Bookmark this spot" or desktop **B** bookmarks the spoken sentence
+  (else the saved position); bookmarked `.rd-sent` elements carry `data-bookmark`. The sheet
+  groups by chapter, reveals (`reader:reveal`), plays from a bookmark, edits/deletes notes, and
+  downloads the export through an object URL (authenticated like any API call).
+- **Share target.** `manifest.webmanifest` declares one POST multipart `share_target` at
+  `/reader-share` (params `title`, `text`, `url`, `files`). `reader-sw.js` answers it: files go to
+  `POST /reader/documents/file` (one each) and images together to `/reader/documents/scan`, with
+  the origin's cookie and the `X-VoiceStudio-CSRF` marker; it then redirects (303) to
+  `#/reader/share?files=N&failed=M[&error=…]`. Links and text are redirected as
+  `#/reader/share?title&text&url`; that route imports a URL (an http(s) link in `url`, or in `text`
+  with ≤ 200 chars of caption) or the text, then opens the document. Needs an installed PWA on a
+  secure origin with the service worker active, on a backend serving the UI at its own origin.
+- **Scan.** Add sheet → Scan: camera (`capture="environment"`) or gallery images, reorder/remove,
+  optional title, ≤ 50 pages → `POST /reader/documents/scan`; the row then imports in the
+  background like a file. Failed imports show *Retry* (`POST .../retry`; a 409 explains the upload
+  is gone).
+- **Chapters sheet.** Each chapter shows listened ✓ (furthest point past its end), *Now*, or the
+  percentage the furthest point reached inside it.
+
 ### v2 as built (backend notes and additive extensions)
 - **409s.** While a document imports, every content route answers 409 `{"detail": "importing"}`:
   `GET` document, render, prerender (start/status/cancel), `PUT .../progress`, `POST .../bookmarks`,

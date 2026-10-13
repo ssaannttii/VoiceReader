@@ -4,7 +4,9 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowDownToLineIcon,
+  BookMarkedIcon,
   BookmarkIcon,
+  BookmarkPlusIcon,
   ChevronLeftIcon,
   CloudOffIcon,
   EllipsisIcon,
@@ -12,6 +14,7 @@ import {
   PlayIcon,
   SearchIcon,
   SlidersHorizontalIcon,
+  SpeechIcon,
   Undo2Icon,
   UserRoundIcon,
 } from 'lucide-react';
@@ -36,20 +39,39 @@ import { ControlsSheet } from './controls-sheet';
 import { useReaderWarmup } from './engine-status';
 import { REVEAL_EVENT, type RevealDetail } from './reader-events';
 import { UNDO_WINDOW_MS } from './reader-undo';
+import { addBookmarkHere, BookmarksSheet, useBookmarks } from './bookmarks-sheet';
+import { bookmarkedSegments } from './bookmarks';
+import {
+  PronounceSheet,
+  PronunciationsSheet,
+  pressTarget,
+  type PronounceTarget,
+} from './pronunciation-sheet';
+import type { WordPress } from './reader-text-view';
 import './reader.css';
 
-type Sheet = DockSheet | 'options' | 'chapters' | 'controls' | 'search' | null;
+type Sheet =
+  | DockSheet
+  | 'options'
+  | 'chapters'
+  | 'controls'
+  | 'search'
+  | 'bookmarks'
+  | 'pronunciations'
+  | null;
 
 function OptionsSheet({
   doc,
   open,
   onOpenChange,
   onSheet,
+  onAddBookmark,
 }: {
   doc: ReaderDocument;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSheet: (sheet: Sheet) => void;
+  onAddBookmark: () => void;
 }) {
   const { t } = useTranslation();
   const prefs = useReaderPrefs();
@@ -113,6 +135,25 @@ function OptionsSheet({
               onClick={() => onSheet('chapters')}
             />
           )}
+          <SheetRow
+            icon={BookmarkPlusIcon}
+            label={t('reader.bookmark_add')}
+            disabled={!doc.segments.length}
+            onClick={onAddBookmark}
+          />
+          <SheetRow
+            icon={BookMarkedIcon}
+            label={t('reader.bookmarks')}
+            chevron
+            onClick={() => onSheet('bookmarks')}
+          />
+          <SheetRow
+            icon={SpeechIcon}
+            label={t('reader.pronunciations')}
+            detail={t('reader.pronunciations_hint')}
+            chevron
+            onClick={() => onSheet('pronunciations')}
+          />
           <SheetRow
             icon={UserRoundIcon}
             label={t('reader.voice')}
@@ -199,6 +240,11 @@ export function ReaderDocumentPage() {
   const [following, setFollowing] = useState(true);
   const [scrolled, setScrolled] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [pronounce, setPronounce] = useState<PronounceTarget | null>(null);
+  /** Bookmark whose note the bookmarks sheet is editing. */
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const bookmarks = useBookmarks(docId, Boolean(query.data));
+  const marked = useMemo(() => bookmarkedSegments(bookmarks.data), [bookmarks.data]);
   /** Segment last shown by reader:reveal; "continue from here" starts there. */
   const revealed = useRef<number | null>(null);
   // The backend answers 409 while a background import is still running.
@@ -320,6 +366,33 @@ export function ReaderDocumentPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [doc]);
+
+  const addBookmark = useCallback(() => {
+    if (!doc) return;
+    setSheet((open) => (open === 'options' ? null : open));
+    void addBookmarkHere(doc, (id) => {
+      setNoteFor(id);
+      setSheet('bookmarks');
+    });
+  }, [doc]);
+
+  // Desktop: B bookmarks the current position.
+  useEffect(() => {
+    if (!doc) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() !== 'b' || event.repeat || editable(event.target)) return;
+      event.preventDefault();
+      addBookmark();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc, addBookmark]);
+
+  const onWordPress = useCallback((press: WordPress) => {
+    setSheet(null);
+    setPronounce(pressTarget(press));
+  }, []);
 
   const activate = () => {
     if (!doc) return;
@@ -446,6 +519,8 @@ export function ReaderDocumentPage() {
                 onSeek={resumeFollowing}
                 lang={doc.language ?? undefined}
                 header={header}
+                marked={marked}
+                onWordPress={onWordPress}
               />
               {doc.segments.length === 0 && (
                 <p className="py-10 text-center text-sm text-muted-foreground">
@@ -496,6 +571,7 @@ export function ReaderDocumentPage() {
             open={sheet === 'options'}
             onOpenChange={closeSheet}
             onSheet={openSheet}
+            onAddBookmark={addBookmark}
           />
           <SpeedSheet open={sheet === 'speed'} onOpenChange={closeSheet} />
           <VoiceSheet doc={doc} open={sheet === 'voice'} onOpenChange={closeSheet} />
@@ -503,6 +579,23 @@ export function ReaderDocumentPage() {
           <ChaptersSheet doc={doc} open={sheet === 'chapters'} onOpenChange={closeSheet} />
           <ControlsSheet open={sheet === 'controls'} onOpenChange={closeSheet} />
           <SearchSheet doc={doc} open={sheet === 'search'} onOpenChange={closeSheet} />
+          <BookmarksSheet
+            doc={doc}
+            open={sheet === 'bookmarks'}
+            onOpenChange={closeSheet}
+            editing={noteFor}
+            onEditing={setNoteFor}
+          />
+          <PronunciationsSheet
+            doc={doc}
+            open={sheet === 'pronunciations'}
+            onOpenChange={closeSheet}
+            onEdit={(target) => {
+              setSheet(null);
+              setPronounce(target);
+            }}
+          />
+          <PronounceSheet doc={doc} target={pronounce} onClose={() => setPronounce(null)} />
         </>
       )}
     </div>

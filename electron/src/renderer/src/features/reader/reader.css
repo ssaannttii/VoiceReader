@@ -178,6 +178,27 @@
     box-shadow: 0 0 0 0.12em var(--rd-sentence);
     color: var(--foreground);
   }
+  /* Long press opens the pronunciation sheet, not the iOS callout. */
+  .rd-article {
+    -webkit-touch-callout: none;
+  }
+  /* Bookmarked sentence: a small ribbon before it. */
+  .rd-sent[data-bookmark]::before {
+    content: '';
+    display: inline-block;
+    width: 0.36em;
+    height: 0.62em;
+    margin-inline-end: 0.22em;
+    vertical-align: 0.32em;
+    background: var(--rd-accent);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+    opacity: 0.85;
+  }
+  @media (forced-colors: active) {
+    .rd-sent[data-bookmark]::before {
+      background: CanvasText;
+    }
+  }
   .rd-word {
     border-radius: 0.22em;
     transition:

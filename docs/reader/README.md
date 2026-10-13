@@ -56,9 +56,31 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
   voces, capítulos, tamaño de texto. Controles en pantalla de bloqueo y auriculares (Media
   Session). Si el PC no responde o la voz se está cargando, el reproductor lo dice y reintenta
   solo.
+- **Pronunciación**: mantén pulsada una palabra (en el PC, clic derecho) → *Pronunciar como*:
+  escribe cómo suena, *Probar* la escucha en la frase y *Guardar* la aplica a todos los
+  documentos de ese idioma (también en VoiceStudio). Menú → *Pronunciaciones* lista y borra las
+  entradas. Solo se regeneran las frases que contienen la palabra; las descargas offline
+  conservan el audio anterior hasta volver a descargarlas. En el móvil, la pulsación larga sobre
+  el texto abre esta hoja en lugar de seleccionar texto.
+- **Marcadores**: menú → *Añadir marcador aquí* (o tecla **B** en el PC). El aviso ofrece
+  *Deshacer* y *Añadir nota*. Menú → *Marcadores*: tocar uno lo muestra en el texto, *Escuchar
+  desde aquí* reproduce desde él, y *Exportar a Markdown* descarga marcadores y notas. Las frases
+  marcadas llevan una pequeña cinta.
+- **Capítulos**: cada capítulo indica si ya está escuchado (✓), el actual (*Ahora*) o hasta qué
+  % llegaste.
+- **Escanear páginas**: botón **+** → *Escanear* → *Hacer fotos* (cámara) o *Elegir fotos*;
+  ordena o quita páginas y pulsa *Escanear y añadir*. El texto se reconoce en el PC (OCR) en
+  segundo plano. Una importación fallida muestra *Reintentar* en la biblioteca.
+- **Compartir → Reader** (Android): con Reader **instalado como app** desde una URL `https://`
+  (Tailscale con *HTTPS Certificates*), aparece en el menú *Compartir* del sistema. Un enlace o
+  texto compartido se importa y se abre; los archivos (PDF, EPUB, DOCX, TXT/Markdown/HTML) se
+  suben al PC y las fotos se unen en un único escaneo. Por HTTP plano o sin instalar la app no
+  aparece (lo exige el navegador: hace falta el service worker). Si cambias la app de versión,
+  ábrela una vez antes de compartir para que el service worker nuevo quede activo.
 - **Offline**: menú del documento → *Descargar*. El PC pre-genera todo el audio y el móvil lo
   guarda; después se escucha sin conexión.
-- **Teclado (PC)**: Espacio reproducir/pausa, ←/→ frase anterior/siguiente, +/− velocidad.
+- **Teclado (PC)**: Espacio reproducir/pausa, ←/→ frase anterior/siguiente, +/− velocidad,
+  B marcador.
 
 ## Voces
 

@@ -15,9 +15,11 @@ import {
   PauseIcon,
   PlayIcon,
   PlusIcon,
+  RotateCcwIcon,
   SmartphoneIcon,
 } from 'lucide-react';
-import { describeError } from '@/lib/api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { ApiError, describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { AddDocumentSheet } from './add-document-sheet';
 import { CoverTile } from './cover-tile';
@@ -37,7 +39,7 @@ import { MiniPlayer } from './mini-player';
 import { useOffline } from './offline-state';
 import { PhoneSheet } from './phone-sheet';
 import { fetchReaderDocument } from './reader-actions';
-import type { ReaderDocumentSummary } from './reader-api';
+import { readerApi, readerKeys, type ReaderDocumentSummary } from './reader-api';
 import { useAppearanceProps } from './reader-appearance';
 import { isTouchDevice, searchKey, titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderPlayer } from './reader-player';
@@ -242,11 +244,38 @@ const rowClass =
 /** A document still importing in the background, or whose import failed. */
 function PendingRow({ doc, onMore }: { doc: ReaderListItem; onMore: () => void }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
   const failed = doc.import_status === 'error';
   const progress = typeof doc.import_progress === 'number' ? doc.import_progress : null;
+  const retry = () => {
+    setRetrying(true);
+    readerApi
+      .retryImport(doc.id)
+      .then((summary) => {
+        // The list polls while a row is importing.
+        queryClient.setQueryData<ReaderListItem[]>(readerKeys.documents, (list) =>
+          list?.map((item) => (item.id === summary.id ? { ...item, ...summary } : item)),
+        );
+        void queryClient.invalidateQueries({ queryKey: readerKeys.documents });
+      })
+      .catch((error: unknown) =>
+        toast.error(t('reader.import_retry_failed'), {
+          // 409: the upload is gone; the file has to be added again.
+          description:
+            error instanceof ApiError && error.status === 409
+              ? t('reader.import_error_hint')
+              : describeError(error),
+        }),
+      )
+      .finally(() => setRetrying(false));
+  };
   return (
     <li className="flex items-center gap-1">
-      <div className={cn(rowClass, 'cursor-default active:bg-transparent')} aria-disabled="true">
+      <div
+        className={cn(rowClass, 'cursor-default active:bg-transparent')}
+        aria-disabled={failed ? undefined : 'true'}
+      >
         <CoverTile
           id={doc.id}
           title={doc.title}
@@ -263,9 +292,19 @@ function PendingRow({ doc, onMore }: { doc: ReaderListItem; onMore: () => void }
                   {doc.import_error || t('reader.import_failed')}
                 </span>
               </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {t('reader.import_error_hint')}
-              </span>
+              <button
+                type="button"
+                className="rd-press -ml-1 mt-1 inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-sm font-semibold"
+                disabled={retrying}
+                onClick={retry}
+              >
+                {retrying ? (
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RotateCcwIcon className="size-4" aria-hidden="true" />
+                )}
+                {t('reader.import_retry')}
+              </button>
             </>
           ) : (
             <>
