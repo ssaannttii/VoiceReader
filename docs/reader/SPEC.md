@@ -470,3 +470,70 @@ Scenes are contiguous and cover the whole document (inclusive segment ranges).
 - **Scenes** are fetched when a document opens with Automatic on; `computing` is polled every 4 s
   (up to ~3 min); errors and `unavailable` mean silence.
 - **Diagnostics:** `ambience` events (`scenes`, `scene`, `crossfade`, `error`, `play_error`).
+
+## Prepared reading ("Lectura preparada")
+
+Optional, per document, **off by default**: changes what the voice *says*, never the displayed
+text. Off, rendering is exactly the plain path (same final text, same cache keys). On, each
+segment renders from its prepared reading; the render key covers the final synthesized text
+including pauses (`[pause 700ms]` markers in `synth_text`), so prepared audio has its own cache
+entries and switching back is instant.
+
+### What it does
+- **Pauses** (exact silence, ms): after headings 700 (300 when another heading follows), after a
+  chapter-number prefix ("1. el ejército…") 600, chapter end 1200, scene break (`* * *`) 500 + 500,
+  between paragraphs 200, after list items 250, around block quotes 300, Spanish em-dash dialogue
+  (dashes are not read; 200 before/after a narrator tag, 350 before another speaker's turn in the
+  same segment), mid-sentence ellipsis 300. A piece shorter than 4 letters merges into its neighbour
+  (joined with a comma) instead of being synthesized alone. Each reason can be switched off.
+- **Deterministic changes** (Spanish): Roman numerals with a strong context (`siglo XIX`, `s. XIX`,
+  `Capítulo IV`, regnal names: ordinal ≤ 10, cardinal above), abbreviations the normalizer lacks
+  (`p. ej.`, `EE. UU.`, `Sres.`, `pág.` + number, `Sr.` not before a name…), ordinals (`1.º`,
+  `2.ª`, `1.er`), numbers with units/currency, decimal commas, thousands dots, dates (`12/10/1492`),
+  times after an article (`a las 15:30`), year ranges, words in capitals that the document also
+  writes in lower case, hyphenation leftovers (`compren- der`), stray `<<`. English: section words
+  and regnal names only. `normalize_for_tts` and the pronunciation dictionary still run afterwards.
+- **Candidates for a local LLM** (Ollama, `http://127.0.0.1:11434`): Roman numerals without a strong
+  context and acronyms are a *choice* between precomputed readings (`cardinal`/`ordinal`/`keep`,
+  `word`/`spell`/`keep`); recurring names with non-Spanish spelling (corpus-based: never written in
+  lower case in the document) get a respelling **suggestion**, validated (one word, letters only,
+  similar to the original, no hyphens or English phonetics) and not read until accepted. The model
+  runs on the CPU (`num_gpu: 0`, temperature 0, JSON schema) so it never takes VRAM from the TTS;
+  Ollama is started once (hidden, CPU-only) if installed but not running and stopped with its runner
+  when the queue is idle. Answers are cached in `<DATA_DIR>/reader/speech-llm-cache.json`. Without
+  a model the rules still apply. `OMNIVOICE_READER_LLM=0` disables it; `OMNIVOICE_READER_LLM_MODEL`
+  picks a model (default: first of llama3.1:8b, gemma3:12b, qwen2.5:7b…).
+
+### Storage and job
+`<DATA_DIR>/reader/<id>/speech.json`: `{version, rules_version, enabled, fingerprint, complete,
+prepared_at, llm, pause_rules, items: [{n, segment, c0, c1, original, spoken, kind, source:
+rule|llm, state: applied|suggested|reverted, scope: here|doc, count}], pauses: [[segment, at, ms,
+reason]], overrides}`. `overrides` keeps the listener's edits across recomputes. One background
+thread prepares one document at a time (rules, then the LLM nearest to the listening position
+first), yielding while an interactive render is in flight; results are written after the rules and
+every few seconds while the LLM works. The `fingerprint` (segment text/kind/paragraph + chapter
+starts) detects re-segmentation: stale results are not used and, while the option is on, the
+document is prepared again.
+
+### API
+| method | path | body | returns |
+|---|---|---|---|
+| GET | `/reader/documents/{id}/speech` | – | `{enabled, status: idle\|queued\|running\|ready\|error, progress, error, ready, stale, complete, prepared_at, llm, pause_rules, pause_counts, items}` |
+| POST | `…/speech/enable` | `{enabled?, pause_rules?: {reason: bool}}` | same; starts preparing when needed |
+| POST | `…/speech/prepare` | – | same; (re)starts the preparation |
+| PATCH | `…/speech/items/{n}` | `{spoken?, state?, all?}` | same; `all` also edits identical changes |
+| DELETE | `…/speech/items/{n}?all=` | – | same; reads the change as written |
+| POST | `…/speech/items/{n}/to-dictionary` | – | `{entry}` (pronunciation entry, document language) |
+| POST | `…/speech/preview/{i}` | `RenderRequest + {prepared, item?}` | `RenderResult + {prepared}`; renders as written or prepared regardless of the switch |
+
+Rendering: `POST …/segments/{i}/render` and the prerender use the prepared reading while it is on
+and fresh. Pieces are synthesized separately (`reader_render.Spoken`), silences inserted exactly,
+and word timings computed per piece on the display text.
+
+### Client
+Actions sheet: "Prepared reading" switch with status (preparing %, on, text changed) and "Review
+changes". The review sheet lists name suggestions (accept, edit, add to dictionary), changes grouped
+by chapter with identical ones merged (compare: renders the sentence as written and prepared and
+plays A then B on a separate `<audio>`; read as written / use again; edit; add to dictionary), and
+pause rules with counts. Toggling, readiness and edits call `readerPlayer.refreshAudio()`.
+Downloaded (offline) documents keep the audio they were downloaded with until downloaded again.

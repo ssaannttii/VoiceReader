@@ -26,6 +26,7 @@ DELETE /pronunciation/{entry_id}
 DELETE /reader/bookmarks/{bookmark_id}
 DELETE /reader/documents/{doc_id}
 DELETE /reader/documents/{doc_id}/prerender
+DELETE /reader/documents/{doc_id}/speech/items/{n}
 DELETE /reader/pronunciations/{entry_id}
 GET /.well-known/voicestudio-speech
 GET /api/integrations/twilio/state
@@ -161,6 +162,7 @@ GET /reader/documents/{doc_id}/bookmarks
 GET /reader/documents/{doc_id}/bookmarks/export
 GET /reader/documents/{doc_id}/cover
 GET /reader/documents/{doc_id}/prerender
+GET /reader/documents/{doc_id}/speech
 GET /reader/pronunciations
 GET /reader/status
 GET /reader/voices
@@ -196,6 +198,7 @@ PATCH /gallery/voices/{voice_id}
 PATCH /projects/{project_id}
 PATCH /reader/bookmarks/{bookmark_id}
 PATCH /reader/documents/{doc_id}
+PATCH /reader/documents/{doc_id}/speech/items/{n}
 POST /api/auth/session
 POST /api/auth/ws-ticket
 POST /api/integrations/twilio/test
@@ -306,6 +309,10 @@ POST /reader/documents/{doc_id}/bookmarks
 POST /reader/documents/{doc_id}/prerender
 POST /reader/documents/{doc_id}/retry
 POST /reader/documents/{doc_id}/segments/{index}/render
+POST /reader/documents/{doc_id}/speech/enable
+POST /reader/documents/{doc_id}/speech/items/{n}/to-dictionary
+POST /reader/documents/{doc_id}/speech/prepare
+POST /reader/documents/{doc_id}/speech/preview/{index}
 POST /reader/pronunciations
 POST /reader/warmup
 POST /setup/warmup

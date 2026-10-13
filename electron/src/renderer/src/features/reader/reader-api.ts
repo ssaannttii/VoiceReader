@@ -133,6 +133,72 @@ export interface ReaderStatus {
   model_error?: string | null;
 }
 
+// ── Prepared reading ("Lectura preparada", docs/reader/SPEC.md) ─────────────
+
+/** Why a pause was added; each can be switched off per document. */
+export type ReaderPauseRule =
+  | 'heading'
+  | 'chapter'
+  | 'scene'
+  | 'paragraph'
+  | 'dialogue'
+  | 'list'
+  | 'quote'
+  | 'ellipsis';
+
+export type ReaderSpeechKind =
+  | 'roman'
+  | 'abbr'
+  | 'ordinal'
+  | 'number'
+  | 'date'
+  | 'time'
+  | 'caps'
+  | 'acronym'
+  | 'hyphen'
+  | 'symbol'
+  | 'name';
+
+/** One change to what the voice says: `original` (display text) → `spoken`. */
+export interface ReaderSpeechItem {
+  n: number;
+  segment: number;
+  c0: number;
+  c1: number;
+  original: string;
+  spoken: string;
+  kind: ReaderSpeechKind;
+  source: 'rule' | 'llm';
+  /** `suggested` (names) is not read until accepted; `reverted` reads as written. */
+  state: 'applied' | 'suggested' | 'reverted';
+  /** `doc`: applies to every occurrence of the word in the document. */
+  scope: 'here' | 'doc';
+  count: number;
+  edited?: boolean;
+  suggested?: string | null;
+}
+
+export interface ReaderSpeech {
+  enabled: boolean;
+  status: 'idle' | 'queued' | 'running' | 'ready' | 'error';
+  progress: number | null;
+  error: string | null;
+  /** Results exist for the current text (false before preparing or after re-segmentation). */
+  ready: boolean;
+  stale: boolean;
+  complete: boolean;
+  prepared_at: number | null;
+  llm: {
+    status: 'used' | 'unavailable' | 'disabled' | 'none' | 'pending';
+    model: string | null;
+    candidates: number;
+    resolved: number;
+  } | null;
+  pause_rules: Record<ReaderPauseRule, boolean>;
+  pause_counts: Record<ReaderPauseRule, number>;
+  items: ReaderSpeechItem[];
+}
+
 /** Voice/engine/language for synthesis; omitted fields use the backend defaults. */
 export interface ReaderVoiceChoice {
   voice?: string | null;
@@ -150,6 +216,7 @@ export const readerKeys = {
   pronunciations: (language: string | null) =>
     ['reader', 'pronunciations', language ?? '*'] as const,
   bookmarks: (id: string) => ['reader', 'bookmarks', id] as const,
+  speech: (id: string) => ['reader', 'speech', id] as const,
 };
 
 const doc = (id: string) => `/reader/documents/${encodeURIComponent(id)}`;
@@ -295,6 +362,50 @@ export const readerApi = {
   /** Scenes for the automatic ambience; starts the analysis on the PC when missing. */
   ambience: (id: string, signal?: AbortSignal) =>
     apiJson<ReaderAmbience>(`${doc(id)}/ambience`, { signal }),
+
+  // Prepared reading: what the voice says, never the displayed text.
+  speech: (id: string, signal?: AbortSignal) =>
+    apiJson<ReaderSpeech>(`${doc(id)}/speech`, { signal }),
+  setSpeech: (
+    id: string,
+    change: { enabled?: boolean; pause_rules?: Partial<Record<ReaderPauseRule, boolean>> },
+  ) =>
+    apiJson<ReaderSpeech>(`${doc(id)}/speech/enable`, {
+      method: 'POST',
+      body: JSON.stringify(change),
+    }),
+  prepareSpeech: (id: string) =>
+    apiJson<ReaderSpeech>(`${doc(id)}/speech/prepare`, { method: 'POST' }),
+  /** Edit what change `n` says or its state; `all` also changes every identical one. */
+  editSpeechItem: (
+    id: string,
+    n: number,
+    patch: { spoken?: string; state?: ReaderSpeechItem['state']; all?: boolean },
+  ) =>
+    apiJson<ReaderSpeech>(`${doc(id)}/speech/items/${n}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  revertSpeechItem: (id: string, n: number, all = false) =>
+    apiJson<ReaderSpeech>(`${doc(id)}/speech/items/${n}${all ? '?all=true' : ''}`, {
+      method: 'DELETE',
+    }),
+  speechToDictionary: (id: string, n: number) =>
+    apiJson<{ entry: ReaderPronunciation }>(`${doc(id)}/speech/items/${n}/to-dictionary`, {
+      method: 'POST',
+    }),
+  /** Render a sentence as written (`prepared: false`) or prepared, to compare them. */
+  previewSpeech: (
+    id: string,
+    segment: number,
+    choice: ReaderVoiceChoice,
+    prepared: boolean,
+    item?: number,
+  ) =>
+    apiJson<ReaderRender & { prepared: boolean }>(`${doc(id)}/speech/preview/${segment}`, {
+      method: 'POST',
+      body: voiceBody(choice, item === undefined ? { prepared } : { prepared, item }),
+    }),
 };
 
 /** `GET /reader/documents/{id}/ambience` (backend services/reader_ambience.py). */

@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from services import reader_debug, reader_engine, reader_import, reader_jobs, reader_render, reader_store
+from services import reader_speech
 
 router = APIRouter()
 logger = logging.getLogger("omnivoice.reader")
@@ -303,6 +304,7 @@ async def delete_document(doc_id: str):
     except reader_store.DocumentNotFound:
         raise _not_found() from None
     reader_render.forget_prerender(doc_id)
+    reader_speech.forget(doc_id)
     return {"ok": True}
 
 
@@ -454,10 +456,12 @@ async def render_segment(doc_id: str, index: int, req: Optional[RenderRequest] =
     if index < 0 or index >= len(segments):
         raise HTTPException(status_code=404, detail="Segment not found")
     voice, engine, language = _render_settings(doc, req)
+    # Prepared reading (off by default → None → the plain path, unchanged).
+    spoken = await asyncio.to_thread(reader_speech.spoken_for, doc_id, content, index)
     started = time.perf_counter()
     try:
         result = await reader_render.render_segment(
-            segments[index]["text"], voice=voice, engine=engine, language=language
+            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken
         )
     except HTTPException:
         raise
@@ -491,6 +495,7 @@ async def start_prerender(doc_id: str, req: Optional[PrerenderRequest] = None):
     req = req or PrerenderRequest()
     doc, content = await asyncio.to_thread(_ready_content, doc_id)
     voice, engine, language = _render_settings(doc, req)
+    spoken, variant = await asyncio.to_thread(reader_speech.spoken_list, doc_id, content)
     try:
         return reader_render.start_prerender(
             doc_id,
@@ -499,6 +504,8 @@ async def start_prerender(doc_id: str, req: Optional[PrerenderRequest] = None):
             engine=engine,
             language=language,
             from_segment=req.from_segment or 0,
+            spoken=spoken,
+            variant=variant,
         )
     except Exception as exc:  # noqa: BLE001
         raise _render_error(exc) from None
@@ -510,12 +517,14 @@ async def _idle_status(doc_id: str) -> dict:
     engine = doc.get("engine")
     try:
         engine = reader_render.resolve_engine_id(engine)
+        spoken, _variant = await asyncio.to_thread(reader_speech.spoken_list, doc_id, content)
         done = await asyncio.to_thread(
             reader_render.cached_count,
             texts,
             voice=doc.get("voice_id") or _default_voice(doc.get("language")),
             engine=engine,
             language=doc.get("language"),
+            spoken=spoken,
         )
     except Exception:  # noqa: BLE001 â€” status must not fail on engine lookup
         done = 0
@@ -884,3 +893,113 @@ def _after_import(doc_id: str) -> None:
     from services import reader_ambience
 
     reader_ambience.after_import(doc_id)
+
+# ── Prepared reading ("Lectura preparada", services/reader_speech.py) ────────
+# Kept as one block: an optional per-document layer over what the TTS says.
+# The plain render path only asks reader_speech.spoken_for(), which is None
+# while the option is off.
+
+
+class SpeechEnableRequest(BaseModel):
+    enabled: Optional[bool] = None
+    pause_rules: Optional[dict[str, bool]] = None
+
+
+class SpeechItemPatch(BaseModel):
+    spoken: Optional[str] = Field(None, max_length=200)
+    state: Optional[str] = Field(None, max_length=16)
+    all: bool = False
+
+
+class SpeechPreviewRequest(RenderRequest):
+    prepared: bool = True
+    item: Optional[int] = Field(None, ge=0)
+
+
+async def _speech_call(doc_id: str, fn, *args, **kwargs):
+    """Run ``fn(doc_id, content, ...)`` for a ready document; typed errors."""
+    _doc, content = await asyncio.to_thread(_ready_content, doc_id)
+    try:
+        return await asyncio.to_thread(fn, doc_id, content, *args, **kwargs)
+    except reader_speech.SpeechItemNotFound:
+        raise HTTPException(status_code=404, detail="Change not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@router.get("/reader/documents/{doc_id}/speech")
+async def get_speech(doc_id: str):
+    """Prepared reading: ``enabled``, preparation ``status``/``progress``, the
+    changes (``items``) and pause counts by rule."""
+    return await _speech_call(doc_id, reader_speech.payload)
+
+
+@router.post("/reader/documents/{doc_id}/speech/enable")
+async def enable_speech(doc_id: str, req: SpeechEnableRequest):
+    """Switch prepared reading on/off (and pause rules); preparing starts when needed."""
+    return await _speech_call(doc_id, reader_speech.set_enabled, req.enabled, req.pause_rules)
+
+
+@router.post("/reader/documents/{doc_id}/speech/prepare")
+async def prepare_speech(doc_id: str):
+    """Start (or refresh) the background preparation of the document."""
+    await asyncio.to_thread(_ready_content, doc_id)
+    reader_speech.enqueue(doc_id)
+    return await _speech_call(doc_id, reader_speech.payload)
+
+
+@router.patch("/reader/documents/{doc_id}/speech/items/{n}")
+async def edit_speech_item(doc_id: str, n: int, req: SpeechItemPatch):
+    """Edit what change ``n`` says and/or its state (``applied``/``reverted``/
+    ``suggested``); ``all`` applies it to every identical change."""
+    return await _speech_call(
+        doc_id, reader_speech.edit_item, n, spoken=req.spoken, state_value=req.state, all_same=req.all
+    )
+
+
+@router.delete("/reader/documents/{doc_id}/speech/items/{n}")
+async def revert_speech_item(doc_id: str, n: int, all: bool = False):  # noqa: A002 — query name
+    """Read change ``n`` as written again (``?all=true``: every identical change)."""
+    return await _speech_call(doc_id, reader_speech.edit_item, n, state_value="reverted", all_same=all)
+
+
+@router.post("/reader/documents/{doc_id}/speech/items/{n}/to-dictionary")
+async def speech_item_to_dictionary(doc_id: str, n: int):
+    """Promote change ``n`` to the pronunciation dictionary (document language)."""
+    doc, _content = await asyncio.to_thread(_ready_content, doc_id)
+    try:
+        item = await asyncio.to_thread(reader_speech.get_item, doc_id, n)
+    except reader_speech.SpeechItemNotFound:
+        raise HTTPException(status_code=404, detail="Change not found") from None
+    term = " ".join(str(item.get("original") or "").split())
+    replacement = " ".join(str(item.get("spoken") or "").split())
+    if not term or not replacement or len(term) > 200:
+        raise HTTPException(status_code=400, detail="This change cannot go to the dictionary.")
+    entry = await asyncio.to_thread(_save_pronunciation, term, replacement, doc.get("language"))
+    return {"entry": entry}
+
+
+@router.post("/reader/documents/{doc_id}/speech/preview/{index}")
+async def preview_speech(doc_id: str, index: int, req: Optional[SpeechPreviewRequest] = None):
+    """Render one segment plainly (``prepared: false``) or prepared — whether
+    the option is on or not, ``item`` applied — to compare them. Same
+    ``RenderResult`` as the render route; the document's voice is not changed."""
+    req = req or SpeechPreviewRequest()
+    doc, content = await asyncio.to_thread(_ready_content, doc_id)
+    segments = content["segments"]
+    if index < 0 or index >= len(segments):
+        raise HTTPException(status_code=404, detail="Segment not found")
+    voice, engine, language = _render_settings(doc, req)
+    spoken = None
+    if req.prepared:
+        try:
+            spoken = await asyncio.to_thread(reader_speech.preview_spoken, doc_id, content, index, req.item)
+        except reader_speech.SpeechItemNotFound:
+            raise HTTPException(status_code=404, detail="Change not found") from None
+    try:
+        result = await reader_render.render_segment(
+            segments[index]["text"], voice=voice, engine=engine, language=language, spoken=spoken
+        )
+    except Exception as exc:  # noqa: BLE001 — mapped to a typed HTTP error
+        raise _render_error(exc) from None
+    return {"segment": index, "voice": voice, "prepared": spoken is not None, **result}

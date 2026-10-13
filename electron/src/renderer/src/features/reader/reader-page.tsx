@@ -58,6 +58,7 @@ import { AudioOnlyView } from './audio-only-view';
 import { useListeningPrefs } from './listening-prefs';
 import { QueueSheet } from './queue-sheet';
 import { SoundscapeSheet } from './soundscape-sheet';
+import { SpeechSheet } from './speech-sheet';
 import { ActionsSheet, AppearanceSheet, type MenuSheet } from './reader-menus';
 import { canHideChrome, distinctSource } from './player-chrome';
 import { useChromeFocus, useReaderChrome } from './use-reader-chrome';
@@ -618,6 +619,7 @@ export function ReaderDocumentPage() {
           <PronounceSheet doc={doc} target={pronounce} onClose={() => setPronounce(null)} />
           <QueueSheet open={sheet === 'queue'} onOpenChange={closeSheet} />
           <SoundscapeSheet open={sheet === 'soundscape'} onOpenChange={closeSheet} />
+          <SpeechSheet doc={doc} open={sheet === 'speech'} onOpenChange={closeSheet} />
         </>
       )}
     </div>
