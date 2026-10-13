@@ -20,7 +20,7 @@ import re
 import zipfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree as ET
 
@@ -53,6 +53,14 @@ class Block:
     kind: str  # "h" | "p"
     text: str
     level: int = 0  # heading level (1-6) for "h"
+    #: A chapter starts at this block under this title without the title being
+    #: read aloud (page-range chapters of a PDF, one chapter per scanned
+    #: page). When any block carries one, headings no longer make chapters.
+    chapter: Optional[str] = None
+
+
+#: ``progress(fraction)`` callback for long imports (0–1).
+Progress = Optional[Callable[[float], None]]
 
 
 @dataclass
@@ -158,18 +166,31 @@ def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[l
     return out, mapping
 
 
-def segment_blocks(blocks: list[Block], language: Optional[str]) -> tuple[list[dict], list[dict]]:
+def segment_blocks(
+    blocks: list[Block], language: Optional[str], progress: Progress = None
+) -> tuple[list[dict], list[dict]]:
     """``(segments, chapters)`` for a block list.
 
     Chapters are the headings at the document's top heading level (``#`` in
-    Markdown, EPUB/PDF chapter titles, ``Heading 1`` in DOCX).
+    Markdown, EPUB/PDF chapter titles, ``Heading 1`` in DOCX) — or, when any
+    block carries a :attr:`Block.chapter` marker, exactly those markers.
+    ``progress`` is called with the fraction of blocks done.
     """
     segments: list[dict] = []
     chapters: list[dict] = []
+    marked = any(b.chapter for b in blocks)
     levels = [b.level for b in blocks if b.kind == "h" and _clean(b.text)]
-    top = min(levels) if levels else None
+    top = None if marked or not levels else min(levels)
     para = 0
-    for block in blocks:
+    step = max(1, len(blocks) // 50)
+    for number, block in enumerate(blocks):
+        if progress is not None and number % step == 0:
+            progress(number / len(blocks))
+        if block.chapter:
+            if chapters and chapters[-1]["segment"] == len(segments):
+                chapters[-1]["title"] = _short_title(block.chapter)  # an empty range: replace it
+            else:
+                chapters.append({"title": _short_title(block.chapter), "segment": len(segments)})
         text = _clean(block.text)
         if not text:
             continue
@@ -187,6 +208,10 @@ def segment_blocks(blocks: list[Block], language: Optional[str]) -> tuple[list[d
     segments, mapping = group_segments(segments)
     for chapter in chapters:
         chapter["segment"] = mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(segments)
+    if marked:
+        chapters = [c for c in chapters if c["segment"] < len(segments)]
+    if progress is not None:
+        progress(1.0)
     return segments, chapters
 
 
@@ -800,14 +825,357 @@ def epub_metadata(data: bytes) -> dict:
     return out
 
 
+# ── PDF ──────────────────────────────────────────────────────────────────────
+#
+# pypdf gives one text layer per page, with hard-wrapped lines and no markup.
+# Chapter headings are recognized line by line (``pdf_blocks``); running
+# headers/footers and page numbers are dropped first so they cannot pose as
+# headings. Without at least two headings, a long PDF gets one chapter per
+# ``PDF_PAGES_PER_CHAPTER`` pages instead.
+
+PDF_PAGES_PER_CHAPTER = 10
+PDF_MAX_PAGES = 5000
+_HEADING_MAX = 60
+
+_NUMBER_WORDS = (
+    "uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|"
+    "dieciséis|dieciseis|diecisiete|dieciocho|diecinueve|veinte|primer[oa]?|segund[oa]|tercer[oa]?|"
+    "cuart[oa]|quint[oa]|sext[oa]|séptim[oa]|septim[oa]|octav[oa]|noven[oa]|décim[oa]|decim[oa]|"
+    "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    "sixteen|seventeen|eighteen|nineteen|twenty|first|second|third|fourth|fifth|sixth|seventh|"
+    "eighth|ninth|tenth|un|deux|trois|eins|zwei|drei|primo|secondo|terzo"
+)
+_ROMAN = r"[IVXLCDM]{1,7}"
+_NUMBERED_HEADING_RE = re.compile(
+    r"^(?:cap[ií]tulo|cap\.|chapter|chapitre|kapitel|capitolo|parte|part|partie|teil|libro|book|"
+    r"livre|buch|tomo|volumen|volume|secci[oó]n|section)\s+"
+    rf"(?:\d{{1,3}}|{_ROMAN}|(?:{_NUMBER_WORDS}))\b\.?(?:\s*[:.—–-]\s*\S.*|\s+\S.*)?$",
+    re.IGNORECASE,
+)
+_NAMED_HEADING_RE = re.compile(
+    r"^(?:pr[oó]logo|prologue|prolog|ep[ií]logo|epilogue|epilog|epilogo|introducci[oó]n|introduction|"
+    r"einleitung|introduzione|introdu[cç][aã]o|interludio|interlude|pr[eé]facio|prefacio|preface|"
+    r"pr[eé]face|vorwort|prefazione|ap[eé]ndice|appendix|annexe|anhang|appendice|conclusi[oó]n|"
+    r"conclusion|nota del autor|nota de la autora|author'?s note|agradecimientos|acknowledg(?:e)?ments?|"
+    r"dedicatoria|pr[oó]logo del autor)\.?(?:\s*[:.—–-]\s*\S.*)?$",
+    re.IGNORECASE,
+)
+_NUMBER_LINE_RE = re.compile(rf"^(?:\d{{1,3}}|{_ROMAN})\.?$")
+_SENTENCE_END_RE = re.compile(r"[.!?…:;»\"”’)\]]$")
+_PAGES_LABEL = {
+    "es": "Páginas {a}–{b}", "pt": "Páginas {a}–{b}", "fr": "Pages {a}–{b}",
+    "de": "Seiten {a}–{b}", "it": "Pagine {a}–{b}", "en": "Pages {a}–{b}",
+}
+_PAGE_LABEL = {
+    "es": "Página {n}", "pt": "Página {n}", "fr": "Page {n}",
+    "de": "Seite {n}", "it": "Pagina {n}", "en": "Page {n}",
+}
+
+
+def _label(table: dict, language: Optional[str], **values) -> str:
+    return table.get((language or "en")[:2], table["en"]).format(**values)
+
+
+def _roman_value(text: str) -> int:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    total = 0
+    for char, nxt in zip(text, text[1:] + " "):
+        value = values[char]
+        total += -value if values.get(nxt, 0) > value else value
+    return total
+
+
+def _number_value(line: str) -> Optional[int]:
+    token = line.strip().rstrip(".")
+    if token.isdigit():
+        return int(token)
+    if re.fullmatch(_ROMAN, token):
+        return _roman_value(token)
+    return None
+
+
+def pdf_pages(data: bytes, progress: Progress = None, *, max_pages: int = PDF_MAX_PAGES) -> list[str]:
+    """Text layer of every page (``""`` for a page without one), in order.
+
+    Raises :class:`ReaderImportError` for unreadable, encrypted, oversized or
+    image-only PDFs.
+    """
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    try:
+        reader = PdfReader(io.BytesIO(data))
+    except (PdfReadError, OSError, ValueError) as exc:
+        raise ReaderImportError(f"couldn't read the PDF: not a valid PDF file ({exc})") from exc
+    if reader.is_encrypted:
+        try:
+            if reader.decrypt("") == 0:
+                raise ReaderImportError("couldn't read the PDF: it is password-protected")
+        except (NotImplementedError, PdfReadError) as exc:
+            raise ReaderImportError(f"couldn't read this encrypted PDF: {exc}") from exc
+    try:
+        pages = reader.pages
+        total = len(pages)
+    except (PdfReadError, OSError, ValueError) as exc:
+        raise ReaderImportError(f"couldn't read the PDF: {exc}") from exc
+    if total > max_pages:
+        raise ReaderImportError(f"the PDF has too many pages (max {max_pages})")
+    out: list[str] = []
+    for index in range(total):
+        try:
+            out.append(pages[index].extract_text() or "")
+        except Exception:  # noqa: BLE001 — one bad page shouldn't kill the import
+            out.append("")
+        if progress is not None:
+            progress((index + 1) / total)
+    if not any(text.strip() for text in out):
+        raise ReaderImportError(
+            "this PDF has no text layer (a scanned or image-only PDF); "
+            "photograph the pages with Scan instead"
+        )
+    return out
+
+
+def _edge_lines(lines: list[str]) -> list[int]:
+    """Indexes of the first two and last two lines of a page."""
+    n = len(lines)
+    return sorted({i for i in (0, 1, n - 2, n - 1) if 0 <= i < n})
+
+
+def _strip_page_furniture(pages: list[list[str]]) -> list[list[str]]:
+    """Drop running headers/footers and page numbers from page line lists.
+
+    A header/footer is an edge line whose digit-less form repeats on at least
+    a quarter of the pages (min. 3). A page number is an edge number line
+    whose value keeps a constant offset from the page index on several pages.
+    """
+    def key(text: str) -> str:
+        return " ".join(re.sub(r"\d+", "#", text).lower().split())
+
+    repeats: dict[str, int] = {}
+    offsets: dict[int, int] = {}
+    for index, lines in enumerate(pages):
+        seen = set()
+        for i in _edge_lines(lines):
+            k = key(lines[i])
+            if k and k not in seen and not _NUMBER_LINE_RE.match(lines[i].strip()):
+                seen.add(k)
+                repeats[k] = repeats.get(k, 0) + 1
+            value = _number_value(lines[i]) if lines[i].strip().isdigit() else None
+            if value is not None:
+                offsets[value - index] = offsets.get(value - index, 0) + 1
+    furniture = {k for k, count in repeats.items() if count >= max(3, len(pages) // 4)}
+    numbered_pages = sum(offsets.values())
+    page_offsets = {
+        offset for offset, count in offsets.items()
+        if count >= 2 and count >= 0.3 * numbered_pages
+    } if numbered_pages else set()
+    out = []
+    for index, lines in enumerate(pages):
+        edges = set(_edge_lines(lines))
+        kept = []
+        for i, line in enumerate(lines):
+            if i in edges:
+                if key(line) in furniture:
+                    continue
+                if line.strip().isdigit() and int(line.strip()) - index in page_offsets:
+                    continue
+            kept.append(line)
+        out.append(kept)
+    return out
+
+
+def _is_caps_heading(line: str) -> bool:
+    letters = [c for c in line if c.isalpha()]
+    return (
+        len(letters) >= 4
+        and all(c.isupper() for c in letters)
+        and len(line.split()) <= 8
+        and not re.fullmatch(_ROMAN, line.replace(" ", ""))
+        and not line.endswith((",", ";"))
+    )
+
+
+def pdf_blocks(page_texts: list[str], language: Optional[str] = None) -> list[Block]:
+    """Blocks for a PDF's page texts: detected chapter headings as level-1
+    ``h`` blocks, or (fewer than two headings in a PDF over
+    ``PDF_PAGES_PER_CHAPTER`` pages) chapter markers every that many pages."""
+    pages = _strip_page_furniture([
+        [line.strip() for line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+        for text in page_texts
+    ])
+    lengths = sorted(len(line) for lines in pages for line in lines if line)
+    typical = lengths[int(0.8 * (len(lengths) - 1))] if lengths else 60
+
+    # (page, line index) → heading text; consumed title lines are skipped.
+    headings: dict[tuple[int, int], str] = {}
+    consumed: set[tuple[int, int]] = set()
+    last_number: Optional[int] = None
+    for p, lines in enumerate(pages):
+        previous = ""  # the previous non-empty line on this page
+        for i, line in enumerate(lines):
+            if not line or (p, i) in consumed:
+                continue
+            starts_unit = not previous or bool(_SENTENCE_END_RE.search(previous)) or (p, i - 1) in headings
+            heading = None
+            if starts_unit and len(line) <= _HEADING_MAX and (line[:1].isupper() or line[:1].isdigit()):
+                if _NUMBERED_HEADING_RE.match(line) or _NAMED_HEADING_RE.match(line):
+                    heading = line
+                elif _NUMBER_LINE_RE.match(line):
+                    # A bare chapter number: only as the next one in sequence.
+                    value = _number_value(line)
+                    if value is not None and (value == (last_number or 0) + 1 or (last_number is None and value <= 3)):
+                        heading = line.rstrip(".")
+                        last_number = value
+                elif _is_caps_heading(line):
+                    heading = line
+            if heading is not None:
+                # A short following line without end punctuation is the title.
+                j = i + 1
+                while j < len(lines) and not lines[j]:
+                    j += 1
+                if j < len(lines):
+                    title = lines[j]
+                    if (
+                        len(title) < 0.6 * typical
+                        and not _SENTENCE_END_RE.search(title)
+                        and not title.endswith((",", "-"))
+                        and title[:1].isupper()
+                        and not (_NUMBERED_HEADING_RE.match(title) or _NAMED_HEADING_RE.match(title))
+                    ):
+                        heading = f"{heading}. {title}" if heading[-1:].isalnum() else f"{heading} {title}"
+                        consumed.add((p, j))
+                headings[(p, i)] = heading
+            previous = line
+
+    def paragraphs(lines: list[str]) -> list[Block]:
+        out: list[Block] = []
+        run: list[str] = []
+        for line in [*lines, ""]:
+            if line:
+                run.append(line)
+                continue
+            for paragraph in _reflow(run):
+                if _clean(paragraph):
+                    out.append(Block("p", paragraph))
+            run = []
+        return out
+
+    blocks: list[Block] = []
+    if len(headings) >= 2 or len(pages) <= PDF_PAGES_PER_CHAPTER:
+        body: list[str] = []
+        for p, lines in enumerate(pages):
+            for i, line in enumerate(lines):
+                if (p, i) in consumed:
+                    continue
+                if (p, i) in headings:
+                    blocks.extend(paragraphs(body))
+                    body = []
+                    blocks.append(Block("h", headings[(p, i)], level=1))
+                else:
+                    body.append(line)
+        blocks.extend(paragraphs(body))
+        return blocks
+
+    # Page-range chapters; a lone detected heading is still read as a heading.
+    for start in range(0, len(pages), PDF_PAGES_PER_CHAPTER):
+        end = min(start + PDF_PAGES_PER_CHAPTER, len(pages))
+        group: list[Block] = []
+        body = []
+        for p in range(start, end):
+            for i, line in enumerate(pages[p]):
+                if (p, i) in consumed:
+                    continue
+                if (p, i) in headings:
+                    group.extend(paragraphs(body))
+                    body = []
+                    group.append(Block("h", headings[(p, i)], level=1))
+                else:
+                    body.append(line)
+        group.extend(paragraphs(body))
+        label = _label(_PAGES_LABEL, language, a=start + 1, b=end)
+        if group:
+            group[0].chapter = label
+        else:
+            group = [Block("p", "", chapter=label)]
+        blocks.extend(group)
+    return blocks
+
+
+def import_pdf(data: bytes, *, title: str, language: Optional[str] = None, progress: Progress = None, **common) -> ImportedDocument:
+    """PDF bytes → document; ``progress`` gets 0–0.8 for pages, 0.8–1 for segmentation."""
+    pages = pdf_pages(data, (lambda f: progress(0.8 * f)) if progress else None)
+    _check_size("".join(pages))
+    sample = "\n".join(pages)[:40_000]
+    lang = (language or "").strip().lower()[:8] or guess_language(sample)
+    blocks = pdf_blocks(pages, lang)
+    doc = ImportedDocument(title=title, blocks=blocks, **common)
+    return _finish(doc, lang, sample, (lambda f: progress(0.8 + 0.2 * f)) if progress else None)
+
+
+# ── Scan (OCR) ───────────────────────────────────────────────────────────────
+
+MAX_SCAN_IMAGES = 50
+MAX_SCAN_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def import_scan(
+    images: list[bytes],
+    *,
+    title: Optional[str] = None,
+    language: Optional[str] = None,
+    progress: Progress = None,
+) -> ImportedDocument:
+    """Page photos (in page order) → document via OCR (``services.reader_ocr``).
+
+    One paragraph per detected text block, in reading order; one chapter per
+    image when there are several. Raises ``reader_ocr.OcrUnavailable`` when OCR
+    cannot run here, :class:`ReaderImportError` for unreadable input.
+    """
+    from services import reader_ocr
+
+    if not images:
+        raise ReaderImportError("add at least one image")
+    if len(images) > MAX_SCAN_IMAGES:
+        raise ReaderImportError(f"too many images (max {MAX_SCAN_IMAGES})")
+    pages: list[list[tuple[str, str]]] = []
+    for index, data in enumerate(images):
+        try:
+            pages.append(reader_ocr.ocr_page(data))
+        except reader_ocr.OcrImageError as exc:
+            raise ReaderImportError(f"page {index + 1}: {exc}") from exc
+        if progress is not None:
+            progress(0.9 * (index + 1) / len(images))
+    sample = "\n".join(text for page in pages for _kind, text in page)[:40_000]
+    if not sample.strip():
+        raise ReaderImportError("no text was recognized in the images")
+    lang = (language or "").strip().lower()[:8] or guess_language(sample)
+    blocks: list[Block] = []
+    for number, page in enumerate(pages, start=1):
+        page_blocks = [Block(kind, text, level=1 if kind == "h" else 0) for kind, text in page]
+        if len(pages) > 1:
+            label = _label(_PAGE_LABEL, lang, n=number)
+            if page_blocks:
+                page_blocks[0].chapter = label
+        blocks.extend(page_blocks)
+    first_heading = next((b.text for b in blocks if b.kind == "h"), None)
+    doc = ImportedDocument(
+        title=_clean(title or "") or first_heading or "",
+        blocks=blocks,
+        source_type="scan",
+        source_name=f"{len(images)} image{'s' if len(images) != 1 else ''}",
+    )
+    return _finish(doc, lang, sample, (lambda f: progress(0.9 + 0.1 * f)) if progress else None)
+
+
 # ── Front doors ──────────────────────────────────────────────────────────────
 
 
-def _finish(doc: ImportedDocument, language: Optional[str], sample: str) -> ImportedDocument:
+def _finish(doc: ImportedDocument, language: Optional[str], sample: str, progress: Progress = None) -> ImportedDocument:
     if not doc.blocks:
         raise ReaderImportError("no readable text found")
     doc.language = (language or "").strip().lower()[:8] or doc.language or guess_language(sample)
-    doc.segments, doc.chapters = segment_blocks(doc.blocks, doc.language)
+    doc.segments, doc.chapters = segment_blocks(doc.blocks, doc.language, progress)
     if not doc.segments:
         raise ReaderImportError("no readable text found")
     doc.title = _short_title(doc.title or "") or _short_title(doc.segments[0]["text"]) or "Untitled"
@@ -875,9 +1243,15 @@ def _from_html(html: str, *, fallback_title: str, source_type: str, language: Op
     return _finish(doc, language, _blocks_text(blocks))
 
 
-def import_file(filename: str, data: bytes, *, language: Optional[str] = None) -> ImportedDocument:
-    """txt / md / html / pdf / epub / docx bytes → document."""
-    from services.longform_import import epub_to_chapter_script, pdf_to_chapter_script
+def import_file(
+    filename: str, data: bytes, *, language: Optional[str] = None, progress: Progress = None
+) -> ImportedDocument:
+    """txt / md / html / pdf / epub / docx bytes → document.
+
+    ``progress`` (0–1) is reported per page for PDFs and per chapter while
+    segmenting EPUBs (and every other format).
+    """
+    from services.longform_import import epub_to_chapter_script
     from services.text_upload import decode_text_upload
 
     if not data:
@@ -893,20 +1267,15 @@ def import_file(filename: str, data: bytes, *, language: Optional[str] = None) -
     if ext in (".html", ".htm", ".xhtml"):
         return _from_html(_decode_html_bytes(data), fallback_title=title, language=language, **common)
     if ext == ".pdf":
-        try:
-            script = pdf_to_chapter_script(data)
-        except ValueError as exc:
-            raise ReaderImportError(f"couldn't read the PDF: {exc}") from exc
-        _check_size(script)
-        blocks = parse_markdown(script, markdown=False)
-        doc = ImportedDocument(title=title, blocks=blocks, **common)
-        return _finish(doc, language, _blocks_text(blocks))
+        return import_pdf(data, title=title, language=language, progress=progress, **common)
     if ext == ".epub":
         try:
             script = epub_to_chapter_script(data)
         except ValueError as exc:
             raise ReaderImportError(f"couldn't read the EPUB: {exc}") from exc
         _check_size(script)
+        if progress is not None:
+            progress(0.3)
         meta = epub_metadata(data)
         blocks = parse_markdown(script, markdown=False)
         doc = ImportedDocument(
@@ -917,11 +1286,11 @@ def import_file(filename: str, data: bytes, *, language: Optional[str] = None) -
             cover=meta["cover"],
             **common,
         )
-        return _finish(doc, language, _blocks_text(blocks))
+        return _finish(doc, language, _blocks_text(blocks), (lambda f: progress(0.3 + 0.7 * f)) if progress else None)
     if ext == ".docx":
         blocks, meta = parse_docx(data)
         doc = ImportedDocument(title=meta["title"] or title, author=meta["author"], blocks=blocks, **common)
-        return _finish(doc, language, _blocks_text(blocks))
+        return _finish(doc, language, _blocks_text(blocks), progress)
     if ext in (".txt", ".md", ".markdown", ".text", ""):
         from services.longform_import import chapterize_plaintext
 
@@ -931,7 +1300,7 @@ def import_file(filename: str, data: bytes, *, language: Optional[str] = None) -
         blocks = parse_markdown(text if is_md else chapterize_plaintext(text))
         first_heading = next((b.text for b in blocks if b.kind == "h" and b.level == 1), None)
         doc = ImportedDocument(title=(first_heading if is_md else None) or title, blocks=blocks, **common)
-        return _finish(doc, language, _blocks_text(blocks))
+        return _finish(doc, language, _blocks_text(blocks), progress)
     raise ReaderImportError(
         f"unsupported file type {ext or '(none)'}; use " + ", ".join(e.lstrip(".") for e in FILE_EXTENSIONS[:-1]) + " or docx"
     )
