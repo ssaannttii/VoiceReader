@@ -23,6 +23,7 @@
         "@fontsource-variable/inter": "^5.3.0",
         "@fontsource-variable/source-serif-4": "^5.3.0",
         "@fontsource/ibm-plex-mono": "^5.3.0",
+        "@fontsource/opendyslexic": "^5.3.0",
         "@lobehub/icons-static-svg": "^1.95.0",
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-dropdown-menu": "^2.1.24",
@@ -316,6 +317,8 @@
     "@fontsource-variable/source-serif-4": ["@fontsource-variable/source-serif-4@5.3.0", "", {}, "sha512-9vch9WqxjaaA+1o9Ur8pOgIGbCYLjRReOUel23A6lOpD1syptgjtkORevvNmldJ5kGXQL29onQUqI5Ltz0s3bQ=="],
 
     "@fontsource/ibm-plex-mono": ["@fontsource/ibm-plex-mono@5.3.0", "", {}, "sha512-eTgnZjZEGk1QtD3ZstF+Vclo2HLAni8YMy34/DxllwZvyz1lR/1RF/xTiAquOBO7MvqBx8D2Ig2WCPMVfdZu7Q=="],
+
+    "@fontsource/opendyslexic": ["@fontsource/opendyslexic@5.3.0", "", {}, "sha512-BVYIW/ghc1U2iAghhYTN+GFWiZ3lnCy8Jf2KkZC23aHQHBNcMqKT718zckfqVxRx4qsXJmIMPWvczirRuhmtsg=="],
 
     "@hapi/address": ["@hapi/address@5.1.1", "", { "dependencies": { "@hapi/hoek": "^11.0.2" } }, "sha512-A+po2d/dVoY7cYajycYI43ZbYMXukuopIsqCjh5QzsBCipDtdofHntljDlpccMjIfTy6UOkg+5KPriwYch2bXA=="],
 

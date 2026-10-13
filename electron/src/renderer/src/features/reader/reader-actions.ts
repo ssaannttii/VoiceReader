@@ -50,3 +50,17 @@ export async function deleteDocument(id: string): Promise<void> {
   );
   queryClient.removeQueries({ queryKey: readerKeys.document(id) });
 }
+
+/** Archive / unarchive, or mark finished / unread; the library updates in place. */
+export async function setDocumentFlags(
+  id: string,
+  patch: Pick<Partial<ReaderDocumentSummary>, 'archived' | 'completed'>,
+): Promise<void> {
+  const summary = await readerApi.update(id, patch);
+  queryClient.setQueryData<ReaderDocumentSummary[]>(readerKeys.documents, (list) =>
+    list?.map((item) => (item.id === id ? { ...item, ...summary } : item)),
+  );
+  queryClient.setQueryData<ReaderDocument>(readerKeys.document(id), (doc) =>
+    doc ? { ...doc, archived: summary.archived, completed: summary.completed } : doc,
+  );
+}

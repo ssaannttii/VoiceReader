@@ -2,6 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  CheckCircle2Icon,
+  CircleIcon,
   CircleStopIcon,
   CloudDownloadIcon,
   Loader2Icon,
@@ -15,7 +19,13 @@ import {
   removeOfflineDownload,
   useOffline,
 } from './offline-state';
-import { deleteDocument, downloadDocument, renameDocument } from './reader-actions';
+import { isFinished, isReady } from './library-view';
+import {
+  deleteDocument,
+  downloadDocument,
+  renameDocument,
+  setDocumentFlags,
+} from './reader-actions';
 import type { ReaderDocumentSummary } from './reader-api';
 import { ReaderSheet, SheetRow } from './reader-sheet';
 
@@ -80,6 +90,9 @@ export function DocumentActionsSheet({
     setBusy(false);
   }, [doc]);
   if (!shown) return null;
+  // Archive / finished need a v2 server; they are hidden when it omits the fields.
+  const ready = isReady(shown);
+  const finished = isFinished(shown);
   const rename = async (event: FormEvent) => {
     event.preventDefault();
     const next = title.trim();
@@ -88,6 +101,29 @@ export function DocumentActionsSheet({
     try {
       await renameDocument(shown.id, next);
       onClose();
+    } catch (error) {
+      toast.error(describeError(error));
+      setBusy(false);
+    }
+  };
+  const flag = async (patch: { archived?: boolean; completed?: boolean }, done: string) => {
+    if (busy) return;
+    setBusy(true);
+    const id = shown.id;
+    try {
+      await setDocumentFlags(id, patch);
+      onClose();
+      // Undo restores the previous value of the one flag that changed.
+      const undo = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, !value]));
+      toast.success(done, {
+        action: {
+          label: t('reader.undo'),
+          onClick: () =>
+            void setDocumentFlags(id, undo).catch((error: unknown) =>
+              toast.error(describeError(error)),
+            ),
+        },
+      });
     } catch (error) {
       toast.error(describeError(error));
       setBusy(false);
@@ -114,12 +150,40 @@ export function DocumentActionsSheet({
     >
       {view === 'menu' && (
         <div className="space-y-0.5 pb-1">
-          <SheetRow
-            icon={PencilIcon}
-            label={t('reader.rename')}
-            onClick={() => setView('rename')}
-          />
-          <OfflineRow id={shown.id} />
+          {ready && (
+            <SheetRow
+              icon={PencilIcon}
+              label={t('reader.rename')}
+              onClick={() => setView('rename')}
+            />
+          )}
+          {ready && typeof shown.completed === 'boolean' && (
+            <SheetRow
+              icon={finished ? CircleIcon : CheckCircle2Icon}
+              label={t(finished ? 'reader.mark_unread' : 'reader.mark_finished')}
+              disabled={busy}
+              onClick={() =>
+                void flag(
+                  { completed: !finished },
+                  t(finished ? 'reader.marked_unread' : 'reader.marked_finished'),
+                )
+              }
+            />
+          )}
+          {typeof shown.archived === 'boolean' && (
+            <SheetRow
+              icon={shown.archived ? ArchiveRestoreIcon : ArchiveIcon}
+              label={t(shown.archived ? 'reader.unarchive' : 'reader.archive')}
+              disabled={busy}
+              onClick={() =>
+                void flag(
+                  { archived: !shown.archived },
+                  t(shown.archived ? 'reader.unarchived' : 'reader.archived'),
+                )
+              }
+            />
+          )}
+          {ready && <OfflineRow id={shown.id} />}
           <SheetRow
             icon={Trash2Icon}
             label={t('reader.delete')}

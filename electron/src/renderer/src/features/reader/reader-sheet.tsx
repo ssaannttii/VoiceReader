@@ -2,6 +2,7 @@ import { Drawer } from '@base-ui/react/drawer';
 import type { ComponentProps, ReactNode } from 'react';
 import { CheckIcon, ChevronRightIcon, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppearanceProps } from './reader-appearance';
 
 /** Swipe-to-dismiss bottom sheet: the Reader's replacement for menus and dialogs. */
 export function ReaderSheet({
@@ -22,11 +23,13 @@ export function ReaderSheet({
   keyboard?: boolean;
   className?: string;
 }) {
+  // Sheets are portaled out of `.rd-root`, so they carry the Reader appearance themselves.
+  const appearance = useAppearanceProps();
   const popup = (
     <Drawer.Portal>
       <Drawer.Backdrop className="rd-sheet-backdrop" />
       <Drawer.Viewport className="rd-sheet-viewport">
-        <Drawer.Popup className={cn('rd-sheet', className)}>
+        <Drawer.Popup className={cn('rd-sheet', className)} {...appearance}>
           <div className="rd-sheet-handle" aria-hidden="true" />
           <div className="px-5 pb-2 pt-1">
             <Drawer.Title className="text-base font-semibold tracking-tight">{title}</Drawer.Title>

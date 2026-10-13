@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { readerApi, readerKeys, type ReaderDocument, type ReaderVoice } from './reader-api';
 import { readerPlayer, silentWav, useReaderClock, useReaderPlayer } from './reader-player';
 import { ReaderSheet, SheetRow } from './reader-sheet';
+import { SearchField } from './search-field';
 import {
   chapterIndexAt,
   clampSpeed,
@@ -28,6 +29,16 @@ import {
   SPEED_MIN,
   SPEED_PRESETS,
 } from './reader-text';
+import {
+  ALL_LANGUAGES,
+  defaultVoiceLanguage,
+  filterVoices,
+  languageName,
+  recentVoiceIds,
+  rememberVoice,
+  VOICE_SEARCH_MIN,
+  voiceLanguages,
+} from './voice-picker';
 
 type SheetProps = { open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -168,7 +179,7 @@ export const FOLLOW_EVENT = 'reader:follow';
 let previewAudio: HTMLAudioElement | null = null;
 
 export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: ReaderDocument }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const player = useReaderPlayer();
   const voices = useQuery({
     queryKey: readerKeys.voices,
@@ -258,25 +269,145 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
 
   const choose = (voice: ReaderVoice | null) => {
     stopPreview();
+    if (voice) rememberVoice(voice.id);
     readerPlayer.setVoice(voice?.id ?? null, voice?.engine ?? null);
     onOpenChange(false);
   };
 
-  const list = voices.data ?? [];
+  const list = useMemo(() => voices.data ?? [], [voices.data]);
+  const [query, setQuery] = useState('');
+  // null = the document's language (resolved once voices load).
+  const [language, setLanguage] = useState<string | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    setLanguage(null);
+    setRecent(recentVoiceIds());
+  }, [open]);
+  const languages = useMemo(() => voiceLanguages(list), [list]);
+  const activeLanguage = language ?? defaultVoiceLanguage(list, doc.language);
+  const shown = useMemo(
+    () => filterVoices(list, activeLanguage, query),
+    [list, activeLanguage, query],
+  );
+  const recentVoices = query.trim()
+    ? []
+    : recent
+        .map((id) => shown.find((voice) => voice.id === id))
+        .filter((voice): voice is ReaderVoice => Boolean(voice));
   const groups: [string, ReaderVoice[]][] = [
-    ['reader.voices_mine', list.filter((voice) => voice.kind === 'profile')],
-    ['reader.voices_builtin', list.filter((voice) => voice.kind === 'preset')],
+    ['reader.voices_recent', recentVoices],
+    ['reader.voices_mine', shown.filter((voice) => voice.kind === 'profile')],
+    ['reader.voices_builtin', shown.filter((voice) => voice.kind === 'preset')],
   ];
+  const row = (voice: ReaderVoice) => (
+    <li key={voice.id} className="flex items-center gap-1">
+      <SheetRow
+        className="flex-1"
+        icon={UserRoundIcon}
+        label={voice.name}
+        detail={
+          [
+            defaultId === voice.id ? t('reader.default_voice_badge') : null,
+            voice.description,
+            voice.language?.toUpperCase(),
+          ]
+            .filter(Boolean)
+            .join(' · ') || undefined
+        }
+        checked={player.voice === voice.id}
+        onClick={() => choose(voice)}
+      />
+      {doc.language && voice.kind === 'profile' && (
+        <button
+          type="button"
+          className={cn(
+            'rd-icon-btn shrink-0',
+            defaultId === voice.id ? 'text-amber-500' : 'text-muted-foreground',
+          )}
+          aria-pressed={defaultId === voice.id}
+          aria-label={t(
+            defaultId === voice.id ? 'reader.default_voice_clear' : 'reader.default_voice_make',
+            { name: voice.name },
+          )}
+          onClick={() => toggleDefault(voice)}
+        >
+          <StarIcon
+            className={cn('size-4', defaultId === voice.id && 'fill-current')}
+            aria-hidden="true"
+          />
+        </button>
+      )}
+      <button
+        type="button"
+        className={cn(
+          'rd-icon-btn shrink-0 bg-foreground/[0.06]',
+          previewing === voice.id && 'bg-foreground text-background',
+        )}
+        aria-label={t(previewing === voice.id ? 'reader.stop_preview' : 'reader.preview', {
+          name: voice.name,
+        })}
+        onClick={() => preview(voice)}
+      >
+        {loading === voice.id ? (
+          <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+        ) : previewing === voice.id ? (
+          <SquareIcon className="size-3.5 fill-current" aria-hidden="true" />
+        ) : (
+          <Volume2Icon className="size-4" aria-hidden="true" />
+        )}
+      </button>
+    </li>
+  );
+  const searchable = list.length >= VOICE_SEARCH_MIN;
   return (
-    <ReaderSheet open={open} onOpenChange={onOpenChange} title={t('reader.voice')}>
+    <ReaderSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('reader.voice')}
+      keyboard={searchable}
+    >
       <div className="pb-1">
-        <SheetRow
-          icon={Volume2Icon}
-          label={t('reader.voice_default')}
-          detail={t('reader.voice_default_hint')}
-          checked={player.voice === null}
-          onClick={() => choose(null)}
-        />
+        {searchable && (
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            label={t('reader.voice_search')}
+            clearLabel={t('reader.clear_search')}
+            className="mb-2"
+          />
+        )}
+        {languages.length > 1 && (
+          <div
+            className="-mx-1 mb-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+            role="group"
+            aria-label={t('reader.voice_language')}
+          >
+            {[ALL_LANGUAGES, ...languages].map((code) => (
+              <button
+                key={code}
+                type="button"
+                className="rd-chip shrink-0"
+                aria-pressed={activeLanguage === code}
+                onClick={() => setLanguage(code)}
+              >
+                {code === ALL_LANGUAGES
+                  ? t('reader.voice_all_languages')
+                  : languageName(code, i18n.language)}
+              </button>
+            ))}
+          </div>
+        )}
+        {!query.trim() && (
+          <SheetRow
+            icon={Volume2Icon}
+            label={t('reader.voice_default')}
+            detail={t('reader.voice_default_hint')}
+            checked={player.voice === null}
+            onClick={() => choose(null)}
+          />
+        )}
         {voices.isPending && (
           <div className="space-y-2 py-2" aria-hidden="true">
             {[0, 1, 2].map((index) => (
@@ -289,76 +420,18 @@ export function VoiceSheet({ open, onOpenChange, doc }: SheetProps & { doc: Read
             {describeError(voices.error)}
           </p>
         )}
+        {voices.isSuccess && !shown.length && (
+          <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+            {t('reader.voice_no_results')}
+          </p>
+        )}
         {groups.map(([label, items]) =>
           items.length ? (
             <section key={label} className="mt-3">
               <h3 className="px-3 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {t(label)}
               </h3>
-              <ul className="space-y-0.5">
-                {items.map((voice) => (
-                  <li key={voice.id} className="flex items-center gap-1">
-                    <SheetRow
-                      className="flex-1"
-                      icon={UserRoundIcon}
-                      label={voice.name}
-                      detail={
-                        [
-                          defaultId === voice.id ? t('reader.default_voice_badge') : null,
-                          voice.description,
-                          voice.language?.toUpperCase(),
-                        ]
-                          .filter(Boolean)
-                          .join(' · ') || undefined
-                      }
-                      checked={player.voice === voice.id}
-                      onClick={() => choose(voice)}
-                    />
-                    {doc.language && voice.kind === 'profile' && (
-                      <button
-                        type="button"
-                        className={cn(
-                          'rd-icon-btn shrink-0',
-                          defaultId === voice.id ? 'text-amber-500' : 'text-muted-foreground',
-                        )}
-                        aria-pressed={defaultId === voice.id}
-                        aria-label={t(
-                          defaultId === voice.id
-                            ? 'reader.default_voice_clear'
-                            : 'reader.default_voice_make',
-                          { name: voice.name },
-                        )}
-                        onClick={() => toggleDefault(voice)}
-                      >
-                        <StarIcon
-                          className={cn('size-4', defaultId === voice.id && 'fill-current')}
-                          aria-hidden="true"
-                        />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={cn(
-                        'rd-icon-btn shrink-0 bg-foreground/[0.06]',
-                        previewing === voice.id && 'bg-foreground text-background',
-                      )}
-                      aria-label={t(
-                        previewing === voice.id ? 'reader.stop_preview' : 'reader.preview',
-                        { name: voice.name },
-                      )}
-                      onClick={() => preview(voice)}
-                    >
-                      {loading === voice.id ? (
-                        <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-                      ) : previewing === voice.id ? (
-                        <SquareIcon className="size-3.5 fill-current" aria-hidden="true" />
-                      ) : (
-                        <Volume2Icon className="size-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <ul className="space-y-0.5">{items.map(row)}</ul>
             </section>
           ) : null,
         )}

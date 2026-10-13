@@ -8,29 +8,30 @@ import {
   ChevronLeftIcon,
   CloudOffIcon,
   EllipsisIcon,
-  MonitorIcon,
   MoonIcon,
-  SunIcon,
+  SearchIcon,
   UserRoundIcon,
 } from 'lucide-react';
-import { describeError } from '@/lib/api/client';
-import { useTheme } from '@/hooks/use-theme';
+import { ApiError, describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { AppearanceOptions, AppearancePreview } from './appearance-options';
 import { DebugHud, DiagnosticsRows } from './debug-hud';
 import { OfflineRow } from './document-actions-sheet';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
 import type { ReaderDocument } from './reader-api';
+import { useAppearanceProps } from './reader-appearance';
 import { titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderPlayer } from './reader-player';
 import { setReaderPrefs, TEXT_SIZE_MAX, TEXT_SIZE_MIN, useReaderPrefs } from './reader-prefs';
 import { ReaderSheet, SheetRow } from './reader-sheet';
 import { ReaderTextView } from './reader-text-view';
 import { minutesLeft } from './reader-text';
+import { SearchSheet } from './search-sheet';
 import { useReaderDocument } from './use-reader-data';
 import './reader.css';
 
-type Sheet = DockSheet | 'options' | 'chapters' | null;
+type Sheet = DockSheet | 'options' | 'chapters' | 'search' | null;
 
 function OptionsSheet({
   doc,
@@ -45,16 +46,11 @@ function OptionsSheet({
 }) {
   const { t } = useTranslation();
   const prefs = useReaderPrefs();
-  const theme = useTheme();
   const fill = ((prefs.textSize - TEXT_SIZE_MIN) / (TEXT_SIZE_MAX - TEXT_SIZE_MIN)) * 100;
-  const themes = [
-    { mode: 'light', icon: SunIcon, label: 'reader.theme_light' },
-    { mode: 'dark', icon: MoonIcon, label: 'reader.theme_dark' },
-    { mode: 'system', icon: MonitorIcon, label: 'reader.theme_system' },
-  ] as const;
   return (
     <ReaderSheet open={open} onOpenChange={onOpenChange} title={doc.title}>
       <div className="space-y-4 pb-1">
+        <AppearancePreview textSize={prefs.textSize} />
         <section aria-labelledby="reader-text-size">
           <h3
             id="reader-text-size"
@@ -94,29 +90,14 @@ function OptionsSheet({
             </button>
           </div>
         </section>
-        <section aria-labelledby="reader-theme">
-          <h3
-            id="reader-theme"
-            className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-          >
-            {t('reader.theme')}
-          </h3>
-          <div className="grid grid-cols-3 gap-2">
-            {themes.map(({ mode, icon: Icon, label }) => (
-              <button
-                key={mode}
-                type="button"
-                className="rd-chip"
-                aria-pressed={theme.mode === mode}
-                onClick={() => theme.setTheme(mode)}
-              >
-                <Icon className="size-4" aria-hidden="true" />
-                {t(label)}
-              </button>
-            ))}
-          </div>
-        </section>
+        <AppearanceOptions />
         <div className="-mx-1 space-y-0.5 border-t border-border/60 pt-2">
+          <SheetRow
+            icon={SearchIcon}
+            label={t('reader.search_document')}
+            chevron
+            onClick={() => onSheet('search')}
+          />
           {doc.chapters.length > 0 && (
             <SheetRow
               icon={BookmarkIcon}
@@ -170,11 +151,14 @@ export function ReaderDocumentPage() {
   const doc = query.data;
   const player = useReaderPlayer();
   const prefs = useReaderPrefs();
+  const appearance = useAppearanceProps();
   const scroller = useRef<HTMLElement>(null);
   const follow = useRef(true);
   const [following, setFollowing] = useState(true);
   const [scrolled, setScrolled] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
+  // The backend answers 409 while a background import is still running.
+  const importing = query.error instanceof ApiError && query.error.status === 409;
   const active = Boolean(doc && player.doc?.id === doc.id);
   const otherPlaying =
     Boolean(doc && player.doc && player.doc.id !== doc.id) &&
@@ -252,6 +236,21 @@ export function ReaderDocumentPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [active]);
 
+  useEffect(() => {
+    if (!doc) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey) return;
+      const find = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
+      const slash =
+        event.key === '/' && !event.ctrlKey && !event.metaKey && !editable(event.target);
+      if (!find && !slash) return;
+      event.preventDefault();
+      setSheet('search');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc]);
+
   const activate = () => {
     if (!doc) return;
     readerPlayer.unlockFromGesture();
@@ -284,7 +283,7 @@ export function ReaderDocumentPage() {
   }, [doc, t]);
 
   return (
-    <div className="rd-root" data-slot="reader-document">
+    <div className="rd-root" data-slot="reader-document" {...appearance}>
       <header className={cn('rd-topbar', titlebarChrome())} data-scrolled={scrolled}>
         <Link to="/reader" className="rd-icon-btn" aria-label={t('reader.back_to_library')}>
           <ChevronLeftIcon className="size-6" aria-hidden="true" />
@@ -304,6 +303,15 @@ export function ReaderDocumentPage() {
             aria-label={t('reader.playing_offline')}
           />
         )}
+        <button
+          type="button"
+          className="rd-icon-btn"
+          aria-label={t('reader.search_document')}
+          disabled={!doc}
+          onClick={() => openSheet('search')}
+        >
+          <SearchIcon className="size-5" aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="rd-icon-btn"
@@ -329,8 +337,14 @@ export function ReaderDocumentPage() {
               className="rd-column flex flex-col items-center gap-3 py-24 text-center"
               role="alert"
             >
-              <p className="text-base font-semibold">{t('reader.load_failed')}</p>
-              <p className="max-w-sm text-sm text-muted-foreground">{describeError(query.error)}</p>
+              <p className="text-base font-semibold">
+                {t(importing ? 'reader.import_in_progress' : 'reader.load_failed')}
+              </p>
+              {!importing && (
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {describeError(query.error)}
+                </p>
+              )}
               <div className="mt-2 flex gap-2">
                 <Link
                   to="/reader"
@@ -397,6 +411,7 @@ export function ReaderDocumentPage() {
           <VoiceSheet doc={doc} open={sheet === 'voice'} onOpenChange={closeSheet} />
           <SleepSheet doc={doc} open={sheet === 'sleep'} onOpenChange={closeSheet} />
           <ChaptersSheet doc={doc} open={sheet === 'chapters'} onOpenChange={closeSheet} />
+          <SearchSheet doc={doc} open={sheet === 'search'} onOpenChange={closeSheet} />
         </>
       )}
     </div>
