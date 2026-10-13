@@ -48,18 +48,15 @@
     gap: 0.25rem;
     min-height: calc(3.5rem + var(--rd-safe-top));
     padding: var(--rd-safe-top) max(0.5rem, var(--rd-safe-right)) 0 max(0.5rem, var(--rd-safe-left));
-    background: color-mix(in srgb, var(--background) 88%, transparent);
+    /* Opaque on purpose: a backdrop blur over scrolling text is recomputed every
+       frame and makes scrolling stutter on phones. */
+    background: var(--background);
     border-bottom: 1px solid transparent;
     transition: border-color 160ms ease;
     z-index: 10;
   }
   .rd-topbar[data-scrolled='true'] {
     border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
-  }
-  @supports (backdrop-filter: blur(1px)) {
-    .rd-topbar {
-      backdrop-filter: blur(16px) saturate(1.1);
-    }
   }
 
   /* 44px minimum touch target for every icon control. */
@@ -208,14 +205,9 @@
     flex-shrink: 0;
     padding: 0.5rem max(1rem, var(--rd-safe-right)) calc(0.5rem + var(--rd-safe-bottom))
       max(1rem, var(--rd-safe-left));
-    background: color-mix(in srgb, var(--card) 92%, transparent);
+    background: var(--card);
     border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     z-index: 10;
-  }
-  @supports (backdrop-filter: blur(1px)) {
-    .rd-dock {
-      backdrop-filter: blur(18px) saturate(1.15);
-    }
   }
   .rd-mini {
     position: absolute;

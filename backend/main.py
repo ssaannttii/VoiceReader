@@ -838,7 +838,9 @@ def _phase_a_finalize() -> None:
             def _index_html():
                 return _index_with_api_base()
 
-        app.mount("/", StaticFiles(directory=_frontend_path, html=True), name="frontend")
+        from core.spa_static import SpaStaticFiles
+
+        app.mount("/", SpaStaticFiles(directory=_frontend_path, html=True), name="frontend")
     else:
 
         logging.getLogger("omnivoice.api").info(

@@ -33,11 +33,16 @@ if ($Remove) {
   return
 }
 
-$taskArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`" -Background"
+# conhost --headless gives PowerShell a console with no window: nothing to close, no flash at
+# sign-in, and no console control event can terminate the supervisor (it died with
+# 0xC000013A when it owned a hidden window).
+$taskArgs = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$launcher`" -Background"
 if ($Lan) { $taskArgs += ' -Lan' }
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArgs -WorkingDirectory (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
+$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $taskArgs -WorkingDirectory (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+# Re-launch every 5 minutes as a watchdog; IgnoreNew makes it a no-op while the supervisor runs.
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)).Repetition
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal `

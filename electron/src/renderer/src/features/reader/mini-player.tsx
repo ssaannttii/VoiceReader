@@ -25,7 +25,7 @@ export function MiniPlayer() {
   const sentence = doc.segments[player.segment]?.text ?? '';
   return (
     <div className="rd-mini" data-slot="reader-mini-player">
-      <div className="relative flex items-center gap-2 overflow-hidden rounded-2xl bg-card/95 p-2 pl-2.5 shadow-[0_16px_40px_-18px_rgb(0_0_0/0.55)] ring-1 ring-border/80 backdrop-blur-xl">
+      <div className="relative flex items-center gap-2 overflow-hidden rounded-2xl bg-card p-2 pl-2.5 shadow-[0_16px_40px_-18px_rgb(0_0_0/0.55)] ring-1 ring-border/80">
         <Link
           to="/reader/$docId"
           params={{ docId: doc.id }}
