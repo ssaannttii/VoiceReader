@@ -61,7 +61,11 @@
     --rd-shadow-strength: 14%;
   }
 
-  :root {
+  /* Re-declared on every surface: a var() is resolved where it is declared, so roles
+     set only on :root would keep the root ramp inside a forced light/dark/paper surface. */
+  :root,
+  .dark,
+  [data-rd-surface] {
     /* roles */
     --rd-bg: var(--rd-g1);
     --rd-text: var(--rd-g12);

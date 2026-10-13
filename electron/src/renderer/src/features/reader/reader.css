@@ -85,9 +85,10 @@
     height: 2.75rem;
     border-radius: 999px;
     color: inherit;
+    /* Spring back on release; the pressed state below shortens it. */
     transition:
       background-color 140ms ease,
-      transform 140ms ease,
+      transform 260ms var(--rd-ease-spring),
       opacity 140ms ease;
     touch-action: manipulation;
   }
@@ -98,7 +99,8 @@
   }
   .rd-icon-btn:active,
   .rd-press:active {
-    transform: scale(0.94);
+    transform: scale(var(--rd-press-scale));
+    transition-duration: 140ms, 90ms, 140ms;
   }
   .rd-icon-btn:disabled {
     opacity: 0.35;
@@ -112,8 +114,11 @@
   .rd-press {
     touch-action: manipulation;
     transition:
-      transform 140ms ease,
+      transform 260ms var(--rd-ease-spring),
       background-color 140ms ease;
+  }
+  .rd-press:active {
+    transition-duration: 90ms, 140ms;
   }
 
   .rd-scroll {

@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { ReaderDocumentSummary } from './reader-api';
 import {
   arrangeLibrary,
+  coverArt,
+  coverShape,
   isFinished,
   isReady,
+  isUnread,
   matchesFilter,
+  matchesQuery,
   parseLibrarySort,
+  rowStatus,
+  splitMinutes,
 } from './library-view';
 
 let next = 0;
@@ -84,6 +90,12 @@ describe('arrangeLibrary', () => {
     expect(arrangeLibrary(all, 'added', 'library')).toEqual([a, c, b, d]);
   });
 
+  it('sorts least recent, oldest added and Z–A', () => {
+    expect(arrangeLibrary(all, 'least_recent', 'library')).toEqual([d, c, a, b]);
+    expect(arrangeLibrary(all, 'oldest', 'library')).toEqual([d, b, c, a]);
+    expect(arrangeLibrary(all, 'title_desc', 'library')).toEqual([c, d, a, b]);
+  });
+
   it('keeps imports in progress or failed on top', () => {
     const importing = doc({ title: 'zzz', created_at: 1, import_status: 'importing' });
     expect(arrangeLibrary([...all, importing], 'title', 'library')[0]).toBe(importing);
@@ -99,7 +111,81 @@ describe('arrangeLibrary', () => {
 describe('parseLibrarySort', () => {
   it('falls back to recent', () => {
     expect(parseLibrarySort({ sort: 'title' })).toBe('title');
+    expect(parseLibrarySort({ sort: 'title_desc' })).toBe('title_desc');
     expect(parseLibrarySort({ sort: 'nope' })).toBe('recent');
     expect(parseLibrarySort(null)).toBe('recent');
+  });
+});
+
+describe('matchesQuery', () => {
+  it('folds accents and case across title, author and source', () => {
+    const item = doc({
+      title: 'Canción de hielo',
+      author: 'G. Martin',
+      source_name: 'ejemplo.com',
+    });
+    expect(matchesQuery(item, 'CANCION')).toBe(true);
+    expect(matchesQuery(item, 'martin')).toBe(true);
+    expect(matchesQuery(item, 'ejemplo')).toBe(true);
+    expect(matchesQuery(item, 'fuego')).toBe(false);
+    expect(matchesQuery(item, '   ')).toBe(true);
+  });
+});
+
+describe('cover shape and art', () => {
+  it('draws books as portraits and everything else as squares', () => {
+    expect(coverShape(doc({ source_type: 'file', source_name: 'Libro.EPUB' }))).toBe('book');
+    expect(coverShape(doc({ source_type: 'file', source_name: 'informe.pdf' }))).toBe('book');
+    expect(coverShape(doc({ source_type: 'file', source_name: 'notas.txt' }))).toBe('square');
+    expect(coverShape(doc({ source_type: 'url', source_name: 'es.wikipedia.org' }))).toBe('square');
+    expect(coverShape(doc({ source_type: 'text' }))).toBe('square');
+    expect(coverShape(doc({ source_type: 'url', has_cover: true }))).toBe('book');
+  });
+
+  it('picks generated art by source', () => {
+    expect(coverArt(doc({ source_type: 'url' }))).toBe('web');
+    expect(coverArt(doc({ source_type: 'scan' }))).toBe('scan');
+    expect(coverArt(doc({ source_type: 'text' }))).toBe('text');
+    expect(coverArt(doc({ source_type: 'file', source_name: 'a.pdf' }))).toBe('pdf');
+    expect(coverArt(doc({ source_type: 'file', source_name: 'a.epub' }))).toBe('book');
+    expect(coverArt(doc({ source_type: 'file', source_name: 'a.md' }))).toBe('file');
+  });
+});
+
+describe('rowStatus', () => {
+  it('formats not started, in progress and finished', () => {
+    expect(rowStatus(doc({ est_duration_s: 720 }))).toEqual({ kind: 'new', minutes: 12 });
+    expect(rowStatus(doc({ est_duration_s: 1800, position_segment: 17, progress: 0.17 }))).toEqual({
+      kind: 'progress',
+      percent: 17,
+      minutes: 25,
+    });
+    expect(rowStatus(doc({ completed: true }))).toEqual({ kind: 'finished' });
+  });
+
+  it('keeps the percent between 1 and 99 while in progress', () => {
+    expect(rowStatus(doc({ position_segment: 1, progress: 0.001 }))).toMatchObject({ percent: 1 });
+    expect(rowStatus(doc({ position_segment: 98, progress: 0.998 }))).toMatchObject({
+      percent: 99,
+      minutes: 1,
+    });
+  });
+});
+
+describe('isUnread', () => {
+  it('marks only never-opened, ready, unfinished documents', () => {
+    expect(isUnread(doc())).toBe(true);
+    expect(isUnread(doc({ last_opened_at: 5 }))).toBe(false);
+    expect(isUnread(doc({ import_status: 'importing' }))).toBe(false);
+    expect(isUnread(doc({ completed: true }))).toBe(false);
+  });
+});
+
+describe('splitMinutes', () => {
+  it('switches to hours from 60 minutes', () => {
+    expect(splitMinutes(59)).toEqual({ hours: 0, minutes: 59 });
+    expect(splitMinutes(60)).toEqual({ hours: 1, minutes: 0 });
+    expect(splitMinutes(1560)).toEqual({ hours: 26, minutes: 0 });
+    expect(splitMinutes(95)).toEqual({ hours: 1, minutes: 35 });
   });
 });

@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import type { KeyboardEvent, Ref } from 'react';
 import { SearchIcon, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -10,6 +10,7 @@ export function SearchField({
   clearLabel,
   className,
   ref,
+  onKeyDown,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -18,6 +19,7 @@ export function SearchField({
   clearLabel: string;
   className?: string;
   ref?: Ref<HTMLInputElement>;
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
   return (
     <label className={cn('relative block', className)}>
@@ -33,6 +35,7 @@ export function SearchField({
         placeholder={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
         enterKeyHint="search"
         autoComplete="off"
       />

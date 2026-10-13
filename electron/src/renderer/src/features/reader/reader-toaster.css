@@ -1,0 +1,83 @@
+@import './reader-tokens.css';
+/*
+ * Reader toasts (reader-toaster.tsx): top-centred raised cards; the icon carries the status.
+ * Unlayered on purpose: sonner injects its own unlayered styles, which beat any layer.
+ */
+.rd-toaster {
+  --width: min(480px, calc(100vw - 24px));
+  --normal-bg: var(--rd-raised);
+  --normal-text: var(--rd-text);
+  --normal-border: var(--rd-hairline);
+  --border-radius: var(--rd-r-xl);
+  --gap: 8px;
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast {
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--rd-r-xl);
+  border: 1px solid var(--rd-hairline);
+  background: var(--rd-raised);
+  color: var(--rd-text);
+  box-shadow: var(--rd-shadow-toast);
+  font: 400 var(--rd-t-sm) var(--font-sans);
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast .rd-toast-title {
+  font: 500 15px/22px var(--font-sans);
+  color: var(--rd-text);
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast .rd-toast-desc {
+  margin-top: 1px;
+  color: var(--rd-text-2);
+  font: 400 var(--rd-t-sm) var(--font-sans);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast .rd-toast-icon {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  color: var(--rd-text-2);
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast .rd-toast-icon svg {
+  width: 20px;
+  height: 20px;
+}
+[data-sonner-toaster] [data-sonner-toast][data-type='success'].rd-toast .rd-toast-icon {
+  color: var(--rd-accent);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type='error'].rd-toast .rd-toast-icon {
+  color: var(--rd-danger);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type='warning'].rd-toast .rd-toast-icon {
+  color: var(--rd-warn, var(--rd-text-2));
+}
+/* Inline text actions (Undo, Open): no filled slab. */
+[data-sonner-toaster] [data-sonner-toast].rd-toast [data-button].rd-toast-action {
+  height: 36px;
+  margin-left: auto;
+  padding: 0 12px;
+  border-radius: var(--rd-r-full);
+  background: transparent;
+  color: var(--rd-text);
+  font: 600 14px/18px var(--font-sans);
+  flex-shrink: 0;
+  transition: background-color var(--rd-dur-fast) ease;
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast [data-button].rd-toast-action:hover {
+  background: var(--rd-fill-hover);
+}
+[data-sonner-toaster] [data-sonner-toast].rd-toast [data-button].rd-toast-action:focus-visible {
+  outline: 2px solid var(--rd-accent);
+  outline-offset: 0;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast].rd-toast {
+    transition: opacity 120ms ease !important;
+    --y: 0 !important;
+  }
+}

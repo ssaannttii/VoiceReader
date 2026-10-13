@@ -1,9 +1,24 @@
-import { useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ClipboardTypeIcon, FileUpIcon, LinkIcon, Loader2Icon, ScanTextIcon } from 'lucide-react';
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClipboardPasteIcon,
+  FileTextIcon,
+  FileUpIcon,
+  Link2Icon,
+  Loader2Icon,
+  PenLineIcon,
+  ScanTextIcon,
+  TriangleAlertIcon,
+  type LucideIcon,
+} from 'lucide-react';
 import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { clipboardLink, linkHost, linkPreview, normalizeUrl } from './add-link';
+import { formatBytes } from './offline-state';
+import { isTouchDevice } from './reader-chrome';
 import {
   READER_ACCEPTED_FILES,
   readerApi,
@@ -13,28 +28,36 @@ import {
 import { ReaderSheet } from './reader-sheet';
 import { ScanPanel } from './scan-panel';
 
-type Mode = 'text' | 'file' | 'url' | 'scan';
+type Step = 'choose' | 'link' | 'file' | 'scan' | 'text';
 type Input =
   | { mode: 'text'; text: string; title: string }
   | { mode: 'file'; file: File }
   | { mode: 'scan'; files: File[]; title: string }
-  | {
-      mode: 'url';
-      url: string;
-    };
+  | { mode: 'url'; url: string };
 
-const modes: { mode: Mode; icon: typeof LinkIcon; label: string }[] = [
-  { mode: 'text', icon: ClipboardTypeIcon, label: 'reader.add_text' },
-  { mode: 'file', icon: FileUpIcon, label: 'reader.add_file' },
-  { mode: 'url', icon: LinkIcon, label: 'reader.add_url' },
-  { mode: 'scan', icon: ScanTextIcon, label: 'reader.add_scan' },
-];
+const STEP_TITLES: Record<Exclude<Step, 'choose'>, string> = {
+  link: 'reader.lib_add_link',
+  file: 'reader.lib_add_file',
+  scan: 'reader.lib_add_scan',
+  text: 'reader.lib_add_text',
+};
 
-function normalizeUrl(value: string): string {
-  const trimmed = value.trim();
-  return /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+/** Clipboard text, only when the browser already allows reading it (no prompt). */
+async function readClipboardQuietly(): Promise<string | null> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'clipboard-read' as PermissionName });
+    if (status?.state !== 'granted') return null;
+    return await navigator.clipboard.readText();
+  } catch {
+    return null;
+  }
 }
 
+/**
+ * "Add to Reader": a chooser (paste a link, upload a file, scan pages, write
+ * text) where each choice slides to a focused step. File and scan imports run
+ * in the background; the sheet closes as soon as the PC accepts them.
+ */
 export function AddDocumentSheet({
   open,
   onOpenChange,
@@ -46,10 +69,14 @@ export function AddDocumentSheet({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<Mode>('text');
+  const [step, setStep] = useState<Step>('choose');
+  const [direction, setDirection] = useState<'forward' | 'back'>('forward');
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
+  const [urlTouched, setUrlTouched] = useState(false);
+  const [clip, setClip] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const create = useMutation({
@@ -72,25 +99,76 @@ export function AddDocumentSheet({
       setText('');
       setTitle('');
       setUrl('');
+      setFile(null);
+      setUrlTouched(false);
       onCreated(doc);
     },
   });
   const pending = create.isPending;
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (pending) return;
-    if (mode === 'text' && text.trim()) create.mutate({ mode, text, title });
-    if (mode === 'url' && url.trim()) create.mutate({ mode, url });
+
+  // Back to the chooser whenever the sheet opens; offer a copied link if reading it needs no prompt.
+  useEffect(() => {
+    if (!open) return;
+    setStep('choose');
+    setClip(null);
+    let cancelled = false;
+    void readClipboardQuietly().then((value) => {
+      if (!cancelled) setClip(clipboardLink(value));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const go = (next: Step) => {
+    create.reset();
+    setDirection(next === 'choose' ? 'back' : 'forward');
+    setStep(next);
   };
-  const upload = (file: File | undefined) => {
-    if (file && !pending) create.mutate({ mode: 'file', file });
+  const upload = (picked: File | undefined) => {
+    if (!picked || pending) return;
+    setFile(picked);
+    create.mutate({ mode: 'file', file: picked });
+  };
+  const pickFile = () => {
+    // Opened inside the tap so the browser allows the picker.
+    fileInput.current?.click();
+    go('file');
+  };
+  const openLink = (prefill?: string | null) => {
+    if (prefill) setUrl(prefill);
+    else if (clip && !url) setUrl(clip);
+    go('link');
+  };
+  const pasteFromClipboard = async () => {
+    try {
+      const value = clipboardLink(await navigator.clipboard.readText());
+      if (value) {
+        setUrl(value);
+        setUrlTouched(true);
+      }
+    } catch {
+      /* Clipboard access refused; the field stays as it is. */
+    }
+  };
+  const submitLink = (event: FormEvent) => {
+    event.preventDefault();
+    setUrlTouched(true);
+    if (pending || !linkHost(url)) return;
+    create.mutate({ mode: 'url', url });
+  };
+  const submitText = (event: FormEvent) => {
+    event.preventDefault();
+    if (pending || !text.trim()) return;
+    create.mutate({ mode: 'text', text, title });
   };
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragging(false);
     upload(event.dataTransfer.files[0]);
   };
-  const canSubmit = mode === 'text' ? Boolean(text.trim()) : Boolean(url.trim());
+  const urlInvalid = urlTouched && url.trim() !== '' && !linkHost(url);
+
   return (
     <ReaderSheet
       open={open}
@@ -98,143 +176,260 @@ export function AddDocumentSheet({
         if (!next) create.reset();
         onOpenChange(next);
       }}
-      title={t('reader.add_title')}
+      title={step === 'choose' ? t('reader.add_title') : t(STEP_TITLES[step])}
+      description={step === 'choose' ? t('reader.lib_add_desc') : undefined}
+      closeLabel={t('reader.lib_close')}
+      headerStart={
+        step === 'choose' ? undefined : (
+          <button
+            type="button"
+            className="rd-icon-btn"
+            aria-label={t('reader.lib_back')}
+            onClick={() => go('choose')}
+          >
+            <ChevronLeftIcon className="size-5" aria-hidden="true" />
+          </button>
+        )
+      }
       keyboard
     >
-      <div
-        className="mb-4 grid grid-cols-4 gap-1 rounded-full bg-foreground/[0.06] p-1"
-        role="group"
-        aria-label={t('reader.add_title')}
-      >
-        {modes.map(({ mode: value, icon: Icon, label }) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={mode === value}
-            onClick={() => {
-              setMode(value);
-              create.reset();
-            }}
-            className={cn(
-              'rd-press flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-full px-1.5 text-xs font-medium text-muted-foreground min-[420px]:flex-row min-[420px]:gap-1.5 min-[420px]:text-sm',
-              mode === value && 'bg-background text-foreground shadow-sm ring-1 ring-border/70',
+      <input
+        ref={fileInput}
+        type="file"
+        accept={READER_ACCEPTED_FILES}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => {
+          upload(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <div key={step} className="rd-step" data-direction={direction}>
+        {step === 'choose' && (
+          <div className="pb-1">
+            {clip && (
+              <button
+                type="button"
+                className="rd-press rd-clip-chip"
+                onClick={() => {
+                  if (pending) return;
+                  setUrl(clip);
+                  go('link');
+                  create.mutate({ mode: 'url', url: clip });
+                }}
+              >
+                <ClipboardPasteIcon className="size-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">
+                  {t('reader.lib_paste_clip', { link: linkPreview(clip) })}
+                </span>
+              </button>
             )}
-          >
-            <Icon className="size-4 shrink-0" aria-hidden="true" />
-            <span className="max-w-full truncate">{t(label)}</span>
-          </button>
-        ))}
-      </div>
+            <button type="button" className="rd-press rd-add-hero" onClick={() => openLink()}>
+              <Link2Icon className="size-6 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-medium">{t('reader.lib_add_link')}</span>
+                <span className="block text-sm text-muted-foreground">
+                  {t('reader.lib_add_link_hint')}
+                </span>
+              </span>
+              <ChevronRightIcon className="rd-add-chevron" aria-hidden="true" />
+            </button>
+            <div className="rd-add-rows">
+              <ChooserRow
+                icon={FileUpIcon}
+                label={t('reader.lib_add_file')}
+                detail={t('reader.file_types')}
+                onClick={pickFile}
+              />
+              <ChooserRow
+                icon={ScanTextIcon}
+                label={t('reader.lib_add_scan')}
+                detail={t('reader.lib_add_scan_hint')}
+                onClick={() => go('scan')}
+              />
+              <ChooserRow
+                icon={PenLineIcon}
+                label={t('reader.lib_add_text')}
+                onClick={() => go('text')}
+              />
+            </div>
+          </div>
+        )}
 
-      {mode === 'scan' ? (
-        <ScanPanel
-          pending={pending}
-          onSubmit={(files, scanTitle) =>
-            create.mutateAsync({ mode: 'scan', files, title: scanTitle })
-          }
-        />
-      ) : mode === 'file' ? (
-        <div>
-          <input
-            ref={fileInput}
-            type="file"
-            accept={READER_ACCEPTED_FILES}
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={(event) => {
-              upload(event.target.files?.[0]);
-              event.target.value = '';
-            }}
-          />
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => fileInput.current?.click()}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            className={cn(
-              'rd-press flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border px-6 py-8 text-center',
-              dragging && 'border-primary bg-primary/5',
-            )}
-          >
-            {pending ? (
-              <Loader2Icon className="size-8 animate-spin text-muted-foreground" />
-            ) : (
-              <FileUpIcon className="size-8 text-muted-foreground" aria-hidden="true" />
-            )}
-            <span className="text-base font-semibold">
-              {t(pending ? 'reader.importing' : 'reader.choose_file')}
-            </span>
-            <span className="text-sm text-muted-foreground">{t('reader.file_types')}</span>
-          </button>
-        </div>
-      ) : (
-        <form className="space-y-3" onSubmit={submit}>
-          {mode === 'text' ? (
-            <>
-              <label className="block">
-                <span className="sr-only">{t('reader.title_optional')}</span>
+        {step === 'link' && (
+          <form className="space-y-3 pb-1" onSubmit={submitLink} noValidate>
+            <div className="flex items-center gap-2">
+              <label className="block min-w-0 flex-1">
+                <span className="sr-only">{t('reader.url_placeholder')}</span>
                 <input
                   className="rd-input"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder={t('reader.title_optional')}
-                  maxLength={200}
+                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="go"
+                  autoFocus={!isTouchDevice()}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  onBlur={() => setUrlTouched(true)}
+                  placeholder={t('reader.url_placeholder')}
                   disabled={pending}
+                  aria-invalid={urlInvalid || undefined}
+                  aria-describedby={urlInvalid ? 'rd-url-error' : undefined}
                 />
               </label>
-              <label className="block">
-                <span className="sr-only">{t('reader.paste_placeholder')}</span>
-                <textarea
-                  className="rd-input min-h-[34dvh] resize-none leading-relaxed"
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                  placeholder={t('reader.paste_placeholder')}
+              {typeof navigator.clipboard?.readText === 'function' && (
+                <button
+                  type="button"
+                  className="rd-press rd-soft-btn"
                   disabled={pending}
-                />
-              </label>
-            </>
-          ) : (
+                  onClick={() => void pasteFromClipboard()}
+                >
+                  <ClipboardPasteIcon className="size-4" aria-hidden="true" />
+                  {t('reader.lib_paste')}
+                </button>
+              )}
+            </div>
+            {urlInvalid && (
+              <p id="rd-url-error" className="rd-field-error">
+                {t('reader.lib_url_invalid')}
+              </p>
+            )}
+            <SubmitButton pending={pending} disabled={!url.trim()} />
+          </form>
+        )}
+
+        {step === 'file' && (
+          <div className="space-y-3 pb-1">
+            {file ? (
+              <div className="rd-file-card">
+                <span className="rd-file-icon">
+                  {pending ? (
+                    <Loader2Icon className="size-5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <FileTextIcon className="size-5" aria-hidden="true" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-base font-medium">{file.name}</span>
+                  <span className="block text-sm text-muted-foreground">
+                    {pending ? t('reader.lib_file_uploading') : formatBytes(file.size)}
+                  </span>
+                </span>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => fileInput.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              className={cn('rd-press rd-drop', dragging && 'rd-drop-active')}
+              data-compact={file ? '' : undefined}
+            >
+              <FileUpIcon className="size-7 text-muted-foreground" aria-hidden="true" />
+              <span className="text-base font-medium">
+                {t(file ? 'reader.lib_file_change' : 'reader.choose_file')}
+              </span>
+              {!file && (
+                <span className="text-sm text-muted-foreground">
+                  {t('reader.file_types')}
+                  {!isTouchDevice() && <> · {t('reader.lib_file_drop')}</>}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {step === 'scan' && (
+          <ScanPanel
+            pending={pending}
+            onSubmit={(files, scanTitle) =>
+              create.mutateAsync({ mode: 'scan', files, title: scanTitle })
+            }
+          />
+        )}
+
+        {step === 'text' && (
+          <form className="space-y-3 pb-1" onSubmit={submitText}>
             <label className="block">
-              <span className="sr-only">{t('reader.url_placeholder')}</span>
+              <span className="sr-only">{t('reader.title_optional')}</span>
               <input
                 className="rd-input"
-                type="url"
-                inputMode="url"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                enterKeyHint="go"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder={t('reader.url_placeholder')}
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder={t('reader.title_optional')}
+                maxLength={200}
                 disabled={pending}
               />
             </label>
-          )}
-          <button
-            type="submit"
-            disabled={!canSubmit || pending}
-            className="rd-press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground text-[15px] font-semibold text-background disabled:opacity-40"
-          >
-            {pending && <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />}
-            {t(pending ? 'reader.importing' : 'reader.add_to_library')}
-          </button>
-        </form>
-      )}
-      {create.isError && (
-        <p
-          className="mt-3 rounded-xl bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
-          role="alert"
-        >
-          {t('reader.import_failed')} {describeError(create.error)}
-        </p>
-      )}
+            <label className="block">
+              <span className="sr-only">{t('reader.paste_placeholder')}</span>
+              <textarea
+                className="rd-input min-h-[30dvh] resize-none leading-relaxed"
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder={t('reader.paste_placeholder')}
+                disabled={pending}
+              />
+            </label>
+            <SubmitButton pending={pending} disabled={!text.trim()} />
+          </form>
+        )}
+
+        {create.isError && (
+          <p className="rd-callout mt-3" role="alert">
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span>
+              {t('reader.import_failed')} {describeError(create.error)}
+            </span>
+          </p>
+        )}
+      </div>
     </ReaderSheet>
+  );
+}
+
+function ChooserRow({
+  icon: Icon,
+  label,
+  detail,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="rd-add-row" onClick={onClick}>
+      <Icon className="size-[22px] shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-base font-medium">{label}</span>
+        {detail && <span className="block truncate text-sm text-muted-foreground">{detail}</span>}
+      </span>
+      <ChevronRightIcon className="rd-add-chevron" aria-hidden="true" />
+    </button>
+  );
+}
+
+function SubmitButton({ pending, disabled }: { pending: boolean; disabled: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="submit"
+      disabled={disabled || pending}
+      className="rd-press rd-pill-btn w-full"
+      data-tone="primary"
+    >
+      {pending && <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />}
+      {t(pending ? 'reader.importing' : 'reader.add_to_library')}
+    </button>
   );
 }
