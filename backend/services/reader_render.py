@@ -5,10 +5,23 @@ Audio cache (docs/reader/SPEC.md)::
     <DATA_DIR>/reader/audio/<render_key>.mp3   (or .wav when no encoder)
     <DATA_DIR>/reader/audio/<render_key>.json  timings + duration
 
-``render_key = sha1(engine|voice|language|segment_text)`` — content-addressed,
-so identical sentences are shared across documents and a re-render of the same
-key is a cache hit. The JSON is written last, so its presence means the entry
-is complete. Speed is applied client-side; it is never part of the key.
+``render_key = sha1(engine|voice|language|final_text)`` where ``final_text`` is
+what the engine actually synthesizes: the display text after
+``normalize_for_tts`` and the pronunciation dictionary for the document
+language (``services.pronunciation``). Content-addressed, so identical
+sentences are shared across documents, a re-render of the same key is a cache
+hit, and a new dictionary entry only invalidates the segments whose final text
+it changes. The JSON is written last, so its presence means the entry is
+complete. Speed is applied client-side; it is never part of the key.
+
+Cache entries written before v2 were keyed by the *display* text
+(``sha1(engine|voice|language|display_text)``) and synthesized from
+``normalize_for_tts(display_text)``. They stay valid exactly when the
+dictionary changes nothing in that segment (final text == what they were
+synthesized from), so a miss on the final-text key falls back to the legacy
+key in that case (:func:`_lookup`). Word timings are recomputed from the
+stored voiced span whenever an entry is served for a display text other than
+the one it was rendered for (two display texts can share one final text).
 
 Synthesis reuses the streaming TTS path (``api.routers.tts_stream``): engine
 resolution + routing gate + eviction via ``stream_engine_session`` and the
@@ -18,6 +31,7 @@ watermarked). Concurrent requests for one key share a single synthesis task.
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -32,7 +46,7 @@ from typing import Optional
 
 import numpy as np
 
-from services.reader_timing import word_timings
+from services.reader_timing import distribute_words, word_timings
 
 logger = logging.getLogger("omnivoice.reader")
 
@@ -61,6 +75,81 @@ def valid_key(key: str) -> bool:
 def render_key(engine: str, voice: Optional[str], language: Optional[str], text: str) -> str:
     raw = f"{engine or ''}|{voice or ''}|{language or ''}|{text}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()  # noqa: S324 — cache key, not security
+
+
+# ── Final (synthesized) text ─────────────────────────────────────────────────
+
+#: ``((term, replacement), ...)`` in dictionary order — hashable for the memo.
+Lexicon = tuple
+
+
+def pronunciation_lexicon(language: Optional[str]) -> Lexicon:
+    """The enabled respelling entries of VoiceStudio's pronunciation dictionary
+    that apply to ``language`` (global ``*`` rows + that language's rows).
+
+    Never raises: a missing table or locked DB means "no dictionary".
+    """
+    try:
+        from services.pronunciation import entries_for_language, load_entries_from_db
+
+        return tuple(entries_for_language(load_entries_from_db(), language).items())
+    except Exception:  # noqa: BLE001 — pronunciation must never break reading
+        logger.debug("Reader: pronunciation dictionary unavailable", exc_info=True)
+        return ()
+
+
+@functools.lru_cache(maxsize=32768)
+def _normalized(text: str, language: Optional[str]) -> str:
+    from services.text_normalization import normalize_for_tts
+
+    return (normalize_for_tts(text, language) or "").strip()
+
+
+@functools.lru_cache(maxsize=32768)
+def _final_text(text: str, language: Optional[str], lexicon: Lexicon) -> str:
+    from services.pronunciation import apply_inline_overrides, apply_lexicon
+
+    out = _normalized(text, language)
+    if lexicon:
+        out = apply_lexicon(out, dict(lexicon))
+    return apply_inline_overrides(out).strip()
+
+
+def final_text(text: str, language: Optional[str], lexicon: Lexicon = ()) -> str:
+    """What the engine synthesizes for a segment's display ``text``:
+    ``normalize_for_tts`` first, then the pronunciation dictionary (and inline
+    ``[[term|say]]`` overrides)."""
+    return _final_text(text or "", language, tuple(lexicon or ()))
+
+
+def clear_text_cache() -> None:
+    _normalized.cache_clear()
+    _final_text.cache_clear()
+
+
+@dataclass(frozen=True)
+class SegmentPlan:
+    """Cache addressing for one segment under one engine/voice/language."""
+
+    text: str  # display text (word timings index into it)
+    final: str  # synthesized text
+    key: str  # sha1(engine|voice|language|final)
+    legacy_key: Optional[str]  # pre-v2 key, when its entry would still be valid
+
+
+def plan_segment(
+    text: str, *, engine_id: str, voice: Optional[str], language: Optional[str], lexicon: Lexicon = ()
+) -> SegmentPlan:
+    final = final_text(text, language, lexicon)
+    key = render_key(engine_id, voice, language, final)
+    # Pre-v2 entries were keyed by the display text and synthesized from its
+    # normalization: still right when the dictionary changes nothing here.
+    legacy = None
+    if final == _normalized(text, language):
+        legacy = render_key(engine_id, voice, language, text)
+        if legacy == key:
+            legacy = None
+    return SegmentPlan(text=text, final=final, key=key, legacy_key=legacy)
 
 
 def resolve_engine_id(engine: Optional[str]) -> str:
@@ -153,8 +242,7 @@ def _public(entry: dict) -> dict:
     }
 
 
-def cached_result(key: str) -> Optional[dict]:
-    """The stored render for ``key`` (without ``segment``/``cached``), or None."""
+def _load_entry(key: str) -> Optional[dict]:
     if not valid_key(key):
         return None
     try:
@@ -162,14 +250,76 @@ def cached_result(key: str) -> Optional[dict]:
             entry = json.load(fh)
     except (OSError, ValueError):
         return None
-    if audio_file(key) is None:
+    if not isinstance(entry, dict) or audio_file(key) is None:
         return None
-    return _public(entry)
+    return entry
+
+
+def cached_result(key: str) -> Optional[dict]:
+    """The stored render for ``key`` (without ``segment``/``cached``), or None."""
+    entry = _load_entry(key)
+    return _public(entry) if entry is not None else None
+
+
+def _entry_span(entry: dict) -> tuple[float, float]:
+    span = entry.get("span")
+    if isinstance(span, list) and len(span) == 2:
+        return float(span[0]), float(span[1])
+    words = entry.get("words") or []
+    if words:
+        return float(words[0]["start"]), float(words[-1]["end"])
+    return 0.0, float(entry.get("duration_s") or 0.0)
+
+
+def _for_display(entry: dict, rendered_text: str, display: str) -> dict:
+    """The public result, with word timings for ``display`` when the entry
+    was rendered for another display text with the same final text."""
+    result = _public(entry)
+    if rendered_text != display:
+        start, end = _entry_span(entry)
+        result["words"] = distribute_words(display, start, end)
+    return result
+
+
+def lookup(plan: SegmentPlan) -> Optional[dict]:
+    """The cached render for a segment (``_public`` shape), or None.
+
+    Tries the final-text key, then the pre-v2 display-text key when that entry
+    is still valid (see the module docstring).
+    """
+    entry = _load_entry(plan.key)
+    if entry is not None:
+        synth = entry.get("synth_text")
+        if synth is None:
+            # Pre-v2 entry that happens to sit at this key: it was rendered for
+            # display text == plan.final, from its normalization.
+            if _normalized(plan.final, entry.get("language")) == plan.final:
+                return _for_display(entry, plan.final, plan.text)
+        elif synth == plan.final:
+            return _for_display(entry, entry.get("text", plan.text), plan.text)
+    if plan.legacy_key:
+        entry = _load_entry(plan.legacy_key)
+        if entry is not None and entry.get("synth_text") is None:
+            return _for_display(entry, plan.text, plan.text)
+    return None
+
+
+def is_cached(plan: SegmentPlan) -> bool:
+    """Cheap existence check matching :func:`lookup` (no word timings)."""
+    folder = audio_dir()
+    if os.path.isfile(os.path.join(folder, f"{plan.key}.json")):
+        return True
+    return bool(plan.legacy_key) and os.path.isfile(os.path.join(folder, f"{plan.legacy_key}.json"))
 
 
 def store_render(key: str, text: str, samples: np.ndarray, sample_rate: int, meta: dict) -> dict:
-    """Encode + persist one render; returns the public result. Blocking."""
+    """Encode + persist one render; returns the public result. Blocking.
+
+    ``text`` is the display text the word timings index into; ``meta`` should
+    carry ``synth_text`` (the final text) so later lookups can verify the key.
+    """
     words, duration = word_timings(text, samples, sample_rate)
+    span = [words[0]["start"], words[-1]["end"]] if words else [0.0, duration]
     folder = audio_dir()
     os.makedirs(folder, exist_ok=True)
     nonce = uuid.uuid4().hex[:8]
@@ -201,6 +351,8 @@ def store_render(key: str, text: str, samples: np.ndarray, sample_rate: int, met
         "duration_s": duration,
         "sample_rate": int(sample_rate),
         "words": words,
+        "span": span,
+        "text": text,
         "created_at": time.time(),
         **meta,
     }
@@ -226,18 +378,16 @@ def _to_mono(wav) -> np.ndarray:
 async def synthesize_segment(
     text: str, *, voice: Optional[str], engine: Optional[str], language: Optional[str]
 ) -> tuple[np.ndarray, int]:
-    """``(mono float32 samples, sample_rate)`` for one segment's display text.
+    """``(mono float32 samples, sample_rate)`` for one segment's *final* text.
 
-    Normalized once here (``normalize_for_tts``), then rendered through the
-    streaming path's guarded GPU-pool dispatch. Module seam for tests.
+    ``text`` is already normalized and has the pronunciation dictionary
+    applied (:func:`final_text`); it is rendered through the streaming path's
+    guarded GPU-pool dispatch. Module seam for tests.
     """
-    import functools
-
     from api.routers.tts_stream import render_stream_sentence, stream_engine_session
     from services.model_manager import generate_timeout_s, run_on_gpu_pool_guarded
-    from services.text_normalization import normalize_for_tts
 
-    normalized = (normalize_for_tts(text, language) or "").strip()
+    normalized = (text or "").strip()
     if not _SPEAKABLE_RE.search(normalized):
         return np.zeros(int(SILENCE_S * SILENCE_SR), dtype=np.float32), SILENCE_SR
     async with stream_engine_session(engine, voice=voice, language=language) as (backend, kw):
@@ -253,12 +403,16 @@ _inflight: dict[str, asyncio.Task] = {}
 _interactive = {"active": 0}
 
 
-async def _render_uncached(key, text, voice, engine_id, language) -> dict:
+async def _render_uncached(plan: SegmentPlan, voice, engine_id, language) -> tuple[dict, str]:
     samples, sample_rate = await synthesize_segment(
-        text, voice=voice, engine=engine_id, language=language
+        plan.final, voice=voice, engine=engine_id, language=language
     )
-    meta = {"engine": engine_id, "voice": voice, "language": language}
-    return await asyncio.to_thread(store_render, key, text, samples, sample_rate, meta)
+    meta = {"engine": engine_id, "voice": voice, "language": language, "synth_text": plan.final}
+    result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta)
+    from services import reader_engine
+
+    reader_engine.note_rendered(engine_id)
+    return result, plan.text
 
 
 async def render_segment(
@@ -268,30 +422,40 @@ async def render_segment(
     engine: Optional[str],
     language: Optional[str],
     interactive: bool = True,
+    lexicon: Optional[Lexicon] = None,
 ) -> dict:
     """``{render_key, audio_url, duration_s, words, cached}`` for one segment.
 
-    Cache hit → stored result. Otherwise one synthesis task per key; every
-    concurrent caller awaits the same task (shielded, so a cancelled prerender
-    never aborts a render an interactive request is waiting on).
+    ``text`` is the display text; the pronunciation dictionary for
+    ``language`` is loaded unless ``lexicon`` is given. Cache hit → stored
+    result. Otherwise one synthesis task per key; every concurrent caller
+    awaits the same task (shielded, so a cancelled prerender never aborts a
+    render an interactive request is waiting on).
     """
     engine_id = resolve_engine_id(engine)
-    key = render_key(engine_id, voice, language, text)
-    hit = cached_result(key)
+    if lexicon is None:
+        lexicon = await asyncio.to_thread(pronunciation_lexicon, language)
+    plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
+    hit = await asyncio.to_thread(lookup, plan)
     if hit is not None:
         return {**hit, "cached": True}
+    key = plan.key
     if interactive:
         _interactive["active"] += 1
     try:
         task = _inflight.get(key)
         if task is None or task.done():
-            task = asyncio.ensure_future(_render_uncached(key, text, voice, engine_id, language))
+            task = asyncio.ensure_future(_render_uncached(plan, voice, engine_id, language))
             _inflight[key] = task
             task.add_done_callback(lambda t, k=key: _inflight.pop(k, None) if _inflight.get(k) is t else None)
-        result = await asyncio.shield(task)
+        result, rendered_for = await asyncio.shield(task)
     finally:
         if interactive:
             _interactive["active"] -= 1
+    if rendered_for != text:
+        # Same final text from another display text (shared synthesis):
+        # timings must index into this segment's own text.
+        result = await asyncio.to_thread(lookup, plan) or result
     return {**result, "cached": False}
 
 
@@ -337,6 +501,7 @@ def _public_error(exc: BaseException) -> str:
 
 async def _prerender_loop(job: PrerenderJob, texts: list[str], order: list[int]) -> None:
     try:
+        lexicon = await asyncio.to_thread(pronunciation_lexicon, job.language)
         for index in order:
             # Interactive renders go first: never queue a prerender segment in
             # front of the sentence the listener is waiting for.
@@ -348,6 +513,7 @@ async def _prerender_loop(job: PrerenderJob, texts: list[str], order: list[int])
                 engine=job.engine,
                 language=job.language,
                 interactive=False,
+                lexicon=lexicon,
             )
             job.done += 1
     except asyncio.CancelledError:
@@ -413,10 +579,10 @@ def forget_prerender(doc_id: str) -> None:
 def cached_count(texts: list[str], *, voice, engine, language) -> int:
     """How many of ``texts`` already have a complete cached render."""
     engine_id = resolve_engine_id(engine)
-    folder = audio_dir()
+    lexicon = pronunciation_lexicon(language)
     count = 0
     for text in texts:
-        key = render_key(engine_id, voice, language, text)
-        if os.path.isfile(os.path.join(folder, f"{key}.json")):
+        plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
+        if is_cached(plan):
             count += 1
     return count
