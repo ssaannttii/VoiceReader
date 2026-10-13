@@ -34,7 +34,7 @@ MAX_SEGMENT_CHARS = 300
 #: and carry the narration's intonation across sentences.
 GROUP_CHARS = 280
 #: Stored in content.json; documents saved with an older layout are regrouped on load.
-SEGMENTATION_VERSION = 2
+SEGMENTATION_VERSION = 3
 #: Upload / download caps.
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_URL_BYTES = 10 * 1024 * 1024
@@ -166,8 +166,130 @@ def group_segments(segments: list[dict], limit: Optional[int] = None) -> tuple[l
     return out, mapping
 
 
+_TERMINAL_END_RE = re.compile(r"[.!?…:;»”\"')\]]\s*$")
+_STARTS_LOWER_RE = re.compile(r"^[\s«“\"'(¿¡—–-]*[a-zà-öø-ÿ]")
+
+
+def _is_shouted(text: str) -> bool:
+    letters = [c for c in text if c.isalpha()]
+    return len(letters) >= 3 and all(c.isupper() for c in letters)
+
+
+def _sentence_case(text: str) -> str:
+    return text[:1].upper() + text[1:].lower() if _is_shouted(text) else text
+
+
+def _join_text(left: str, right: str) -> str:
+    # "inter-" + "rumpido" → "interrumpido" (a hyphenated line break), else a space.
+    if re.search(r"[a-zà-ÿ]-$", left) and _STARTS_LOWER_RE.match(right):
+        return left[:-1] + right.lstrip()
+    return f"{left} {right}"
+
+
+def is_paginated(source_type: Optional[str], source_name: Optional[str]) -> bool:
+    """PDFs and scans are laid out in pages and lines, so their paragraphs can be cut."""
+    return source_type == "scan" or (source_name or "").lower().endswith(".pdf")
+
+
+def repair_segments(
+    segments: list[dict],
+    chapters: list[dict],
+    limit: Optional[int] = None,
+    *,
+    paginated: bool = False,
+) -> tuple[list[dict], list[dict], list[int]]:
+    """Fix layout artefacts of paginated sources, then regroup.
+
+    * A shouted line followed by lowercase text ("VIN ATERRIZÓ CON SUAVIDAD" + "en el
+      húmedo…") is a book's small-caps chapter opening, not a heading: it is read on
+      into its sentence and kept only as the chapter title (sentence case).
+    * Only for ``paginated`` sources (PDF, scans): a paragraph that stops without end
+      punctuation and is followed by one starting in lowercase was cut by a page or
+      line break: they are joined (also across a hyphenated break). Elsewhere such
+      paragraphs are deliberate (list items, verse).
+
+    Returns the new segments, remapped chapters and, for every old index, its new index.
+    """
+    work: list[dict] = []  # mutable copies; "src" lists the old indices folded into each
+    for seg in segments:
+        work.append({"text": seg["text"], "para": seg["para"], "kind": seg["kind"], "src": [seg["i"]]})
+    titles = {c["segment"]: c for c in chapters}
+
+    out: list[dict] = []
+    leadins: set[int] = set()  # old indices of small-caps openings read into their sentence
+    for seg in work:
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and prev["kind"] == "h"
+            and _is_shouted(prev["text"])
+            and seg["kind"] == "p"
+            and _STARTS_LOWER_RE.match(seg["text"])
+        ):
+            # Small-caps opening: becomes the start of this paragraph's first sentence.
+            # Sentence case so the engine does not spell the opening as an acronym.
+            prev.update(text=f"{_sentence_case(prev['text'])} {seg['text']}", kind="p", para=seg["para"])
+            leadins.update(prev["src"])
+            prev["src"].extend(seg["src"])
+            continue
+        if (
+            paginated
+            and prev is not None
+            and prev["kind"] == "p"
+            and seg["kind"] == "p"
+            and prev["para"] != seg["para"]
+            and not _TERMINAL_END_RE.search(prev["text"])
+            and _STARTS_LOWER_RE.match(seg["text"])
+        ):
+            # Broken paragraph: continue the sentence, and the rest of this paragraph
+            # joins the previous one.
+            old_para = seg["para"]
+            prev["text"] = _join_text(prev["text"], seg["text"])
+            prev["src"].extend(seg["src"])
+            prev["_absorb"] = old_para
+            continue
+        if prev is not None and prev.get("_absorb") == seg["para"] and seg["kind"] == "p":
+            seg = {**seg, "para": prev["para"]}
+            seg["_absorb"] = prev["_absorb"]
+        out.append(seg)
+
+    # Merged segments can outgrow the per-segment limit: split them again.
+    split: list[dict] = []
+    for seg in out:
+        pieces = split_long(seg["text"]) if len(seg["text"]) > MAX_SEGMENT_CHARS else [seg["text"]]
+        for n, piece in enumerate(pieces):
+            split.append({"text": piece, "para": seg["para"], "kind": seg["kind"], "src": seg["src"] if n == 0 else []})
+
+    # Renumber paragraphs densely, then regroup sentences.
+    para_ids: dict[int, int] = {}
+    staged: list[dict] = []
+    first_of: dict[int, int] = {}
+    for idx, seg in enumerate(split):
+        para = para_ids.setdefault(seg["para"], len(para_ids))
+        staged.append({"i": idx, "text": seg["text"], "para": para, "kind": seg["kind"]})
+        for old in seg["src"]:
+            first_of.setdefault(old, idx)
+    grouped, group_map = group_segments(staged, limit)
+
+    mapping: list[int] = []
+    last = 0
+    for old in range(len(segments)):
+        if old in first_of:
+            last = group_map[first_of[old]]
+        mapping.append(last)
+
+    new_chapters = []
+    for chapter in chapters:
+        target = mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(grouped)
+        title = _sentence_case(chapter["title"]) if chapter["segment"] in leadins else chapter["title"]
+        if new_chapters and new_chapters[-1]["segment"] == target:
+            continue
+        new_chapters.append({**chapter, "title": title, "segment": target})
+    return grouped, new_chapters, mapping
+
+
 def segment_blocks(
-    blocks: list[Block], language: Optional[str], progress: Progress = None
+    blocks: list[Block], language: Optional[str], progress: Progress = None, *, paginated: bool = False
 ) -> tuple[list[dict], list[dict]]:
     """``(segments, chapters)`` for a block list.
 
@@ -205,9 +327,7 @@ def segment_blocks(
         for piece in pieces:
             segments.append({"i": len(segments), "text": piece, "para": para, "kind": kind})
         para += 1
-    segments, mapping = group_segments(segments)
-    for chapter in chapters:
-        chapter["segment"] = mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(segments)
+    segments, chapters, _mapping = repair_segments(segments, chapters, paginated=paginated)
     if marked:
         chapters = [c for c in chapters if c["segment"] < len(segments)]
     if progress is not None:
@@ -1175,7 +1295,9 @@ def _finish(doc: ImportedDocument, language: Optional[str], sample: str, progres
     if not doc.blocks:
         raise ReaderImportError("no readable text found")
     doc.language = (language or "").strip().lower()[:8] or doc.language or guess_language(sample)
-    doc.segments, doc.chapters = segment_blocks(doc.blocks, doc.language, progress)
+    doc.segments, doc.chapters = segment_blocks(
+        doc.blocks, doc.language, progress, paginated=is_paginated(doc.source_type, doc.source_name)
+    )
     if not doc.segments:
         raise ReaderImportError("no readable text found")
     doc.title = _short_title(doc.title or "") or _short_title(doc.segments[0]["text"]) or "Untitled"

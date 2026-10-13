@@ -361,14 +361,19 @@ def _segmentation_version() -> int:
 
 
 def _upgrade_content(doc_id: str, path: str, content: dict) -> dict:
-    """Regroup a document saved with an older segmentation, keeping the listener's place."""
-    from services.reader_import import group_segments
+    """Re-segment a document saved with an older layout (sentence grouping, broken
+    paragraphs, small-caps chapter openings), keeping the listener's place."""
+    from services.reader_import import is_paginated, repair_segments
 
-    segments, mapping = group_segments(content.get("segments") or [])
-    chapters = [
-        {**chapter, "segment": mapping[chapter["segment"]] if chapter["segment"] < len(mapping) else len(segments)}
-        for chapter in content.get("chapters") or []
-    ]
+    with db_conn() as conn:
+        meta = conn.execute(
+            "SELECT source_type, source_name FROM reader_documents WHERE id=?", (doc_id,)
+        ).fetchone()
+    segments, chapters, mapping = repair_segments(
+        content.get("segments") or [],
+        content.get("chapters") or [],
+        paginated=bool(meta) and is_paginated(meta["source_type"], meta["source_name"]),
+    )
     upgraded = {"version": _segmentation_version(), "segments": segments, "chapters": chapters}
     _write_json_atomic(path, upgraded)
     def remap(old) -> int:

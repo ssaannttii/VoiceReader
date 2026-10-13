@@ -447,3 +447,38 @@ def test_group_segments_maps_every_old_index():
     new, mapping = ri.group_segments(old, limit=120)
     assert [len(s["text"]) for s in new] == [4, 101, 200, 10]
     assert mapping == [0, 1, 1, 2, 3]
+
+
+def test_repair_reads_small_caps_openings_on_and_joins_broken_paragraphs():
+    segs = [
+        {"i": 0, "text": "Fin del capítulo anterior.", "para": 0, "kind": "p"},
+        {"i": 1, "text": "VIN ATERRIZÓ CON SUAVIDAD", "para": 1, "kind": "h"},
+        {"i": 2, "text": "en el húmedo empedrado viendo cómo las", "para": 2, "kind": "p"},
+        {"i": 3, "text": "brumas empezaban a formarse.", "para": 3, "kind": "p"},
+        {"i": 4, "text": "La ciudad estaba en silencio, inter-", "para": 4, "kind": "p"},
+        {"i": 5, "text": "rumpido solo por el viento.", "para": 5, "kind": "p"},
+        {"i": 6, "text": "Nuevo párrafo.", "para": 6, "kind": "p"},
+    ]
+    new, chapters, mapping = ri.repair_segments(
+        segs, [{"title": "VIN ATERRIZÓ CON SUAVIDAD", "segment": 1}], limit=0, paginated=True
+    )
+    assert [s["text"] for s in new] == [
+        "Fin del capítulo anterior.",
+        "Vin aterrizó con suavidad en el húmedo empedrado viendo cómo las brumas empezaban a formarse.",
+        "La ciudad estaba en silencio, interrumpido solo por el viento.",
+        "Nuevo párrafo.",
+    ]
+    assert [s["kind"] for s in new] == ["p", "p", "p", "p"]
+    assert [s["para"] for s in new] == [0, 1, 2, 3]
+    assert chapters == [{"title": "Vin aterrizó con suavidad", "segment": 1}]
+    assert mapping == [0, 1, 1, 1, 2, 2, 3]
+
+
+def test_repair_keeps_real_headings_and_finished_paragraphs():
+    segs = [
+        {"i": 0, "text": "CAPÍTULO 3", "para": 0, "kind": "h"},
+        {"i": 1, "text": "El día empezó tranquilo.", "para": 1, "kind": "p"},
+        {"i": 2, "text": "Otro párrafo completo.", "para": 2, "kind": "p"},
+    ]
+    new, chapters, mapping = ri.repair_segments(segs, [{"title": "CAPÍTULO 3", "segment": 0}], limit=0)
+    assert [s["kind"] for s in new] == ["h", "p", "p"] and mapping == [0, 1, 2]
