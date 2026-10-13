@@ -8,6 +8,8 @@ import {
   groupBlocks,
   splitWords,
   wordIndexAt,
+  blockIndexBySegment,
+  windowAround,
 } from './reader-text';
 
 const seg = (i: number, para: number, kind: 'h' | 'p' = 'p', text = `S${i}.`): ReaderSegment => ({
@@ -123,5 +125,28 @@ describe('formatting', () => {
     expect(clampSpeed(0.2)).toBe(0.5);
     expect(clampSpeed(1.26)).toBe(1.3);
     expect(clampSpeed(9)).toBe(3);
+  });
+});
+
+describe('block windows', () => {
+  const segments = Array.from({ length: 10 }, (_, i) => ({
+    i,
+    text: `s${i}`,
+    para: Math.floor(i / 2),
+    kind: 'p' as const,
+  }));
+
+  it('maps segments to their paragraph blocks', () => {
+    const blocks = groupBlocks(segments);
+    expect(Array.from(blockIndexBySegment(blocks, segments.length))).toEqual([
+      0, 0, 1, 1, 2, 2, 3, 3, 4, 4,
+    ]);
+  });
+
+  it('centres a bounded window on the anchor and clamps at both ends', () => {
+    expect(windowAround(500, 10_000, 60, 140)).toEqual({ start: 440, end: 640 });
+    expect(windowAround(10, 10_000, 60, 140)).toEqual({ start: 0, end: 200 });
+    expect(windowAround(9_999, 10_000, 60, 140)).toEqual({ start: 9_939, end: 10_000 });
+    expect(windowAround(3, 5, 60, 140)).toEqual({ start: 0, end: 5 });
   });
 });

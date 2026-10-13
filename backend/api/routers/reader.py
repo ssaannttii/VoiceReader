@@ -8,12 +8,14 @@ an ``<audio src>``.
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
 import logging
 import time
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from services import reader_debug, reader_import, reader_render, reader_store
@@ -124,12 +126,27 @@ async def import_url(req: UrlImportRequest):
     return await _import(reader_import.import_url, req.url, language=_clean_lang(req.language))
 
 
+def _json_response(request: Request, payload: dict) -> Response:
+    """JSON, gzipped when the client accepts it and it is worth it.
+
+    A whole book is megabytes of text (a 26-hour novel: 2.2 MB); compressed it
+    is ~4x smaller, which is most of the wait when a phone opens it.
+    """
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    headers = {"vary": "Accept-Encoding"}
+    if len(body) >= 16_384 and "gzip" in request.headers.get("accept-encoding", "").lower():
+        body = gzip.compress(body, compresslevel=5)
+        headers["content-encoding"] = "gzip"
+    return Response(body, media_type="application/json", headers=headers)
+
+
 @router.get("/reader/documents/{doc_id}")
-async def get_document(doc_id: str):
+async def get_document(doc_id: str, request: Request):
     try:
-        return await asyncio.to_thread(reader_store.open_document, doc_id)
+        doc = await asyncio.to_thread(reader_store.open_document, doc_id)
     except reader_store.DocumentNotFound:
         raise _not_found() from None
+    return await asyncio.to_thread(_json_response, request, doc)
 
 
 @router.patch("/reader/documents/{doc_id}")

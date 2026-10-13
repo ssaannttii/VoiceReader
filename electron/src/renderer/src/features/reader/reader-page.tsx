@@ -356,6 +356,7 @@ export function ReaderDocumentPage() {
                 docId={doc.id}
                 segments={doc.segments}
                 active={active}
+                position={doc.position_segment}
                 scroller={scroller}
                 follow={follow}
                 onSeek={resumeFollowing}

@@ -148,10 +148,6 @@
     margin: 1.6em 0 0.6em;
     color: var(--foreground);
   }
-  .rd-article :is(p, .rd-heading) {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 5em;
-  }
   .rd-sent {
     border-radius: 0.3em;
     cursor: pointer;

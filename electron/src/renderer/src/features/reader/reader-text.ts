@@ -143,3 +143,24 @@ export function clampSpeed(value: number): number {
 export function formatSpeed(value: number): string {
   return `${clampSpeed(value).toFixed(1)}×`;
 }
+
+/** For every segment index, the index of the block (paragraph/heading) holding it. */
+export function blockIndexBySegment(blocks: readonly ReaderBlock[], count: number): Int32Array {
+  const out = new Int32Array(count);
+  blocks.forEach((block, index) => {
+    for (const segment of block.segments) if (segment.i < count) out[segment.i] = index;
+  });
+  return out;
+}
+
+export interface BlockWindow {
+  start: number;
+  end: number;
+}
+
+/** The slice of blocks rendered around `index`: a long book is never in the DOM at once. */
+export function windowAround(index: number, total: number, before = 60, after = 140): BlockWindow {
+  const anchor = Math.min(Math.max(0, index), Math.max(0, total - 1));
+  const start = Math.max(0, anchor - before);
+  return { start, end: Math.min(total, Math.max(anchor + after, start + before + after)) };
+}

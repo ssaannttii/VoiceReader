@@ -503,3 +503,14 @@ def test_old_documents_are_regrouped_on_open_keeping_the_place(env, monkeypatch)
     assert full["segment_count"] == 3 and full["position_segment"] == 1
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == reader_import.SEGMENTATION_VERSION
     assert reader_store.load_content(doc["id"])["segments"] == full["segments"]
+
+
+def test_large_document_is_sent_gzipped(env):
+    client = TestClient(env.app)
+    paragraph = "This sentence is long enough to repeat many times in a big book. " * 20
+    doc = _create(client, "# Big\n\n" + "\n\n".join([paragraph] * 40))
+    resp = client.get(f"/reader/documents/{doc['id']}", headers={"Accept-Encoding": "gzip"})
+    assert resp.headers.get("content-encoding") == "gzip"
+    assert resp.json()["segment_count"] == doc["segment_count"]
+    plain = client.get(f"/reader/documents/{doc['id']}", headers={"Accept-Encoding": "identity"})
+    assert "content-encoding" not in plain.headers and plain.json()["id"] == doc["id"]
