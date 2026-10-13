@@ -38,6 +38,7 @@ import { useReaderQueue } from './reader-queue';
 import { ReaderSheet, SheetRow } from './reader-sheet';
 import { formatSpeed } from './reader-text';
 import { soundscapeIcon } from './soundscape-sheet';
+import { PreparedReadingRows } from './speech-sheet';
 
 /** Sheets the menus open. */
 export type MenuSheet =
@@ -50,7 +51,8 @@ export type MenuSheet =
   | 'speed'
   | 'controls'
   | 'soundscape'
-  | 'queue';
+  | 'queue'
+  | 'speech';
 
 const SOUND_LABELS = {
   off: 'reader.soundscape_off',
@@ -177,6 +179,7 @@ export function ActionsSheet({
           chevron
           onClick={() => onSheet('pronunciations')}
         />
+        <PreparedReadingRows doc={doc} onReview={() => onSheet('speech')} />
         <SheetRow
           icon={SlidersHorizontalIcon}
           label={t('reader.controls')}

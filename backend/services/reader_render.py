@@ -46,7 +46,7 @@ from typing import Optional
 
 import numpy as np
 
-from services.reader_timing import distribute_words, word_timings
+from services.reader_timing import distribute_words, voiced_span, word_timings
 
 logger = logging.getLogger("omnivoice.reader")
 
@@ -128,6 +128,21 @@ def clear_text_cache() -> None:
 
 
 @dataclass(frozen=True)
+class Spoken:
+    """A prepared reading of one segment (``services.reader_speech``).
+
+    ``pieces`` are ``(c0, c1, text, pause_ms_after)``: what to say for the
+    display span ``[c0, c1)`` and the silence after it, in order and covering
+    the whole display text; ``lead_ms`` is silence before the first piece.
+    Each piece is synthesized on its own and the silences are inserted
+    exactly; word timings stay on the display text.
+    """
+
+    pieces: tuple
+    lead_ms: int = 0
+
+
+@dataclass(frozen=True)
 class SegmentPlan:
     """Cache addressing for one segment under one engine/voice/language."""
 
@@ -135,11 +150,41 @@ class SegmentPlan:
     final: str  # synthesized text
     key: str  # sha1(engine|voice|language|final)
     legacy_key: Optional[str]  # pre-v2 key, when its entry would still be valid
+    spoken: Optional[Spoken] = None  # prepared reading (pieces + silences)
+    finals: tuple = ()  # final text of each spoken piece
+
+
+def _spoken_plan(
+    text: str, spoken: Spoken, *, engine_id: str, voice: Optional[str], language: Optional[str], lexicon: Lexicon
+) -> SegmentPlan:
+    """The plan of a prepared reading: every piece goes through the same
+    ``final_text`` as plain text; the pauses are part of the final text, so
+    the key differs from the plain reading's whenever the audio does."""
+    finals = tuple(final_text(piece[2], language, lexicon) for piece in spoken.pieces)
+    parts = [f"[pause {int(spoken.lead_ms)}ms]"] if spoken.lead_ms else []
+    for piece, final in zip(spoken.pieces, finals):
+        if final:
+            parts.append(final)
+        if piece[3]:
+            parts.append(f"[pause {int(piece[3])}ms]")
+    final = " ".join(parts)
+    return SegmentPlan(
+        text=text, final=final, key=render_key(engine_id, voice, language, final), legacy_key=None,
+        spoken=spoken, finals=finals,
+    )
 
 
 def plan_segment(
-    text: str, *, engine_id: str, voice: Optional[str], language: Optional[str], lexicon: Lexicon = ()
+    text: str,
+    *,
+    engine_id: str,
+    voice: Optional[str],
+    language: Optional[str],
+    lexicon: Lexicon = (),
+    spoken: Optional[Spoken] = None,
 ) -> SegmentPlan:
+    if spoken is not None:
+        return _spoken_plan(text, spoken, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
     final = final_text(text, language, lexicon)
     key = render_key(engine_id, voice, language, final)
     # Pre-v2 entries were keyed by the display text and synthesized from its
@@ -312,13 +357,16 @@ def is_cached(plan: SegmentPlan) -> bool:
     return bool(plan.legacy_key) and os.path.isfile(os.path.join(folder, f"{plan.legacy_key}.json"))
 
 
-def store_render(key: str, text: str, samples: np.ndarray, sample_rate: int, meta: dict) -> dict:
+def store_render(
+    key: str, text: str, samples: np.ndarray, sample_rate: int, meta: dict, timings: Optional[tuple] = None
+) -> dict:
     """Encode + persist one render; returns the public result. Blocking.
 
     ``text`` is the display text the word timings index into; ``meta`` should
     carry ``synth_text`` (the final text) so later lookups can verify the key.
+    ``timings`` (``(words, duration)``) replaces the estimate from the audio.
     """
-    words, duration = word_timings(text, samples, sample_rate)
+    words, duration = timings if timings is not None else word_timings(text, samples, sample_rate)
     span = [words[0]["start"], words[-1]["end"]] if words else [0.0, duration]
     folder = audio_dir()
     os.makedirs(folder, exist_ok=True)
@@ -403,12 +451,58 @@ _inflight: dict[str, asyncio.Task] = {}
 _interactive = {"active": 0}
 
 
+async def _synthesize_spoken(plan: SegmentPlan, voice, engine_id, language) -> tuple[np.ndarray, int, tuple]:
+    """Audio of a prepared reading: each piece synthesized on its own, the
+    silences inserted exactly, and word timings per piece (the display words
+    of a piece spread over that piece's voiced audio)."""
+    spoken = plan.spoken
+    audios: list = []
+    sample_rate = 0
+    for final in plan.finals:
+        if _SPEAKABLE_RE.search(final or ""):
+            audio, sample_rate = await synthesize_segment(final, voice=voice, engine=engine_id, language=language)
+            audios.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+        else:
+            audios.append(None)
+    sample_rate = int(sample_rate or SILENCE_SR)
+
+    def silence(ms) -> np.ndarray:
+        return np.zeros(int(round(int(ms) * sample_rate / 1000.0)), dtype=np.float32)
+
+    chunks = [silence(spoken.lead_ms)]
+    words: list = []
+    offset = len(chunks[0])
+    for (c0, c1, _text, pause_ms), audio in zip(spoken.pieces, audios):
+        if audio is not None and len(audio):
+            start, end = voiced_span(audio, sample_rate)
+            chunks.append(audio)
+        else:
+            start = end = 0.0
+        base = offset / float(sample_rate)
+        for word in distribute_words(plan.text[c0:c1], base + start, base + end):
+            words.append({**word, "c0": word["c0"] + c0, "c1": word["c1"] + c0})
+        offset += len(audio) if audio is not None else 0
+        pause = silence(pause_ms)
+        chunks.append(pause)
+        offset += len(pause)
+    samples = np.concatenate(chunks)
+    if all(audio is None for audio in audios):
+        if not len(samples):
+            samples = np.zeros(int(SILENCE_S * sample_rate), dtype=np.float32)
+        return samples, sample_rate, word_timings(plan.text, samples, sample_rate)
+    return samples, sample_rate, (words, round(len(samples) / float(sample_rate), 3))
+
+
 async def _render_uncached(plan: SegmentPlan, voice, engine_id, language) -> tuple[dict, str]:
-    samples, sample_rate = await synthesize_segment(
-        plan.final, voice=voice, engine=engine_id, language=language
-    )
     meta = {"engine": engine_id, "voice": voice, "language": language, "synth_text": plan.final}
-    result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta)
+    if plan.spoken is not None:
+        samples, sample_rate, timings = await _synthesize_spoken(plan, voice, engine_id, language)
+        result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta, timings)
+    else:
+        samples, sample_rate = await synthesize_segment(
+            plan.final, voice=voice, engine=engine_id, language=language
+        )
+        result = await asyncio.to_thread(store_render, plan.key, plan.text, samples, sample_rate, meta)
     from services import reader_engine
 
     reader_engine.note_rendered(engine_id)
@@ -423,11 +517,13 @@ async def render_segment(
     language: Optional[str],
     interactive: bool = True,
     lexicon: Optional[Lexicon] = None,
+    spoken: Optional[Spoken] = None,
 ) -> dict:
     """``{render_key, audio_url, duration_s, words, cached}`` for one segment.
 
     ``text`` is the display text; the pronunciation dictionary for
-    ``language`` is loaded unless ``lexicon`` is given. Cache hit → stored
+    ``language`` is loaded unless ``lexicon`` is given. ``spoken`` (prepared
+    reading) replaces what is said, never the display text. Cache hit → stored
     result. Otherwise one synthesis task per key; every concurrent caller
     awaits the same task (shielded, so a cancelled prerender never aborts a
     render an interactive request is waiting on).
@@ -435,7 +531,7 @@ async def render_segment(
     engine_id = resolve_engine_id(engine)
     if lexicon is None:
         lexicon = await asyncio.to_thread(pronunciation_lexicon, language)
-    plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
+    plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon, spoken=spoken)
     hit = await asyncio.to_thread(lookup, plan)
     if hit is not None:
         return {**hit, "cached": True}
@@ -473,6 +569,7 @@ class PrerenderJob:
     running: bool = True
     error: Optional[str] = None
     task: Optional[asyncio.Task] = field(default=None, repr=False)
+    variant: str = ""  # what is said (prepared reading on/off): a change restarts the job
 
     def status(self) -> dict:
         return {
@@ -499,7 +596,7 @@ def _public_error(exc: BaseException) -> str:
         return exc.__class__.__name__
 
 
-async def _prerender_loop(job: PrerenderJob, texts: list[str], order: list[int]) -> None:
+async def _prerender_loop(job: PrerenderJob, texts: list[str], order: list[int], spoken: Optional[list] = None) -> None:
     try:
         lexicon = await asyncio.to_thread(pronunciation_lexicon, job.language)
         for index in order:
@@ -514,6 +611,7 @@ async def _prerender_loop(job: PrerenderJob, texts: list[str], order: list[int])
                 language=job.language,
                 interactive=False,
                 lexicon=lexicon,
+                spoken=spoken[index] if spoken else None,
             )
             job.done += 1
     except asyncio.CancelledError:
@@ -534,24 +632,27 @@ def start_prerender(
     engine: Optional[str],
     language: Optional[str],
     from_segment: int = 0,
+    spoken: Optional[list] = None,
+    variant: str = "",
 ) -> dict:
     """Start (or continue) the background prerender of a document.
 
     Renders every segment, starting at ``from_segment`` and wrapping around,
-    sequentially. A running job with the same voice/engine/language is left
+    sequentially. A running job with the same voice/engine/language (and
+    ``variant``: the prepared reading, ``spoken[i]`` per segment) is left
     alone; different settings cancel it and start over.
     """
     engine_id = resolve_engine_id(engine)
     current = _jobs.get(doc_id)
     if current and current.running:
-        if (current.voice, current.engine, current.language) == (voice, engine_id, language):
+        if (current.voice, current.engine, current.language, current.variant) == (voice, engine_id, language, variant):
             return current.status()
         cancel_prerender(doc_id)
     total = len(texts)
     start = max(0, min(int(from_segment or 0), max(total - 1, 0)))
     order = list(range(start, total)) + list(range(0, start))
-    job = PrerenderJob(doc_id=doc_id, voice=voice, engine=engine_id, language=language, total=total)
-    job.task = asyncio.ensure_future(_prerender_loop(job, texts, order))
+    job = PrerenderJob(doc_id=doc_id, voice=voice, engine=engine_id, language=language, total=total, variant=variant)
+    job.task = asyncio.ensure_future(_prerender_loop(job, texts, order, spoken))
     _jobs[doc_id] = job
     return job.status()
 
@@ -576,13 +677,16 @@ def forget_prerender(doc_id: str) -> None:
     _jobs.pop(doc_id, None)
 
 
-def cached_count(texts: list[str], *, voice, engine, language) -> int:
+def cached_count(texts: list[str], *, voice, engine, language, spoken: Optional[list] = None) -> int:
     """How many of ``texts`` already have a complete cached render."""
     engine_id = resolve_engine_id(engine)
     lexicon = pronunciation_lexicon(language)
     count = 0
-    for text in texts:
-        plan = plan_segment(text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon)
+    for index, text in enumerate(texts):
+        plan = plan_segment(
+            text, engine_id=engine_id, voice=voice, language=language, lexicon=lexicon,
+            spoken=spoken[index] if spoken else None,
+        )
         if is_cached(plan):
             count += 1
     return count
