@@ -103,6 +103,7 @@ function Publish {
       $r = Invoke-RestMethod -Method Post "$base/system/tailscale/enable"
       if ($r.ok) {
         $script:serveOn = $true
+        $script:serveScheme = $r.scheme
         $urls += [pscustomobject]@{ Via = "Tailscale ($($r.scheme))"; Url = "$($r.url)/#/reader" }
         if ($r.scheme -ne 'https') {
           Write-Step 'Tip: enable "HTTPS Certificates" at https://login.tailscale.com/admin/dns to install Reader as an app.'
@@ -120,32 +121,58 @@ function Publish {
   # The phone links, for the user to find later without a console.
   $lines = @("This PC: $base/#/reader") + ($urls | ForEach-Object { "$($_.Via): $($_.Url)" })
   [IO.File]::WriteAllLines((Join-Path $logDir 'reader-links.txt'), $lines)
+  $script:published = $true
   return $urls
 }
 
+# Switch the phone link to https:// as soon as the tailnet gets HTTPS certificates
+# (needed to install Reader as an app); no restart required.
+function Update-ServeScheme {
+  if ($NoTailscale -or $script:serveScheme -eq 'https') { return }
+  try {
+    $st = Invoke-RestMethod "$base/system/tailscale/status" -TimeoutSec 15
+    if ($st.running -and @($st.cert_domains).Count -gt 0) {
+      Write-Step 'Tailscale HTTPS certificates are available; republishing over https.'
+      Publish | Out-Null
+    }
+  } catch { }
+}
+
 $serveOn = $false
+$serveScheme = $null
+$published = $false
 $proc = $null
 try {
   if ($Background) {
-    # Supervisor: keep a backend up, restart it when it exits, back off on repeated crashes.
+    # Supervisor: keep a backend up (ours, or one the desktop app already runs), keep it
+    # published, restart it when it stops, back off on repeated crashes. Health polling
+    # instead of Wait-Process also covers a backend this script did not start.
     $delay = 5
     while ($true) {
-      if (Test-Backend) {
-        # Another VoiceStudio (e.g. the desktop app) already serves the port; wait for it to go.
-        Start-Sleep -Seconds 30
-        continue
+      $started = $null
+      if (-not (Test-Backend)) {
+        try {
+          $proc = Start-Backend
+          $started = Get-Date
+          Publish | Out-Null
+        } catch {
+          Write-Step "Error: $($_.Exception.Message)"
+          $delay = [Math]::Min($delay * 2, 300)
+          Start-Sleep -Seconds $delay
+          continue
+        }
+      } elseif (-not $published) {
+        try { Publish | Out-Null } catch { Write-Step "Publish failed: $($_.Exception.Message)" }
       }
-      try {
-        $proc = Start-Backend
-        Publish | Out-Null
-        $started = Get-Date
-        Wait-Process -Id $proc.Id
-        Write-Step "Backend exited (code $($proc.ExitCode)); restarting."
-        $delay = if (((Get-Date) - $started).TotalMinutes -gt 5) { 5 } else { [Math]::Min($delay * 2, 300) }
-      } catch {
-        Write-Step "Error: $($_.Exception.Message)"
-        $delay = [Math]::Min($delay * 2, 300)
+      $misses = 0
+      while ($misses -lt 3) {
+        Start-Sleep -Seconds 20
+        if (Test-Backend) { $misses = 0; Update-ServeScheme } else { $misses++ }
       }
+      Write-Step 'Backend stopped responding; restarting.'
+      if ($proc -and -not $proc.HasExited) { & taskkill /T /F /PID $proc.Id 2>$null | Out-Null }
+      $published = $false
+      $delay = if ($started -and ((Get-Date) - $started).TotalMinutes -gt 5) { 5 } else { [Math]::Min($delay * 2, 300) }
       Start-Sleep -Seconds $delay
     }
   }
