@@ -155,6 +155,7 @@ GET /reader/audio/{key}
 GET /reader/default-voices
 GET /reader/documents
 GET /reader/documents/{doc_id}
+GET /reader/documents/{doc_id}/ambience
 GET /reader/documents/{doc_id}/assets/{name}
 GET /reader/documents/{doc_id}/bookmarks
 GET /reader/documents/{doc_id}/bookmarks/export

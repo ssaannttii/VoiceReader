@@ -54,6 +54,7 @@ export type MenuSheet =
 
 const SOUND_LABELS = {
   off: 'reader.soundscape_off',
+  auto: 'reader.soundscape_auto',
   rain: 'reader.soundscape_rain',
   brown: 'reader.soundscape_brown',
   pink: 'reader.soundscape_pink',

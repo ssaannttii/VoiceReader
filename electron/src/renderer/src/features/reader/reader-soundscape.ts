@@ -14,89 +14,15 @@ import {
   listeningPrefs,
   setListeningPrefs,
   subscribeListening,
+  type SoundscapeChoice,
   type SoundscapeId,
 } from './listening-prefs';
+import { ambienceController } from './reader-ambience';
 import { dlog } from './reader-debug';
 import { readerPlayer, silentWav } from './reader-player';
-import { renderSoundscape, SOUNDSCAPE_VERSION } from './soundscape-synth';
+import { loadBed } from './soundscape-cache';
 
 export type SoundscapeStatus = 'off' | 'loading' | 'playing' | 'paused' | 'error';
-
-// ── loop cache (IndexedDB; works on plain-HTTP LAN origins) ────────────────
-
-const DB_NAME = 'reader-soundscapes';
-const STORE = 'loops';
-let opening: Promise<IDBDatabase> | null = null;
-
-function openDb(): Promise<IDBDatabase> {
-  if (opening) return opening;
-  const idb = globalThis.indexedDB;
-  if (!idb) return Promise.reject(new DOMException('IndexedDB unavailable', 'NotSupportedError'));
-  opening = new Promise<IDBDatabase>((resolve, reject) => {
-    const req = idb.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  opening.catch(() => {
-    opening = null;
-  });
-  return opening;
-}
-
-const cacheKey = (id: SoundscapeId) => `${id}@${SOUNDSCAPE_VERSION}`;
-
-async function cachedLoop(id: SoundscapeId): Promise<ArrayBuffer | null> {
-  try {
-    const db = await openDb();
-    return await new Promise((resolve) => {
-      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(cacheKey(id));
-      req.onsuccess = () => resolve(req.result instanceof ArrayBuffer ? req.result : null);
-      req.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function storeLoop(id: SoundscapeId, bytes: ArrayBuffer): Promise<void> {
-  try {
-    const db = await openDb();
-    db.transaction(STORE, 'readwrite').objectStore(STORE).put(bytes, cacheKey(id));
-  } catch {
-    // Not cached: rendered again next time (about a second).
-  }
-}
-
-const loops = new Map<SoundscapeId, Promise<Blob>>();
-
-/** The loop's WAV: memory, then IndexedDB, else rendered now and cached. */
-function loadLoop(id: SoundscapeId): Promise<Blob> {
-  let loop = loops.get(id);
-  if (!loop) {
-    loop = (async () => {
-      const t0 = performance.now();
-      let bytes = await cachedLoop(id);
-      const cached = Boolean(bytes);
-      if (!bytes) {
-        bytes = await renderSoundscape(id);
-        void storeLoop(id, bytes);
-      }
-      dlog('soundscape_load', {
-        id,
-        cached,
-        ms: Math.round(performance.now() - t0),
-        kb: Math.round(bytes.byteLength / 1024),
-      });
-      return new Blob([bytes], { type: 'audio/wav' });
-    })();
-    loops.set(id, loop);
-    loop.catch(() => loops.delete(id));
-  }
-  return loop;
-}
 
 // ── player ─────────────────────────────────────────────────────────────────
 
@@ -161,6 +87,9 @@ class SoundscapePlayer {
       this.sync();
     });
     subscribeListening(() => this.sync());
+    // Automático fetches the document's scenes ahead of the first play.
+    ambienceController.setEnabled(listeningPrefs().soundscape === 'auto');
+    this.applyVolume();
   }
 
   private isVoicePlaying(): boolean {
@@ -178,6 +107,7 @@ class SoundscapePlayer {
       if (this.audio?.src === this.url) this.setStatus('playing');
     });
     audio.addEventListener('pause', () => {
+      if (listeningPrefs().soundscape === 'auto') return; // Automático plays its own elements.
       if (this.status === 'playing') this.setStatus(this.wanted() ? 'loading' : 'paused');
     });
     audio.addEventListener('error', () => {
@@ -187,15 +117,16 @@ class SoundscapePlayer {
     return audio;
   }
 
-  /** Choose a soundscape (from a tap): saves it and starts it now. */
-  choose(id: SoundscapeId | 'off') {
+  /** Choose a soundscape, Automático or off (from a tap): saves it and starts it now. */
+  choose(id: SoundscapeChoice) {
     setListeningPrefs({ soundscape: id });
     if (id === 'off') {
       this.sync();
       return;
     }
     this.armed = true;
-    this.unlock();
+    if (id === 'auto') ambienceController.unlock(silentWav());
+    else this.unlock();
     this.sync();
   }
 
@@ -224,13 +155,25 @@ class SoundscapePlayer {
   }
 
   private applyVolume() {
-    if (this.audio)
-      this.audio.volume = soundscapeGain(listeningPrefs().soundscapeVolume, this.fade);
+    const gain = soundscapeGain(listeningPrefs().soundscapeVolume, this.fade);
+    if (this.audio) this.audio.volume = gain;
+    ambienceController.setMaster(gain);
   }
 
   private sync() {
     const prefs = listeningPrefs();
     this.applyVolume();
+    ambienceController.setEnabled(prefs.soundscape === 'auto');
+    if (prefs.soundscape === 'auto') {
+      // Automático: the manual element rests; the scene beds follow the same arming and volume.
+      this.loadToken++;
+      if (this.audio && !this.audio.paused) this.audio.pause();
+      const wanted = this.wanted();
+      ambienceController.setActive(wanted);
+      this.setStatus(wanted ? 'playing' : 'paused');
+      return;
+    }
+    ambienceController.setActive(false);
     if (!this.wanted()) {
       this.loadToken++;
       if (this.audio && !this.audio.paused) this.audio.pause();
@@ -245,7 +188,7 @@ class SoundscapePlayer {
     }
     const token = ++this.loadToken;
     this.setStatus('loading');
-    loadLoop(id).then(
+    loadBed(id).then(
       (blob) => {
         if (token !== this.loadToken || !this.wanted()) return;
         revokeObjectUrl(this.url);

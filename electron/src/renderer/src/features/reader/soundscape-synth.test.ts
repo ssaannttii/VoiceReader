@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AMBIENT_BEDS,
+  AMBIENT_RMS,
+  LOOP_SECONDS,
+  SOUNDSCAPE_RATE,
+  biquadCoefficients,
   brownNoise,
   encodeWav,
   loopCrossfade,
@@ -7,6 +12,7 @@ import {
   normalizeLoudness,
   pinkNoise,
   poissonTimes,
+  renderBedChannels,
   smoothNoise,
   whiteNoise,
 } from './soundscape-synth';
@@ -124,5 +130,93 @@ describe('encodeWav', () => {
     expect(view.getUint32(40, true)).toBe(16);
     const samples = Array.from({ length: 8 }, (_, i) => view.getInt16(44 + i * 2, true));
     expect(samples).toEqual([0, 16384, 32767, -16384, -32768, 0, 32767, -32768]);
+  });
+});
+
+describe('ambient beds (automatic ambience)', () => {
+  const rms = (channels: Float32Array[]) => {
+    let sum = 0;
+    let count = 0;
+    for (const channel of channels) {
+      for (const value of channel) sum += value * value;
+      count += channel.length;
+    }
+    return Math.sqrt(sum / count);
+  };
+  const dbfs = (value: number) => 20 * Math.log10(value);
+  const peak = (channel: Float32Array) => channel.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
+
+  it.each(AMBIENT_BEDS)(
+    '%s renders a seamless, understated stereo loop',
+    async (id) => {
+      const channels = await renderBedChannels(id, { offline: false });
+      expect(channels).toHaveLength(2);
+      for (const channel of channels) {
+        expect(channel).toHaveLength(LOOP_SECONDS * SOUNDSCAPE_RATE);
+        expect(channel.every(Number.isFinite)).toBe(true);
+      }
+      // Understated: about −25 dBFS RMS (never louder), peaks well below full scale.
+      const level = dbfs(rms(channels));
+      expect(level).toBeLessThanOrEqual(dbfs(AMBIENT_RMS) + 0.01);
+      expect(level).toBeGreaterThan(-36);
+      for (const channel of channels) expect(peak(channel)).toBeLessThanOrEqual(0.5001);
+      // Seamless: the jump from the last sample to the first is an ordinary step.
+      for (const channel of channels) {
+        let largest = 0;
+        let total = 0;
+        for (let i = 1; i < channel.length; i++) {
+          const step = Math.abs(channel[i] - channel[i - 1]);
+          largest = Math.max(largest, step);
+          total += step;
+        }
+        const wrap = Math.abs(channel[0] - channel[channel.length - 1]);
+        expect(wrap).toBeLessThanOrEqual(largest);
+        expect(wrap).toBeLessThanOrEqual((8 * total) / (channel.length - 1));
+        // …and the loop does not start or end on a cut to silence.
+        expect(peak(channel.subarray(0, SOUNDSCAPE_RATE))).toBeGreaterThan(0);
+      }
+    },
+    30_000,
+  );
+
+  it('renders the same bed identically every time (seeded)', async () => {
+    const a = await renderBedChannels('night', { offline: false });
+    const b = await renderBedChannels('night', { offline: false });
+    expect(a[0].subarray(0, 5000)).toEqual(b[0].subarray(0, 5000));
+  }, 30_000);
+
+  it('beds differ from each other', async () => {
+    const sea = await renderBedChannels('sea', { offline: false });
+    const wind = await renderBedChannels('wind', { offline: false });
+    expect(sea[0].subarray(0, 1000)).not.toEqual(wind[0].subarray(0, 1000));
+  }, 30_000);
+
+  it('encodes ambient beds as WAV like the manual loops', async () => {
+    const bytes = encodeWav(await renderBedChannels('room', { offline: false }), SOUNDSCAPE_RATE);
+    expect(bytes.byteLength).toBe(44 + LOOP_SECONDS * SOUNDSCAPE_RATE * 2 * 2);
+  }, 30_000);
+});
+
+describe('biquadCoefficients (Web Audio formulas)', () => {
+  const gainAt = (c: number[], frequency: number, rate: number) => {
+    const w = (2 * Math.PI * frequency) / rate;
+    const re = (b0: number, b1: number, b2: number) => b0 + b1 * Math.cos(w) + b2 * Math.cos(2 * w);
+    const im = (b1: number, b2: number) => -(b1 * Math.sin(w) + b2 * Math.sin(2 * w));
+    const [b0, b1, b2, a1, a2] = c;
+    const num = Math.hypot(re(b0, b1, b2), im(b1, b2));
+    const den = Math.hypot(re(1, a1, a2), im(a1, a2));
+    return num / den;
+  };
+
+  it('passes and stops the right bands', () => {
+    const lowpass = biquadCoefficients('lowpass', 500, undefined, 22_050);
+    expect(gainAt(lowpass, 20, 22_050)).toBeCloseTo(1, 2);
+    expect(gainAt(lowpass, 5000, 22_050)).toBeLessThan(0.02);
+    const highpass = biquadCoefficients('highpass', 500, undefined, 22_050);
+    expect(gainAt(highpass, 20, 22_050)).toBeLessThan(0.01);
+    expect(gainAt(highpass, 5000, 22_050)).toBeCloseTo(1, 1);
+    const bandpass = biquadCoefficients('bandpass', 1000, 2, 22_050);
+    expect(gainAt(bandpass, 1000, 22_050)).toBeCloseTo(1, 3);
+    expect(gainAt(bandpass, 100, 22_050)).toBeLessThan(0.1);
   });
 });

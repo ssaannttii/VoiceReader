@@ -292,6 +292,22 @@ export const readerApi = {
   exportBookmarks: async (id: string) => (await apiFetch(`${doc(id)}/bookmarks/export`)).blob(),
   /** Start loading the TTS engine (idempotent; 404 on backends without it). */
   warmup: () => apiJson<ReaderStatus>('/reader/warmup', { method: 'POST' }),
+  /** Scenes for the automatic ambience; starts the analysis on the PC when missing. */
+  ambience: (id: string, signal?: AbortSignal) =>
+    apiJson<ReaderAmbience>(`${doc(id)}/ambience`, { signal }),
 };
+
+/** `GET /reader/documents/{id}/ambience` (backend services/reader_ambience.py). */
+export interface ReaderAmbience {
+  status: 'ready' | 'computing' | 'unavailable';
+  scenes: {
+    start_segment: number;
+    end_segment: number;
+    tag: string;
+    confidence: number;
+    intensity: number;
+  }[];
+  refined?: boolean;
+}
 
 export const READER_ACCEPTED_FILES = '.txt,.md,.html,.htm,.pdf,.epub,.docx';
