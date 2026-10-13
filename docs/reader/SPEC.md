@@ -19,12 +19,20 @@ rendered on the PC GPU.
 **Reader** (`#/reader/$docId`)
 - Reading view: serif text, paragraphs and headings preserved, current sentence softly
   highlighted, current word strongly highlighted, auto-scroll that follows playback,
-  "Back to current" pill when the user scrolls away. Tap a sentence/word to play from it.
-- Player dock: document scrubber (by segment, time estimate), play/pause, back/forward
-  (previous/next sentence; long-form skip ±15 s inside the current sentence where possible),
+  "Back to current" pill when the user scrolls away. Tap a sentence/word to play from it
+  (or, with the double-tap option, double-tap; a single tap then only reads). Paused and
+  scrolled away, "Continue from here" plays from the first visible sentence.
+- Every user jump (text tap, scrubber, chapters, lock-screen seek) shows "Back to mm:ss" for
+  6 s; the jump is saved as progress only once that window has passed.
+- Player dock: document scrubber (by segment, time estimate) with a tick at the furthest point
+  reached and "Go to furthest point" when it is ≥ 30 s ahead, play/pause, skip back/forward
+  (10/15/30/60 s, per device) and previous/next (sentence, chapter or skip, per device),
   speed (0.5–3.0×, pitch preserved), voice picker sheet, sleep timer (5/10/15/30/45/60 min,
   end of chapter), chapters sheet, text size, download for offline.
-- Media Session: lock-screen title/artist/artwork and play/pause/next/previous/seek.
+- Status line in the dock instead of a generic error: PC unreachable (retries every 5 s),
+  offline with N downloaded sentences, voice loading, voice failed to load.
+- Media Session: lock-screen title/artist/artwork and play/pause/stop/seek; previous/next and
+  seek backward/forward follow the device's control settings.
 - Keyboard on desktop: Space play/pause, ←/→ previous/next sentence, +/− speed.
 
 **Mobile/PWA**
@@ -170,6 +178,22 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
 - LAN: `OMNIVOICE_SHARE_PIN` fixes the share PIN; the `ov_pin` cookie lasts a year; a `?pin=`
   link is captured by the renderer client and scrubbed from the address bar. PWA shell files
   (`/manifest.webmanifest`, `/reader-sw.js`, `/reader-icon*`, `/apple-touch-icon.png`) are public.
+
+### Playback transport (client)
+- Where `MediaSource.isTypeSupported('audio/mpeg')` (Chrome, Edge, Firefox, Electron; not
+  WebKit) the player appends every rendered MP3 to one `SourceBuffer` in `sequence` mode
+  (`reader-mse.ts`). Each append records its media start/end (`timestampOffset` /
+  `buffered.end`), which maps word timings to the shared clock. It keeps ≥ 3 sentences and
+  ≥ 60 s appended ahead while playing (≤ 180 s), evicts audio more than 30 s behind the
+  playhead, and rebuilds the MediaSource for seeks outside the buffered audio.
+- Background: the element never pauses or swaps `src` between sentences, and appends are
+  driven by `timeupdate` / `waiting` / `updateend` events and load promises — not timers or
+  animation frames — so a locked Android phone keeps playing.
+- Safari/iOS, WAV audio (no ffmpeg) and any MSE failure use the per-sentence blob player.
+  `localStorage['reader-engine'] = 'blob' | 'mse'` forces one for diagnostics.
+- `POST /reader/warmup` is called when a document opens (a 404 from older backends is
+  ignored); a missing `model_state` counts as ready; a missing `furthest_segment` as the
+  saved position.
 
 ## Running for the phone
 `scripts/reader/start-reader.ps1` builds the web UI when missing/stale, starts the backend

@@ -11,6 +11,9 @@ export interface UndoEntry extends ReaderPosition {
   at: number;
 }
 
+/** How long "Volver a…" is offered after a jump (and progress waits before saving it). */
+export const UNDO_WINDOW_MS = 6000;
+
 /** Jumps shorter than this (same segment) are not worth an undo. */
 const SAME_SPOT_SECONDS = 2;
 

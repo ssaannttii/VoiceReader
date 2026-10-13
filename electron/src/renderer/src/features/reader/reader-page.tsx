@@ -34,6 +34,7 @@ import { useReaderDocument } from './use-reader-data';
 import { ControlsSheet } from './controls-sheet';
 import { useReaderWarmup } from './engine-status';
 import { REVEAL_EVENT, type RevealDetail } from './reader-events';
+import { UNDO_WINDOW_MS } from './reader-undo';
 import './reader.css';
 
 type Sheet = DockSheet | 'options' | 'chapters' | 'controls' | null;
@@ -157,16 +158,13 @@ function OptionsSheet({
   );
 }
 
-/** How long "Volver a 12:34" stays after a jump. */
-const UNDO_VISIBLE_MS = 6000;
-
 /** "Volver a 12:34": undo the latest jump (an accidental tap, a scrubber slip). */
 function UndoPill() {
   const { t } = useTranslation();
   const { undo, rate } = useReaderPlayer();
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const left = undo ? UNDO_VISIBLE_MS - (Date.now() - undo.at) : 0;
+    const left = undo ? UNDO_WINDOW_MS - (Date.now() - undo.at) : 0;
     setVisible(left > 0);
     if (left <= 0) return;
     const timer = setTimeout(() => setVisible(false), left);

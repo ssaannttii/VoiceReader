@@ -49,7 +49,7 @@ import {
   type MseSegmentData,
   type TimelineEntry,
 } from './reader-mse';
-import { UndoStack, type UndoEntry } from './reader-undo';
+import { UNDO_WINDOW_MS, UndoStack, type UndoEntry } from './reader-undo';
 
 export type ReaderStatus = 'idle' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error';
 
@@ -194,6 +194,8 @@ class ReaderPlayer {
   private reconnect: (() => void) | null = null;
   private lastClockAt = 0;
   private undoStack = new UndoStack();
+  /** An undoable jump is not saved as progress (nor furthest point) until this time. */
+  private progressHoldUntil = 0;
   /** MSE transport; null on the blob fallback. Decided when the element is created. */
   private mse: MseEngine | null = null;
   private mseFailed = false;
@@ -291,6 +293,11 @@ class ReaderPlayer {
     });
     audio.addEventListener('waiting', () => {
       if (!this.isCurrent() || !this.wantPlay) return;
+      // Every seek waits a moment for data; that is not a stall.
+      if (audio.seeking) {
+        this.set({ status: 'buffering' });
+        return;
+      }
       if (this.mse) this.onMseWaiting();
       else dlog('waiting', { seg: this.state.segment, at: Math.round(audio.currentTime * 1000) });
       this.set({ status: 'buffering' });
@@ -346,7 +353,8 @@ class ReaderPlayer {
 
   private isCurrent(): boolean {
     if (!this.audio) return false;
-    if (this.mse) return this.mse.attached() && !this.mse.switching;
+    // A MediaSource whose first sentence never arrived (a failed warm-up) is not playable.
+    if (this.mse) return this.mse.attached() && !this.mse.switching && this.current !== null;
     return Boolean(this.current?.url && this.audio.src === this.current.url);
   }
 
@@ -1060,6 +1068,7 @@ class ReaderPlayer {
     );
     if (entry) {
       dlog('jump', { from: entry.segment, to: segment });
+      this.progressHoldUntil = Date.now() + UNDO_WINDOW_MS + 500;
       this.set({ undo: entry });
     }
   }
@@ -1067,15 +1076,11 @@ class ReaderPlayer {
   /** Go back to where the latest jump started ("Volver a 12:34"). */
   undoJump() {
     const entry = this.undoStack.pop();
+    this.progressHoldUntil = 0;
     this.set({ undo: null });
     if (!entry || !this.state.doc) return;
     dlog('undo_jump', { to: entry.segment });
     this.startAt(entry.segment, entry.offset, this.wantPlay);
-  }
-
-  /** Hide the undo pill without forgetting the position. */
-  dismissUndo() {
-    if (this.state.undo) this.set({ undo: null });
   }
 
   /** User jump to a sentence (text tap, scrubber, chapters, search…): undoable. */
@@ -1393,7 +1398,8 @@ class ReaderPlayer {
   // ── progress ─────────────────────────────────────────────────────────────
   private scheduleProgress() {
     if (this.progressTimer !== null) clearTimeout(this.progressTimer);
-    this.progressTimer = setTimeout(() => this.flushProgress(), PROGRESS_DEBOUNCE_MS);
+    const delay = Math.max(PROGRESS_DEBOUNCE_MS, this.progressHoldUntil - Date.now());
+    this.progressTimer = setTimeout(() => this.flushProgress(), delay);
   }
 
   private flushProgress(keepalive = false) {
@@ -1401,6 +1407,12 @@ class ReaderPlayer {
     this.progressTimer = null;
     const doc = this.state.doc;
     if (!doc || this.savedSegment === this.state.segment) return;
+    // A jump that may still be undone (an accidental tap) must not move the
+    // saved position or the furthest point; leaving the page saves it anyway.
+    if (!keepalive && Date.now() < this.progressHoldUntil) {
+      this.scheduleProgress();
+      return;
+    }
     const segment = this.state.segment;
     this.savedSegment = segment;
     // The backend raises furthest_segment with every saved position; mirror it.
