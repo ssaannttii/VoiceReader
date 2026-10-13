@@ -8,6 +8,7 @@ import {
 } from './reader-api';
 import { removeOfflineDownload, startOfflineDownload } from './offline-state';
 import { readerPlayer } from './reader-player';
+import { refreshQueueTitles, removeFromQueue } from './reader-queue';
 
 export function fetchReaderDocument(id: string): Promise<ReaderDocument> {
   return queryClient.fetchQuery({
@@ -37,6 +38,7 @@ export async function renameDocument(id: string, title: string): Promise<void> {
   queryClient.setQueryData<ReaderDocument>(readerKeys.document(id), (doc) =>
     doc ? { ...doc, title: summary.title } : doc,
   );
+  refreshQueueTitles([{ id, title: summary.title }]);
   const loaded = readerPlayer.getState().doc;
   if (loaded?.id === id) readerPlayer.load({ ...loaded, title: summary.title });
 }
@@ -44,6 +46,7 @@ export async function renameDocument(id: string, title: string): Promise<void> {
 export async function deleteDocument(id: string): Promise<void> {
   await readerApi.remove(id);
   if (readerPlayer.getState().doc?.id === id) readerPlayer.unload();
+  removeFromQueue(id);
   await removeOfflineDownload(id).catch(() => {});
   queryClient.setQueryData<ReaderDocumentSummary[]>(readerKeys.documents, (list) =>
     list?.filter((item) => item.id !== id),

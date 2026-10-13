@@ -458,6 +458,11 @@ export interface MseHost {
   count(): number;
   /** Append no sentence at or beyond this index (the end-of-chapter sleep timer). */
   limit(): number;
+  /**
+   * Another document follows this one (the queue): leave the stream open at the
+   * end so the element keeps "playing" (waiting) instead of firing `ended`.
+   */
+  continues?(): boolean;
   /** The user wants audio now (append the long window, not just a few sentences). */
   playing(): boolean;
   load(index: number): Promise<MseLoaded>;
@@ -634,7 +639,9 @@ export class MseEngine {
         if (!last) break;
         const next = last.segment + 1;
         if (next >= this.host.count()) {
-          session.end();
+          // With a queued document the player switches at the end of the buffer
+          // (`waiting`); a kick after the queue empties ends the stream normally.
+          if (!this.host.continues?.()) session.end();
           break;
         }
         if (next >= this.host.limit()) break;
@@ -717,6 +724,15 @@ export class MseEngine {
     this.failedAt = 0;
     this.session?.destroy();
     this.session = null;
+  }
+
+  /**
+   * Forget the MediaSource but leave it on the element: the next `start()`
+   * replaces `src` directly, without an empty load in between (queue advance).
+   */
+  forget() {
+    this.teardown();
+    this.switching = false;
   }
 
   /** Forget the MediaSource and detach it from the element. */

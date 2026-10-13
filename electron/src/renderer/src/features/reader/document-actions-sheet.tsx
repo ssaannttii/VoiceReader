@@ -28,6 +28,7 @@ import {
 } from './reader-actions';
 import type { ReaderDocumentSummary } from './reader-api';
 import { ReaderSheet, SheetRow } from './reader-sheet';
+import { QueueRow } from './queue-sheet';
 
 /** Offline download row shared by the library actions and the reader options. */
 export function OfflineRow({ id }: { id: string }) {
@@ -183,6 +184,7 @@ export function DocumentActionsSheet({
               }
             />
           )}
+          {ready && <QueueRow doc={shown} onDone={onClose} />}
           {ready && <OfflineRow id={shown.id} />}
           <SheetRow
             icon={Trash2Icon}

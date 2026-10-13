@@ -34,6 +34,16 @@ rendered on the PC GPU.
 - Media Session: lock-screen title/artist/artwork and play/pause/stop/seek; previous/next and
   seek backward/forward follow the device's control settings.
 - Keyboard on desktop: Space play/pause, ←/→ previous/next sentence, +/− speed.
+- Queue ("Up next", per device): "Add to queue" in a document's menu and in the reader options;
+  the queue sheet (dock chip, library mini-player) reorders (up/down), removes and plays now.
+  When a document ends, the first queued one continues from its saved position (from the start
+  once finished) and leaves the queue. The end-of-chapter/end-of-document sleep timer stops
+  instead of continuing; a timed sleep keeps running across documents.
+- Soundscapes (per device): off, rain, brown noise, pink noise, café, fireplace — synthesized on
+  the device — with their own volume and "only while the voice plays"; the sleep timer fades and
+  stops them too.
+- Audio-only mode (top bar headphones, or options): the text gives way to the cover, title,
+  chapter and an orb whose motion follows the word timings; tapping it plays/pauses.
 
 **Mobile/PWA**
 - Mobile-first layout (360–430 px wide) with safe-area insets; scales to a centered column
@@ -199,6 +209,19 @@ Encode MP3 with the managed ffmpeg (`services/media_tools.py`) when available; e
 - Background: the element never pauses or swaps `src` between sentences, and appends are
   driven by `timeupdate` / `waiting` / `updateend` events and load promises — not timers or
   animation frames — so a locked Android phone keeps playing.
+- Queue advance runs inside the player, never in React, a timer or an animation frame: once a
+  document is fully appended (MSE) or prefetched to its end (blob), the next queued document's
+  JSON and first sentence are fetched. With a queue, the MSE stream is left open at the end, so
+  the element waits (still "playing") instead of firing `ended`; that `waiting` (Chrome holds the
+  final MP3 frame of an open stream, so it comes ~0.1 s early) switches documents and rebuilds the
+  MediaSource on the same element. The blob player switches on `ended`, synchronously when the
+  next sentence is ready. Lock-screen metadata, undo stack and progress follow the new document;
+  the reader page navigates to it whenever it next renders. Diagnostics: `queue_advance`.
+- Soundscapes play on a second `<audio loop>` element (WAV loops rendered once with
+  `OfflineAudioContext`, 32 s with a 2 s equal-power crossfade, cached in IndexedDB
+  `reader-soundscapes`). The reading audio is never routed through Web Audio. The element follows
+  player events (state, sleep fade, sleep stop), so it pauses/resumes with the voice on a locked
+  phone. iOS ignores element volume (system volume applies). Diagnostics: `soundscape` on/off.
 - Safari/iOS, WAV audio (no ffmpeg) and any MSE failure use the per-sentence blob player.
   `localStorage['reader-engine'] = 'blob' | 'mse'` forces one for diagnostics.
 - `POST /reader/warmup` is called when a document opens (a 404 from older backends is

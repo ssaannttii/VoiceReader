@@ -1,6 +1,6 @@
 import '@fontsource-variable/source-serif-4';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowDownToLineIcon,
@@ -10,6 +10,7 @@ import {
   ChevronLeftIcon,
   CloudOffIcon,
   EllipsisIcon,
+  HeadphonesIcon,
   MoonIcon,
   PlayIcon,
   SearchIcon,
@@ -48,6 +49,11 @@ import {
   type PronounceTarget,
 } from './pronunciation-sheet';
 import type { WordPress } from './reader-text-view';
+import { AudioOnlyView } from './audio-only-view';
+import { setListeningPrefs, useListeningPrefs } from './listening-prefs';
+import { ListeningOptionRows } from './listening-rows';
+import { QueueSheet } from './queue-sheet';
+import { SoundscapeSheet } from './soundscape-sheet';
 import './reader.css';
 
 type Sheet =
@@ -62,12 +68,14 @@ type Sheet =
 
 function OptionsSheet({
   doc,
+  active,
   open,
   onOpenChange,
   onSheet,
   onAddBookmark,
 }: {
   doc: ReaderDocument;
+  active: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSheet: (sheet: Sheet) => void;
@@ -174,6 +182,7 @@ function OptionsSheet({
           />
           <OfflineRow id={doc.id} />
         </div>
+        <ListeningOptionRows doc={doc} active={active} onSheet={onSheet} />
         <DiagnosticsRows />
       </div>
     </ReaderSheet>
@@ -262,6 +271,20 @@ export function ReaderDocumentPage() {
     readerPlayer.prepare();
     // A document that is playing is never cut off; this one loads once it stops.
   }, [doc, otherPlaying]);
+
+  // The queue moved on from this document: show the next one. Playback never
+  // waits for this (it may run much later, when a locked phone wakes up).
+  const navigate = useNavigate();
+  const listening = useListeningPrefs();
+  const playerDocId = player.doc?.id ?? null;
+  const shownPlayerDoc = useRef(playerDocId);
+  useEffect(() => {
+    const before = shownPlayerDoc.current;
+    shownPlayerDoc.current = playerDocId;
+    const advance = readerPlayer.lastAdvance;
+    if (before === docId && advance && advance.from === docId && advance.to === playerDocId)
+      void navigate({ to: '/reader/$docId', params: { docId: advance.to }, replace: true });
+  }, [playerDocId, docId, navigate]);
 
   const resumeFollowing = useCallback(() => {
     follow.current = true;
@@ -448,6 +471,16 @@ export function ReaderDocumentPage() {
         )}
         <button
           type="button"
+          className={cn('rd-icon-btn', listening.audioOnly && 'bg-foreground/[0.08]')}
+          aria-label={t('reader.audio_only')}
+          aria-pressed={listening.audioOnly}
+          disabled={!doc}
+          onClick={() => setListeningPrefs({ audioOnly: !listening.audioOnly })}
+        >
+          <HeadphonesIcon className="size-5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           className="rd-icon-btn"
           aria-label={t('reader.search_document')}
           disabled={!doc}
@@ -504,6 +537,8 @@ export function ReaderDocumentPage() {
                 </button>
               </div>
             </div>
+          ) : listening.audioOnly ? (
+            <AudioOnlyView doc={doc} active={active} onActivate={activate} />
           ) : (
             <div
               className="rd-column pb-16 pt-6"
@@ -533,7 +568,7 @@ export function ReaderDocumentPage() {
         {active && (
           <div className="rd-pills">
             <UndoPill />
-            {!following && (
+            {!following && !listening.audioOnly && (
               <div className="flex max-w-full flex-wrap justify-center gap-2">
                 <button
                   type="button"
@@ -568,6 +603,7 @@ export function ReaderDocumentPage() {
           <DebugHud />
           <OptionsSheet
             doc={doc}
+            active={active}
             open={sheet === 'options'}
             onOpenChange={closeSheet}
             onSheet={openSheet}
@@ -596,6 +632,8 @@ export function ReaderDocumentPage() {
             }}
           />
           <PronounceSheet doc={doc} target={pronounce} onClose={() => setPronounce(null)} />
+          <QueueSheet open={sheet === 'queue'} onOpenChange={closeSheet} />
+          <SoundscapeSheet open={sheet === 'soundscape'} onOpenChange={closeSheet} />
         </>
       )}
     </div>
