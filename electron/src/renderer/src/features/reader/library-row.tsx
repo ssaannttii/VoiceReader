@@ -35,6 +35,7 @@ import { useOffline } from './offline-state';
 import { readerApi, readerKeys, type ReaderDocumentSummary } from './reader-api';
 import { SwipeRow, type SwipeAction } from './swipe-row';
 import type { ReaderListItem } from './use-reader-data';
+import { formatPercent } from './reader-text';
 
 type Doc = ReaderDocumentSummary;
 
@@ -141,7 +142,7 @@ function StatusLine({ doc }: { doc: ReaderListItem }) {
         </>
       ) : (
         <>
-          {t('reader.search_position', { percent: status.percent })}
+          {formatPercent(status.percent)}
           <span aria-hidden="true">·</span>
           {durationLabel(t, status.minutes, true)}
         </>

@@ -163,3 +163,10 @@ export function windowAround(index: number, total: number, before = 60, after = 
   const start = Math.max(0, anchor - before);
   return { start, end: Math.min(total, Math.max(anchor + after, start + before + after)) };
 }
+
+/** "17 %" / "17%" as the reader's locale writes a whole-number percentage. */
+export function formatPercent(percent: number, locale?: string): string {
+  return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(
+    Math.max(0, Math.min(100, percent)) / 100,
+  );
+}

@@ -7,7 +7,7 @@ import { revealSegment } from './reader-events';
 import { readerPlayer } from './reader-player';
 import { searchDocument, searchIndexFor, snippetFor, type SearchHit } from './reader-search';
 import { ReaderSheet } from './reader-sheet';
-import { chapterIndexAt } from './reader-text';
+import { chapterIndexAt, formatPercent } from './reader-text';
 import { SearchField } from './search-field';
 
 const DEBOUNCE_MS = 150;
@@ -52,7 +52,7 @@ export function SearchSheet({
   const position = (segment: number) => {
     const chapter = doc.chapters[chapterIndexAt(doc.chapters, segment)]?.title;
     const percent = Math.round((segment / Math.max(1, doc.segments.length - 1)) * 100);
-    return [chapter, t('reader.search_position', { percent })].filter(Boolean).join(' · ');
+    return [chapter, formatPercent(percent)].filter(Boolean).join(' · ');
   };
 
   const reveal = (hit: SearchHit) => {

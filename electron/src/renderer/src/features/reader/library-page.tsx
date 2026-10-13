@@ -82,6 +82,7 @@ import { SearchField } from './search-field';
 import { useReaderDocuments, type ReaderListItem } from './use-reader-data';
 import './reader.css';
 import './library.css';
+import { formatPercent } from './reader-text';
 
 const SORT_LABELS: Record<LibrarySort, string> = {
   recent: 'reader.sort_recent',
@@ -222,8 +223,7 @@ function ContinueCard({
             <span className="rd-row-meta">{sourceLabel(doc, t)}</span>
             {status.kind === 'progress' && (
               <span className="rd-row-meta">
-                {t('reader.search_position', { percent: status.percent })} ·{' '}
-                {durationLabel(t, status.minutes, true)}
+                {formatPercent(status.percent)} · {durationLabel(t, status.minutes, true)}
               </span>
             )}
             <span className="rd-continue-progress" aria-hidden="true">

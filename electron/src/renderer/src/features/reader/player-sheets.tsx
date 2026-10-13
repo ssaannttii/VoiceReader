@@ -31,6 +31,7 @@ import {
   chapterIndexAt,
   clampSpeed,
   formatClock,
+  formatPercent,
   formatSpeed,
   SPEED_MAX,
   SPEED_MIN,
@@ -187,7 +188,7 @@ function ChapterTrailing({ state, seconds }: { state: ChapterState; seconds: num
     return (
       <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
         <ProgressRing percent={state.percent} />
-        {t('reader.chapter_percent', { percent: state.percent })}
+        {formatPercent(state.percent)}
       </span>
     );
   return (
