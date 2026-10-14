@@ -926,9 +926,10 @@ two `<audio>` decks driven by player events, like the ambience (`reader-music.ts
 - **Follows the voice:** plays only while the voice plays (pause, lock screen, headphones), takes the
   sleep fade and stop, ignores the reading speed; a queue advance or another document lets the old
   music go in 4 s (even with the same cue ids). The Media Session is not touched.
-- **Volume:** a dB slider relative to the PC's −30 LUFS master, −24…0 dB, default −3 dB (an element
-  cannot exceed 1, so the default leaves 3 dB of headroom); corrected by `level_lufs` when the PC
-  masters at another level. While music sounds, the soundscape/ambience gain is lowered by up to
+- **Volume:** a dB slider relative to the −30 LUFS design level (0 dB = −30 LUFS under the voice),
+  −18…+6 dB, default 0 dB (the level chosen in the listening test). The PC masters hotter
+  (`level_lufs`, −24 LUFS) and the client only attenuates, since an element cannot exceed 1: the
+  6 dB above the design level are the slider's headroom upwards. While music sounds, the soundscape/ambience gain is lowered by up to
   3 dB following the music's fades (`music-duck.ts`).
 - **Cache and offline:** clips are fetched with the app's auth and kept in IndexedDB
   (`reader-soundscapes`, key `music:<doc>:clip:<palette>:<name>@<duration>`; the last plan as
