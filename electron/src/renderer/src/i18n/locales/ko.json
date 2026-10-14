@@ -3995,6 +3995,19 @@
     "labs_blind_short": "블라인드",
     "labs_history_clear": "투표 지우기",
     "labs_variant_prepared": "준비됨",
-    "labs_variant_plain": "일반"
+    "labs_variant_plain": "일반",
+    "sample_try": "예시 사용해 보기",
+    "sample_title": "Reader에 오신 것을 환영합니다",
+    "sample_text": "안녕하세요! 이 짧은 글은 Reader 사용법을 보여 줍니다. 재생을 누르면 PC가 소리 내어 읽고, 읽는 단어마다 강조 표시됩니다.\n\n문장을 탭하면 그 문장으로 이동합니다. 단어를 길게 누르면 발음을 바꿀 수 있으며, 변경 사항은 이 언어의 모든 문서에 적용됩니다.\n\n플레이어에서 음성과 속도를 바꾸고, 뒤로·앞으로 건너뛰고, 취침 타이머를 설정할 수 있습니다. Reader는 휴대폰에서든 PC에서든 마지막으로 들은 위치를 기억합니다.\n\n직접 읽을거리를 추가하려면 라이브러리로 돌아가 더하기 버튼을 누르세요. 텍스트를 붙여 넣거나, PDF·EPUB·Word 파일을 업로드하거나, 웹 링크를 추가하거나, 카메라로 페이지를 스캔할 수 있습니다.\n\n이 문서는 언제든지 삭제할 수 있습니다.",
+    "first_voice_title": "{{language}} 음성 선택",
+    "first_voice_body": "기본값으로 지정한 음성이 {{language}} 문서를 모두 읽어 줍니다.",
+    "first_voice_action": "선택",
+    "first_later": "나중에",
+    "tip_got_it": "확인",
+    "tip_tap": "문장을 탭하면 거기서부터 들을 수 있습니다.",
+    "tip_double_tap": "문장을 두 번 탭하면 거기서부터 들을 수 있습니다.",
+    "tip_press": "단어를 길게 누르면 발음을 바꿀 수 있습니다.",
+    "tip_right_click": "단어를 마우스 오른쪽 버튼으로 클릭하면 발음을 바꿀 수 있습니다.",
+    "tip_menu": "북마크, 오프라인 재생용 다운로드 등은 ⋯ 메뉴에 있습니다."
   }
 }

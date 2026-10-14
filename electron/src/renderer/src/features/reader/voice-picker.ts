@@ -152,9 +152,13 @@ export function rememberVoice(id: string): void {
   }
 }
 
-/** Language key in the UI language ("es" → "Español"); unknown names capitalized. */
-export function languageName(code: string, locale: string): string {
-  const capitalize = (value: string) => value.charAt(0).toLocaleUpperCase(locale) + value.slice(1);
+/**
+ * Language key in the UI language ("es" → "Español"); unknown names capitalized. `inSentence`
+ * keeps the locale's own casing for use mid-sentence ("documentos en español").
+ */
+export function languageName(code: string, locale: string, { inSentence = false } = {}): string {
+  const capitalize = (value: string) =>
+    inSentence ? value : value.charAt(0).toLocaleUpperCase(locale) + value.slice(1);
   if (code.length > 3) return capitalize(code);
   try {
     const name = new Intl.DisplayNames([locale], { type: 'language' }).of(code);

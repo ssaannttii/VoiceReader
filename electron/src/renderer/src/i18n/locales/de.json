@@ -3995,6 +3995,19 @@
     "labs_blind_short": "blind",
     "labs_history_clear": "Stimmen löschen",
     "labs_variant_prepared": "Vorbereitet",
-    "labs_variant_plain": "Normal"
+    "labs_variant_plain": "Normal",
+    "sample_try": "Beispiel ausprobieren",
+    "sample_title": "Willkommen bei Reader",
+    "sample_text": "Hallo! Dieser kurze Text zeigt, wie Reader funktioniert. Tippe auf Wiedergabe: Dein PC liest ihn vor, und jedes Wort leuchtet auf, während es gesprochen wird.\n\nTippe auf einen beliebigen Satz, um dorthin zu springen. Halte ein Wort gedrückt, um seine Aussprache zu ändern; die Änderung gilt für alle Dokumente in dieser Sprache.\n\nIm Player kannst du Stimme und Geschwindigkeit ändern, vor- und zurückspringen und einen Schlaftimer stellen. Reader merkt sich, wo du aufgehört hast – auf dem Handy wie auf dem PC.\n\nUm eigene Texte hinzuzufügen, geh zurück zur Bibliothek und tippe auf das Plus: Text einfügen, eine PDF-, EPUB- oder Word-Datei hochladen, einen Weblink hinzufügen oder Seiten mit der Kamera scannen.\n\nDu kannst dieses Dokument jederzeit löschen.",
+    "first_voice_title": "Wähle eine Stimme für {{language}}",
+    "first_voice_body": "Die Stimme, die du als Standard festlegst, liest alle deine Dokumente auf {{language}}.",
+    "first_voice_action": "Auswählen",
+    "first_later": "Nicht jetzt",
+    "tip_got_it": "Verstanden",
+    "tip_tap": "Tippe auf einen Satz, um ab dort zuzuhören.",
+    "tip_double_tap": "Tippe zweimal auf einen Satz, um ab dort zuzuhören.",
+    "tip_press": "Halte ein Wort gedrückt, um seine Aussprache zu ändern.",
+    "tip_right_click": "Klicke mit der rechten Maustaste auf ein Wort, um seine Aussprache zu ändern.",
+    "tip_menu": "Lesezeichen, Downloads zum Offline-Hören und mehr findest du im Menü ⋯."
   }
 }

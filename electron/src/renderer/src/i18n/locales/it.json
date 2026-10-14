@@ -3997,6 +3997,19 @@
     "labs_blind_short": "alla cieca",
     "labs_history_clear": "Cancella i voti",
     "labs_variant_prepared": "Preparata",
-    "labs_variant_plain": "Normale"
+    "labs_variant_plain": "Normale",
+    "sample_try": "Prova un esempio",
+    "sample_title": "Benvenuto in Reader",
+    "sample_text": "Ciao! Questo breve testo mostra come funziona Reader. Premi riproduci: il tuo PC lo legge ad alta voce e ogni parola si illumina mentre viene pronunciata.\n\nTocca una frase qualsiasi per saltare lì. Tieni premuta una parola per cambiarne la pronuncia; la modifica vale per tutti i documenti in questa lingua.\n\nDal lettore puoi cambiare voce e velocità, andare indietro e avanti e impostare un timer di spegnimento. Reader ricorda dove eri rimasto, sul telefono e sul PC.\n\nPer aggiungere le tue letture, torna alla libreria e premi il pulsante più: incolla del testo, carica un PDF, un EPUB o un file Word, aggiungi un link web o scansiona pagine con la fotocamera.\n\nPuoi eliminare questo documento quando vuoi.",
+    "first_voice_title": "Scegli una voce per {{language}}",
+    "first_voice_body": "Quella che imposti come predefinita leggerà tutti i tuoi documenti in {{language}}.",
+    "first_voice_action": "Scegli",
+    "first_later": "Non ora",
+    "tip_got_it": "Ho capito",
+    "tip_tap": "Tocca una frase per ascoltare da lì.",
+    "tip_double_tap": "Tocca due volte una frase per ascoltare da lì.",
+    "tip_press": "Tieni premuta una parola per cambiarne la pronuncia.",
+    "tip_right_click": "Fai clic destro su una parola per cambiarne la pronuncia.",
+    "tip_menu": "Segnalibri, download per l’ascolto offline e altro ancora sono nel menu ⋯."
   }
 }

@@ -4007,6 +4007,19 @@
     "labs_blind_short": "na ślepo",
     "labs_history_clear": "Wyczyść głosy",
     "labs_variant_prepared": "Przygotowane",
-    "labs_variant_plain": "Zwykłe"
+    "labs_variant_plain": "Zwykłe",
+    "sample_try": "Wypróbuj przykład",
+    "sample_title": "Witaj w Reader",
+    "sample_text": "Cześć! Ten krótki tekst pokazuje, jak działa Reader. Naciśnij odtwarzanie: komputer przeczyta go na głos, a każde słowo podświetli się w chwili, gdy zostanie wypowiedziane.\n\nDotknij dowolnego zdania, aby do niego przejść. Przytrzymaj słowo, aby zmienić jego wymowę; zmiana dotyczy wszystkich dokumentów w tym języku.\n\nW odtwarzaczu możesz zmienić głos i prędkość, przewijać do tyłu i do przodu oraz ustawić wyłącznik czasowy. Reader pamięta, gdzie skończyłeś, na telefonie i na komputerze.\n\nAby dodać własne teksty, wróć do biblioteki i naciśnij przycisk plusa: wklej tekst, prześlij plik PDF, EPUB lub Word, dodaj link do strony albo zeskanuj strony aparatem.\n\nMożesz usunąć ten dokument w dowolnej chwili.",
+    "first_voice_title": "Wybierz głos dla języka: {{language}}",
+    "first_voice_body": "Głos ustawiony jako domyślny będzie czytał wszystkie Twoje dokumenty w tym języku ({{language}}).",
+    "first_voice_action": "Wybierz",
+    "first_later": "Nie teraz",
+    "tip_got_it": "Rozumiem",
+    "tip_tap": "Dotknij zdania, aby słuchać od tego miejsca.",
+    "tip_double_tap": "Dotknij dwukrotnie zdania, aby słuchać od tego miejsca.",
+    "tip_press": "Przytrzymaj słowo, aby zmienić jego wymowę.",
+    "tip_right_click": "Kliknij słowo prawym przyciskiem, aby zmienić jego wymowę.",
+    "tip_menu": "Zakładki, pobieranie do słuchania offline i więcej znajdziesz w menu ⋯."
   }
 }

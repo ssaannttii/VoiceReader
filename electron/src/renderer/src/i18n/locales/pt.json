@@ -3997,6 +3997,19 @@
     "labs_blind_short": "às cegas",
     "labs_history_clear": "Apagar votos",
     "labs_variant_prepared": "Preparada",
-    "labs_variant_plain": "Normal"
+    "labs_variant_plain": "Normal",
+    "sample_try": "Experimentar um exemplo",
+    "sample_title": "Bem-vindo ao Reader",
+    "sample_text": "Olá! Este texto curto mostra como o Reader funciona. Toque em reproduzir: o seu PC lê-o em voz alta e cada palavra acende enquanto é dita.\n\nToque em qualquer frase para saltar para ela. Mantenha uma palavra premida para mudar a forma como é pronunciada; a alteração aplica-se a todos os documentos deste idioma.\n\nNo leitor pode mudar a voz e a velocidade, recuar e avançar e definir um temporizador para dormir. O Reader lembra-se de onde parou, no telemóvel e no PC.\n\nPara adicionar as suas próprias leituras, volte à biblioteca e toque no botão mais: cole texto, carregue um PDF, EPUB ou ficheiro Word, adicione uma ligação web ou digitalize páginas com a câmara.\n\nPode apagar este documento quando quiser.",
+    "first_voice_title": "Escolha uma voz para {{language}}",
+    "first_voice_body": "A que definir como predefinida lerá todos os seus documentos em {{language}}.",
+    "first_voice_action": "Escolher",
+    "first_later": "Agora não",
+    "tip_got_it": "Entendi",
+    "tip_tap": "Toque em qualquer frase para ouvir a partir daí.",
+    "tip_double_tap": "Toque duas vezes em qualquer frase para ouvir a partir daí.",
+    "tip_press": "Mantenha uma palavra premida para mudar a sua pronúncia.",
+    "tip_right_click": "Clique com o botão direito numa palavra para mudar a sua pronúncia.",
+    "tip_menu": "Marcadores, transferências para ouvir offline e mais estão no menu ⋯."
   }
 }

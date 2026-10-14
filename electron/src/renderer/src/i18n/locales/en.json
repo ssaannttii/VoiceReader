@@ -3995,6 +3995,19 @@
     "labs_blind_short": "blind",
     "labs_history_clear": "Clear votes",
     "labs_variant_prepared": "Prepared",
-    "labs_variant_plain": "Plain"
+    "labs_variant_plain": "Plain",
+    "sample_try": "Try an example",
+    "sample_title": "Welcome to Reader",
+    "sample_text": "Welcome! This short text shows how Reader works. Press play: your PC reads it aloud and each word lights up as it is spoken.\n\nTap any sentence to jump to it. Hold a word to change how it is pronounced; the change applies to every document in this language.\n\nFrom the player you can change the voice and the speed, skip back and forward, and set a sleep timer. Reader remembers where you left off, on your phone and on your PC.\n\nTo add your own reading, go back to the library and press the plus button: paste text, upload a PDF, EPUB or Word file, add a web link or scan pages with your camera.\n\nYou can delete this document whenever you like.",
+    "first_voice_title": "Choose a voice for {{language}}",
+    "first_voice_body": "The one you make the default will read all your documents in {{language}}.",
+    "first_voice_action": "Choose",
+    "first_later": "Not now",
+    "tip_got_it": "Got it",
+    "tip_tap": "Tap any sentence to listen from there.",
+    "tip_double_tap": "Double-tap any sentence to listen from there.",
+    "tip_press": "Hold a word to change how it is pronounced.",
+    "tip_right_click": "Right-click a word to change how it is pronounced.",
+    "tip_menu": "Bookmarks, downloads for offline listening and more are in the ⋯ menu."
   }
 }

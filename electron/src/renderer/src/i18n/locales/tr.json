@@ -3995,6 +3995,19 @@
     "labs_blind_short": "kör",
     "labs_history_clear": "Oyları temizle",
     "labs_variant_prepared": "Hazırlanmış",
-    "labs_variant_plain": "Normal"
+    "labs_variant_plain": "Normal",
+    "sample_try": "Bir örnek dene",
+    "sample_title": "Reader’a hoş geldiniz",
+    "sample_text": "Merhaba! Bu kısa metin Reader’ın nasıl çalıştığını gösteriyor. Oynat’a basın: bilgisayarınız metni sesli okur ve her kelime söylenirken parlar.\n\nBir cümleye atlamak için ona dokunun. Bir kelimenin telaffuzunu değiştirmek için üzerine basılı tutun; değişiklik bu dildeki tüm belgelere uygulanır.\n\nOynatıcıdan sesi ve hızı değiştirebilir, geri ve ileri atlayabilir ve uyku zamanlayıcısı kurabilirsiniz. Reader, telefonda da bilgisayarda da kaldığınız yeri hatırlar.\n\nKendi okumalarınızı eklemek için kitaplığa dönüp artı düğmesine basın: metin yapıştırın, PDF, EPUB veya Word dosyası yükleyin, bir web bağlantısı ekleyin ya da kamerayla sayfa tarayın.\n\nBu belgeyi istediğiniz zaman silebilirsiniz.",
+    "first_voice_title": "{{language}} için bir ses seçin",
+    "first_voice_body": "Varsayılan yaptığınız ses, {{language}} dilindeki tüm belgelerinizi okur.",
+    "first_voice_action": "Seç",
+    "first_later": "Şimdi değil",
+    "tip_got_it": "Anladım",
+    "tip_tap": "Oradan dinlemek için bir cümleye dokunun.",
+    "tip_double_tap": "Oradan dinlemek için bir cümleye iki kez dokunun.",
+    "tip_press": "Telaffuzunu değiştirmek için bir kelimeye basılı tutun.",
+    "tip_right_click": "Telaffuzunu değiştirmek için bir kelimeye sağ tıklayın.",
+    "tip_menu": "Yer imleri, çevrimdışı dinleme için indirmeler ve daha fazlası ⋯ menüsünde."
   }
 }

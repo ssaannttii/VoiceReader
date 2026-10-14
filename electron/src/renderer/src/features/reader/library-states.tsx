@@ -56,6 +56,7 @@ export function EmptyState({
   body,
   primary,
   secondary,
+  tertiary,
   role,
   compact = false,
 }: {
@@ -64,6 +65,7 @@ export function EmptyState({
   body?: ReactNode;
   primary?: { label: string; icon?: LucideIcon; onClick: () => void };
   secondary?: { label: string; icon?: LucideIcon; onClick: () => void };
+  tertiary?: { label: string; icon?: LucideIcon; onClick: () => void };
   role?: 'alert' | 'status';
   compact?: boolean;
 }) {
@@ -72,10 +74,11 @@ export function EmptyState({
       {art}
       <p className="rd-empty-title">{title}</p>
       {body && <p className="rd-empty-body">{body}</p>}
-      {(primary || secondary) && (
+      {(primary || secondary || tertiary) && (
         <div className="rd-empty-actions">
           {primary && <PillButton {...primary} tone="primary" />}
           {secondary && <PillButton {...secondary} tone="secondary" />}
+          {tertiary && <PillButton {...tertiary} tone="secondary" />}
         </div>
       )}
     </div>

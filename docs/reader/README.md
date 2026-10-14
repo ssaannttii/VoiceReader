@@ -11,13 +11,13 @@ Especificación técnica y contrato de API: [SPEC.md](SPEC.md).
 Una vez, en PowerShell:
 
 ```powershell
-.\scriptseader\install-autostart.ps1
+.\scripts\reader\install-autostart.ps1
 ```
 
 Desde entonces Reader arranca solo y oculto al iniciar sesión en Windows, se reinicia si se cae y
 queda publicado en tu tailnet. El enlace para el móvil se guarda en
-`%APPDATA%\OmniVoiceeader-links.txt`; el registro en `reader-launcher.log`. Para quitarlo:
-`.\scriptseader\install-autostart.ps1 -Remove`.
+`%APPDATA%\OmniVoice\reader-links.txt`; el registro en `reader-launcher.log`. Para quitarlo:
+`.\scripts\reader\install-autostart.ps1 -Remove`.
 
 ## Arrancar a mano
 
@@ -42,6 +42,10 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
 
 ## Uso
 
+- **Primer arranque**: con la biblioteca vacía, *Probar con un ejemplo* crea y abre un texto corto
+  que explica Reader. Al abrir un documento en un idioma sin voz por defecto, una tarjeta propone
+  *Elegir* la voz (una vez por idioma); después salen, de uno en uno y una sola vez, consejos para
+  tocar una frase, mantener pulsada una palabra y el menú ⋯.
 - **Biblioteca**: botón **+** → pegar texto, subir archivo o pegar un enlace. "Seguir
   escuchando" retoma el último documento donde lo dejaste (el progreso se guarda en el PC, así
   que es el mismo en móvil y escritorio).

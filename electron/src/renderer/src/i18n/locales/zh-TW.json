@@ -3995,6 +3995,19 @@
     "labs_blind_short": "盲測",
     "labs_history_clear": "清除投票",
     "labs_variant_prepared": "預處理",
-    "labs_variant_plain": "一般"
+    "labs_variant_plain": "一般",
+    "sample_try": "試試範例",
+    "sample_title": "歡迎使用 Reader",
+    "sample_text": "你好！這段簡短的文字將介紹 Reader 的用法。按下播放：電腦會朗讀它，每個詞在讀到時都會反白顯示。\n\n輕觸任何句子即可跳到那裡。長按一個詞可以變更它的讀音；變更會套用到該語言的所有文件。\n\n在播放器中，你可以更換聲音和語速、倒退和快轉，以及設定睡眠計時器。Reader 會記住你上次聽到的位置，手機和電腦上都一樣。\n\n要新增自己的讀物，請回到書庫並按加號按鈕：貼上文字，上傳 PDF、EPUB 或 Word 檔案，加入網頁連結，或用相機掃描頁面。\n\n你可以隨時刪除這份文件。",
+    "first_voice_title": "為{{language}}選擇聲音",
+    "first_voice_body": "設為預設的聲音將朗讀你所有的{{language}}文件。",
+    "first_voice_action": "選擇",
+    "first_later": "稍後再說",
+    "tip_got_it": "知道了",
+    "tip_tap": "輕觸任何句子，從那裡開始收聽。",
+    "tip_double_tap": "輕觸兩下任何句子，從那裡開始收聽。",
+    "tip_press": "長按一個詞可以變更它的讀音。",
+    "tip_right_click": "以滑鼠右鍵按一下詞語可以變更它的讀音。",
+    "tip_menu": "書籤、離線收聽的下載等功能都在 ⋯ 選單中。"
   }
 }

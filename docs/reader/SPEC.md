@@ -266,6 +266,26 @@ Client only. Text & appearance → **Layout**: *Scroll* (default, unchanged) or 
   controls are faded). Numbers are exact while the window starts the document and estimated
   (characters per page of the window) before that; they carry on page by page across window shifts.
 
+## First run
+Client only (`first-run.ts` state and decisions, `first-run-card.tsx` UI); what this device has
+shown lives in `localStorage['voicestudio.reader.firstRun']` = `{tips: Tip[], voiceAsked: string[]}`.
+
+- **Sample document.** The empty library offers "Try an example" beside "Add": `POST
+  /reader/documents/text` with the translated `reader.sample_title` / `reader.sample_text` (a short
+  how-to: play and follow, tap a sentence, hold a word, the player, adding documents) and
+  `language` = the UI language's base code, then opens it. On a desktop "Listen on your phone"
+  moves to the third button.
+- **Choose a voice.** One card above the dock, once per language and device, when the open
+  document uses the automatic voice (`voice_id` null), its language has no default voice
+  (`GET /reader/default-voices`, compared by base code) and two or more voices speak it
+  (multilingual voices count for every language). "Choose" opens the voice sheet (where "Use by
+  default" saves it); "Not now" or picking a voice some other way also answers it.
+- **Tips.** After that, one tip at a time in the same place, each dismissed with "Got it" or by
+  doing it: `tap` (tap — or double-tap with that option — a sentence; done by seeking from the
+  text), `press` (hold a word, right-click on a desktop; done by opening the pronunciation sheet),
+  `menu` (bookmarks, downloads and more under ⋯; done by opening it). Hidden while a sheet is
+  open, in audio-only mode and for an empty document.
+
 ## Running for the phone
 `scripts/reader/start-reader.ps1` builds the web UI when missing/stale, starts the backend
 reachable from the LAN, and prints the phone URL. See `docs/reader/README.md`.

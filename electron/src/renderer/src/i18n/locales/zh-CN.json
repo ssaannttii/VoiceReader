@@ -3995,6 +3995,19 @@
     "labs_blind_short": "盲测",
     "labs_history_clear": "清除投票",
     "labs_variant_prepared": "预处理",
-    "labs_variant_plain": "普通"
+    "labs_variant_plain": "普通",
+    "sample_try": "试试示例",
+    "sample_title": "欢迎使用 Reader",
+    "sample_text": "你好！这段简短的文字将介绍 Reader 的用法。按下播放：电脑会朗读它，每个词在读到时都会高亮显示。\n\n轻点任意句子即可跳转到那里。长按一个词可以更改它的读音；更改会应用到该语言的所有文档。\n\n在播放器中，你可以更换声音和语速、后退和前进，以及设置睡眠定时器。Reader 会记住你上次听到的位置，手机和电脑上都一样。\n\n要添加自己的读物，请返回书库并按加号按钮：粘贴文本，上传 PDF、EPUB 或 Word 文件，添加网页链接，或用相机扫描页面。\n\n你可以随时删除此文档。",
+    "first_voice_title": "为{{language}}选择声音",
+    "first_voice_body": "设为默认的声音将朗读你所有的{{language}}文档。",
+    "first_voice_action": "选择",
+    "first_later": "以后再说",
+    "tip_got_it": "知道了",
+    "tip_tap": "轻点任意句子，从那里开始收听。",
+    "tip_double_tap": "双击任意句子，从那里开始收听。",
+    "tip_press": "长按一个词可以更改它的读音。",
+    "tip_right_click": "右键单击一个词可以更改它的读音。",
+    "tip_menu": "书签、离线收听的下载等功能都在 ⋯ 菜单中。"
   }
 }

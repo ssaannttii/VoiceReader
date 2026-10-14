@@ -3997,6 +3997,19 @@
     "labs_blind_short": "à l’aveugle",
     "labs_history_clear": "Effacer les votes",
     "labs_variant_prepared": "Préparée",
-    "labs_variant_plain": "Normale"
+    "labs_variant_plain": "Normale",
+    "sample_try": "Essayer un exemple",
+    "sample_title": "Bienvenue dans Reader",
+    "sample_text": "Bonjour ! Ce court texte montre comment fonctionne Reader. Appuyez sur lecture : votre PC le lit à voix haute et chaque mot s’illumine au moment où il est prononcé.\n\nTouchez une phrase pour y aller directement. Maintenez un mot appuyé pour changer sa prononciation ; la modification s’applique à tous les documents de cette langue.\n\nDepuis le lecteur, vous pouvez changer de voix et de vitesse, reculer et avancer, et programmer une minuterie de mise en veille. Reader se souvient de l’endroit où vous vous êtes arrêté, sur votre téléphone comme sur votre PC.\n\nPour ajouter vos propres lectures, revenez à la bibliothèque et appuyez sur le bouton plus : collez du texte, importez un PDF, un EPUB ou un fichier Word, ajoutez un lien web ou scannez des pages avec l’appareil photo.\n\nVous pouvez supprimer ce document quand vous voulez.",
+    "first_voice_title": "Choisissez une voix pour {{language}}",
+    "first_voice_body": "Celle que vous définirez par défaut lira tous vos documents en {{language}}.",
+    "first_voice_action": "Choisir",
+    "first_later": "Pas maintenant",
+    "tip_got_it": "Compris",
+    "tip_tap": "Touchez une phrase pour écouter à partir de là.",
+    "tip_double_tap": "Touchez deux fois une phrase pour écouter à partir de là.",
+    "tip_press": "Maintenez un mot appuyé pour changer sa prononciation.",
+    "tip_right_click": "Faites un clic droit sur un mot pour changer sa prononciation.",
+    "tip_menu": "Signets, téléchargements pour l’écoute hors ligne et plus encore se trouvent dans le menu ⋯."
   }
 }

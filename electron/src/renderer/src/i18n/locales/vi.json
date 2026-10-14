@@ -3995,6 +3995,19 @@
     "labs_blind_short": "mù",
     "labs_history_clear": "Xóa phiếu bầu",
     "labs_variant_prepared": "Đã chuẩn bị",
-    "labs_variant_plain": "Thường"
+    "labs_variant_plain": "Thường",
+    "sample_try": "Thử một ví dụ",
+    "sample_title": "Chào mừng đến với Reader",
+    "sample_text": "Xin chào! Đoạn văn ngắn này cho bạn thấy cách Reader hoạt động. Nhấn phát: máy tính sẽ đọc to và mỗi từ sáng lên khi được đọc.\n\nChạm vào bất kỳ câu nào để chuyển đến đó. Nhấn giữ một từ để thay đổi cách phát âm; thay đổi áp dụng cho mọi tài liệu bằng ngôn ngữ này.\n\nTừ trình phát, bạn có thể đổi giọng và tốc độ, tua lùi và tua tới, và hẹn giờ tắt. Reader nhớ chỗ bạn dừng lại, trên điện thoại lẫn trên máy tính.\n\nĐể thêm nội dung của riêng bạn, hãy quay lại thư viện và nhấn nút cộng: dán văn bản, tải lên tệp PDF, EPUB hoặc Word, thêm liên kết web hoặc quét trang bằng máy ảnh.\n\nBạn có thể xóa tài liệu này bất cứ lúc nào.",
+    "first_voice_title": "Chọn giọng cho {{language}}",
+    "first_voice_body": "Giọng bạn đặt làm mặc định sẽ đọc mọi tài liệu {{language}} của bạn.",
+    "first_voice_action": "Chọn",
+    "first_later": "Để sau",
+    "tip_got_it": "Đã hiểu",
+    "tip_tap": "Chạm vào một câu để nghe từ đó.",
+    "tip_double_tap": "Chạm hai lần vào một câu để nghe từ đó.",
+    "tip_press": "Nhấn giữ một từ để thay đổi cách phát âm.",
+    "tip_right_click": "Nhấp chuột phải vào một từ để thay đổi cách phát âm.",
+    "tip_menu": "Dấu trang, tải xuống để nghe ngoại tuyến và nhiều mục khác nằm trong menu ⋯."
   }
 }

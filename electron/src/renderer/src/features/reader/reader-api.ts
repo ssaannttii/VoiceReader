@@ -131,7 +131,7 @@ export interface ReaderCollection {
   doc_ids: string[];
 }
 
-export type ReaderModelState ='unloaded' | 'loading' | 'ready' | 'error';
+export type ReaderModelState = 'unloaded' | 'loading' | 'ready' | 'error';
 
 export interface ReaderStatus {
   engine: string;
@@ -249,10 +249,14 @@ function voiceBody(choice: ReaderVoiceChoice, extra: Record<string, unknown> = {
 export const readerApi = {
   list: (signal?: AbortSignal) => apiJson<ReaderDocumentSummary[]>('/reader/documents', { signal }),
   get: (id: string, signal?: AbortSignal) => apiJson<ReaderDocument>(doc(id), { signal }),
-  createFromText: (text: string, title?: string) =>
+  createFromText: (text: string, title?: string, language?: string) =>
     apiJson<ReaderDocumentSummary>('/reader/documents/text', {
       method: 'POST',
-      body: JSON.stringify(title?.trim() ? { text, title: title.trim() } : { text }),
+      body: JSON.stringify({
+        text,
+        ...(title?.trim() ? { title: title.trim() } : {}),
+        ...(language ? { language } : {}),
+      }),
     }),
   createFromFile: (file: File) => {
     const form = new FormData();
@@ -389,8 +393,7 @@ export const readerApi = {
       body: JSON.stringify({ name }),
     }),
   /** Removes the collection only; its documents stay in the library. */
-  deleteCollection: (id: string) =>
-    apiJson<{ ok: boolean }>(collection(id), { method: 'DELETE' }),
+  deleteCollection: (id: string) => apiJson<{ ok: boolean }>(collection(id), { method: 'DELETE' }),
   addToCollection: (id: string, docIds: readonly string[]) =>
     apiJson<ReaderCollection>(`${collection(id)}/documents`, {
       method: 'POST',

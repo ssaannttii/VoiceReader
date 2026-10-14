@@ -3997,6 +3997,19 @@
     "labs_blind_short": "a ciegas",
     "labs_history_clear": "Borrar votos",
     "labs_variant_prepared": "Preparada",
-    "labs_variant_plain": "Normal"
+    "labs_variant_plain": "Normal",
+    "sample_try": "Probar con un ejemplo",
+    "sample_title": "Bienvenido a Reader",
+    "sample_text": "¡Hola! Este texto breve te enseña cómo funciona Reader. Pulsa reproducir: tu PC lo lee en voz alta y cada palabra se ilumina mientras suena.\n\nToca cualquier frase para saltar a ella. Mantén pulsada una palabra para cambiar cómo se pronuncia; el cambio se aplica a todos los documentos de este idioma.\n\nDesde el reproductor puedes cambiar la voz y la velocidad, saltar hacia atrás y hacia delante y poner un temporizador de apagado. Reader recuerda dónde lo dejaste, en el móvil y en el PC.\n\nPara añadir tus propias lecturas, vuelve a la biblioteca y pulsa el botón más: pega texto, sube un PDF, EPUB o Word, añade un enlace web o escanea páginas con la cámara.\n\nPuedes borrar este documento cuando quieras.",
+    "first_voice_title": "Elige una voz para {{language}}",
+    "first_voice_body": "La que marques como predeterminada leerá todos tus documentos en {{language}}.",
+    "first_voice_action": "Elegir",
+    "first_later": "Ahora no",
+    "tip_got_it": "Entendido",
+    "tip_tap": "Toca cualquier frase para escuchar desde ahí.",
+    "tip_double_tap": "Toca dos veces cualquier frase para escuchar desde ahí.",
+    "tip_press": "Mantén pulsada una palabra para cambiar cómo se pronuncia.",
+    "tip_right_click": "Haz clic derecho en una palabra para cambiar cómo se pronuncia.",
+    "tip_menu": "Marcadores, descargas para escuchar sin conexión y más están en el menú ⋯."
   }
 }

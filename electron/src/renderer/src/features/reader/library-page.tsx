@@ -31,6 +31,7 @@ import {
   PlusIcon,
   SearchIcon,
   SmartphoneIcon,
+  SparklesIcon,
   SquareCheckIcon,
   Trash2Icon,
   VibrateIcon,
@@ -50,6 +51,7 @@ import {
 } from './collection-sheets';
 import { CoverTile } from './cover-tile';
 import { DocumentActionsSheet } from './document-actions-sheet';
+import { useCreateSample } from './first-run-card';
 import { hapticsPref, hapticsSupported, setHaptics, tick } from './haptics';
 import {
   deleteMany,
@@ -646,8 +648,7 @@ export function ReaderLibraryPage() {
       : null;
   useEffect(() => {
     // Deleted here or on another device.
-    if (openId && collectionsOn && !collections.some((item) => item.id === openId))
-      setOpenId(null);
+    if (openId && collectionsOn && !collections.some((item) => item.id === openId)) setOpenId(null);
   }, [openId, collections, collectionsOn]);
   // A collection lists its documents that are in the library (not archived).
   const shelved = useMemo(
@@ -655,7 +656,8 @@ export function ReaderLibraryPage() {
     [docs],
   );
   const collectionCounts = useMemo(
-    () => Object.fromEntries(collections.map((item) => [item.id, liveMembers(item, shelved).length])),
+    () =>
+      Object.fromEntries(collections.map((item) => [item.id, liveMembers(item, shelved).length])),
     [collections, shelved],
   );
 
@@ -693,6 +695,7 @@ export function ReaderLibraryPage() {
     [navigate],
   );
   useImportNotices(docs, open);
+  const createSample = useCreateSample(open);
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -744,7 +747,8 @@ export function ReaderLibraryPage() {
         title={t('reader.empty_title')}
         body={t('reader.empty_body')}
         primary={{ label: t('reader.add_first'), icon: PlusIcon, onClick: () => setAdding(true) }}
-        secondary={
+        secondary={{ label: t('reader.sample_try'), icon: SparklesIcon, onClick: createSample }}
+        tertiary={
           touch
             ? undefined
             : {

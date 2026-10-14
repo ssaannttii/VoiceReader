@@ -26,6 +26,8 @@ import {
 import { ApiError, describeError } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { DebugHud } from './debug-hud';
+import { markTip } from './first-run';
+import { FirstRunCard } from './first-run-card';
 import { durationLabel } from './library-view';
 import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
@@ -265,6 +267,11 @@ export function ReaderDocumentPage() {
     revealed.current = null;
     setFollowing(true);
   }, []);
+  /** A tap (or double tap) on a sentence: the tip about it has been learnt. */
+  const onSeek = useCallback(() => {
+    markTip('tap');
+    resumeFollowing();
+  }, [resumeFollowing]);
   const stopFollowing = useCallback(() => {
     revealed.current = null;
     if (!follow.current) return;
@@ -388,6 +395,7 @@ export function ReaderDocumentPage() {
   }, [doc, addBookmark]);
 
   const onWordPress = useCallback((press: WordPress) => {
+    markTip('press');
     setSheet(null);
     setPronounce(pressTarget(press));
   }, []);
@@ -481,7 +489,10 @@ export function ReaderDocumentPage() {
             className="rd-icon-btn"
             aria-label={t('reader.options')}
             disabled={!doc}
-            onClick={() => openSheet('actions')}
+            onClick={() => {
+              markTip('menu');
+              openSheet('actions');
+            }}
           >
             <EllipsisIcon className="size-6" aria-hidden="true" />
           </button>
@@ -532,7 +543,7 @@ export function ReaderDocumentPage() {
               position={doc.position_segment}
               scroller={scroller}
               follow={follow}
-              onSeek={resumeFollowing}
+              onSeek={onSeek}
               lang={doc.language ?? undefined}
               header={header}
               marked={marked}
@@ -583,6 +594,18 @@ export function ReaderDocumentPage() {
               </div>
             )}
           </div>
+        )}
+        {doc && (
+          <FirstRunCard
+            doc={doc}
+            hidden={
+              sheet !== null ||
+              pronounce !== null ||
+              listening.audioOnly ||
+              doc.segments.length === 0
+            }
+            onChooseVoice={() => openSheet('voice')}
+          />
         )}
         {doc && (
           <PlayerDock

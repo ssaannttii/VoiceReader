@@ -3995,6 +3995,19 @@
     "labs_blind_short": "blint",
     "labs_history_clear": "Rensa röster",
     "labs_variant_prepared": "Förberedd",
-    "labs_variant_plain": "Vanlig"
+    "labs_variant_plain": "Vanlig",
+    "sample_try": "Prova ett exempel",
+    "sample_title": "Välkommen till Reader",
+    "sample_text": "Hej! Den här korta texten visar hur Reader fungerar. Tryck på spela upp: din dator läser den högt och varje ord lyser upp medan det sägs.\n\nTryck på en mening för att hoppa dit. Håll ned ett ord för att ändra hur det uttalas; ändringen gäller alla dokument på det här språket.\n\nI spelaren kan du byta röst och hastighet, hoppa bakåt och framåt och ställa in en insomningstimer. Reader kommer ihåg var du slutade, på mobilen och på datorn.\n\nFör att lägga till egen läsning går du tillbaka till biblioteket och trycker på plusknappen: klistra in text, ladda upp en PDF-, EPUB- eller Word-fil, lägg till en webblänk eller skanna sidor med kameran.\n\nDu kan ta bort det här dokumentet när du vill.",
+    "first_voice_title": "Välj en röst för {{language}}",
+    "first_voice_body": "Den du gör till standard läser alla dina dokument på {{language}}.",
+    "first_voice_action": "Välj",
+    "first_later": "Inte nu",
+    "tip_got_it": "Uppfattat",
+    "tip_tap": "Tryck på en mening för att lyssna därifrån.",
+    "tip_double_tap": "Dubbeltryck på en mening för att lyssna därifrån.",
+    "tip_press": "Håll ned ett ord för att ändra hur det uttalas.",
+    "tip_right_click": "Högerklicka på ett ord för att ändra hur det uttalas.",
+    "tip_menu": "Bokmärken, nedladdningar för att lyssna offline och mer finns i menyn ⋯."
   }
 }

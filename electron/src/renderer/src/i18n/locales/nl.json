@@ -3995,6 +3995,19 @@
     "labs_blind_short": "blind",
     "labs_history_clear": "Stemmen wissen",
     "labs_variant_prepared": "Voorbereid",
-    "labs_variant_plain": "Normaal"
+    "labs_variant_plain": "Normaal",
+    "sample_try": "Probeer een voorbeeld",
+    "sample_title": "Welkom bij Reader",
+    "sample_text": "Hallo! Deze korte tekst laat zien hoe Reader werkt. Druk op afspelen: je pc leest hem voor en elk woord licht op terwijl het wordt uitgesproken.\n\nTik op een zin om ernaartoe te springen. Houd een woord ingedrukt om de uitspraak te wijzigen; de wijziging geldt voor alle documenten in deze taal.\n\nVanuit de speler kun je de stem en de snelheid wijzigen, terug- en vooruitspringen en een slaaptimer instellen. Reader onthoudt waar je gebleven was, op je telefoon en op je pc.\n\nOm je eigen teksten toe te voegen, ga je terug naar de bibliotheek en druk je op de plusknop: plak tekst, upload een pdf-, EPUB- of Word-bestand, voeg een weblink toe of scan pagina’s met je camera.\n\nJe kunt dit document verwijderen wanneer je wilt.",
+    "first_voice_title": "Kies een stem voor {{language}}",
+    "first_voice_body": "De stem die je als standaard instelt, leest al je documenten in het {{language}}.",
+    "first_voice_action": "Kiezen",
+    "first_later": "Niet nu",
+    "tip_got_it": "Begrepen",
+    "tip_tap": "Tik op een zin om vanaf daar te luisteren.",
+    "tip_double_tap": "Dubbeltik op een zin om vanaf daar te luisteren.",
+    "tip_press": "Houd een woord ingedrukt om de uitspraak te wijzigen.",
+    "tip_right_click": "Klik met de rechtermuisknop op een woord om de uitspraak te wijzigen.",
+    "tip_menu": "Bladwijzers, downloads om offline te luisteren en meer vind je in het menu ⋯."
   }
 }

@@ -169,6 +169,29 @@
       var(--rd-shadow-float);
     animation: rd-float-in 200ms var(--rd-ease-out) both;
   }
+  /* First-run card (voice choice, tips): raised like the floating buttons, over the text. */
+  .rd-first-run {
+    display: flex;
+    max-width: 35rem;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0 max(var(--rd-s4), var(--rd-safe-right)) var(--rd-s2)
+      max(var(--rd-s4), var(--rd-safe-left));
+    padding: 0.375rem 0.375rem 0.375rem 0.75rem;
+    border-radius: var(--rd-r-md);
+    background: var(--rd-raised);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    box-shadow:
+      0 0 0 1px var(--rd-hairline),
+      var(--rd-shadow-float);
+    animation: rd-float-in 200ms var(--rd-ease-out) both;
+  }
+  @media (min-width: 36rem) {
+    .rd-first-run {
+      margin-inline: auto;
+    }
+  }
   .rd-float-strong {
     background: var(--foreground);
     color: var(--background);

@@ -3995,6 +3995,19 @@
     "labs_blind_short": "buta",
     "labs_history_clear": "Hapus pilihan",
     "labs_variant_prepared": "Siap",
-    "labs_variant_plain": "Biasa"
+    "labs_variant_plain": "Biasa",
+    "sample_try": "Coba contoh",
+    "sample_title": "Selamat datang di Reader",
+    "sample_text": "Halo! Teks singkat ini menunjukkan cara kerja Reader. Tekan putar: PC Anda membacakannya dan setiap kata menyala saat diucapkan.\n\nKetuk kalimat mana pun untuk melompat ke sana. Tahan sebuah kata untuk mengubah cara pengucapannya; perubahan berlaku untuk semua dokumen dalam bahasa ini.\n\nDari pemutar, Anda dapat mengganti suara dan kecepatan, mundur dan maju, serta memasang pengatur waktu tidur. Reader mengingat di mana Anda berhenti, di ponsel maupun di PC.\n\nUntuk menambahkan bacaan Anda sendiri, kembali ke pustaka dan tekan tombol plus: tempel teks, unggah file PDF, EPUB, atau Word, tambahkan tautan web, atau pindai halaman dengan kamera.\n\nAnda dapat menghapus dokumen ini kapan saja.",
+    "first_voice_title": "Pilih suara untuk {{language}}",
+    "first_voice_body": "Suara yang Anda jadikan default akan membacakan semua dokumen Anda dalam {{language}}.",
+    "first_voice_action": "Pilih",
+    "first_later": "Nanti saja",
+    "tip_got_it": "Mengerti",
+    "tip_tap": "Ketuk kalimat mana pun untuk mendengarkan dari sana.",
+    "tip_double_tap": "Ketuk dua kali kalimat mana pun untuk mendengarkan dari sana.",
+    "tip_press": "Tahan sebuah kata untuk mengubah pengucapannya.",
+    "tip_right_click": "Klik kanan sebuah kata untuk mengubah pengucapannya.",
+    "tip_menu": "Penanda, unduhan untuk didengarkan offline, dan lainnya ada di menu ⋯."
   }
 }
