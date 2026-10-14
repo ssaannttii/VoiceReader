@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Ketuk dua kali kalimat mana pun untuk mendengarkan dari sana.",
     "tip_press": "Tahan sebuah kata untuk mengubah pengucapannya.",
     "tip_right_click": "Klik kanan sebuah kata untuk mengubah pengucapannya.",
-    "tip_menu": "Penanda, unduhan untuk didengarkan offline, dan lainnya ada di menu ⋯."
+    "tip_menu": "Penanda, unduhan untuk didengarkan offline, dan lainnya ada di menu ⋯.",
+    "layout_spread": "Dua halaman di layar lebar",
+    "layout_spread_hint": "Berdampingan seperti buku terbuka, jika ada ruang."
   }
 }

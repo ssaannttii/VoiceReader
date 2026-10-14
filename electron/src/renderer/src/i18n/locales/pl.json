@@ -4020,6 +4020,8 @@
     "tip_double_tap": "Dotknij dwukrotnie zdania, aby słuchać od tego miejsca.",
     "tip_press": "Przytrzymaj słowo, aby zmienić jego wymowę.",
     "tip_right_click": "Kliknij słowo prawym przyciskiem, aby zmienić jego wymowę.",
-    "tip_menu": "Zakładki, pobieranie do słuchania offline i więcej znajdziesz w menu ⋯."
+    "tip_menu": "Zakładki, pobieranie do słuchania offline i więcej znajdziesz w menu ⋯.",
+    "layout_spread": "Dwie strony na szerokich ekranach",
+    "layout_spread_hint": "Obok siebie, jak w otwartej książce, gdy jest miejsce."
   }
 }

@@ -54,6 +54,9 @@ En el PC también puedes usar Reader dentro de la app de escritorio (`bun run de
   lectura" y, en pausa, "Seguir desde aquí". Tras cualquier salto, "Volver a 12:34" lo deshace
   durante 6 s; la marca de la barra y "Ir al punto más lejano" llevan a donde más lejos
   llegaste.
+- **Páginas**: *Aa* (Texto y apariencia) → *Vista del texto* → *Páginas* cambia el desplazamiento por páginas: toca los bordes,
+  desliza o usa las flechas para pasarlas. En pantallas anchas (tablet en horizontal, PC) se ven dos
+  páginas, como un libro abierto; *Dos páginas en pantallas anchas* lo desactiva.
 - **Reproductor**: audio continuo sin cortes entre frases (también con la pantalla apagada),
   velocidad 0.5–3× sin cambiar el tono, saltos de 10/15/30/60 s, anterior/siguiente por frase,
   capítulo o salto (menú → *Controles*), temporizador de apagado (minutos o fin de capítulo),

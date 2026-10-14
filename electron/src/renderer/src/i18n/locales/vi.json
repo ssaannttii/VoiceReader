@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Chạm hai lần vào một câu để nghe từ đó.",
     "tip_press": "Nhấn giữ một từ để thay đổi cách phát âm.",
     "tip_right_click": "Nhấp chuột phải vào một từ để thay đổi cách phát âm.",
-    "tip_menu": "Dấu trang, tải xuống để nghe ngoại tuyến và nhiều mục khác nằm trong menu ⋯."
+    "tip_menu": "Dấu trang, tải xuống để nghe ngoại tuyến và nhiều mục khác nằm trong menu ⋯.",
+    "layout_spread": "Hai trang trên màn hình rộng",
+    "layout_spread_hint": "Đặt cạnh nhau như một cuốn sách đang mở, khi đủ chỗ."
   }
 }

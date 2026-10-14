@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Tippe zweimal auf einen Satz, um ab dort zuzuhören.",
     "tip_press": "Halte ein Wort gedrückt, um seine Aussprache zu ändern.",
     "tip_right_click": "Klicke mit der rechten Maustaste auf ein Wort, um seine Aussprache zu ändern.",
-    "tip_menu": "Lesezeichen, Downloads zum Offline-Hören und mehr findest du im Menü ⋯."
+    "tip_menu": "Lesezeichen, Downloads zum Offline-Hören und mehr findest du im Menü ⋯.",
+    "layout_spread": "Zwei Seiten auf breiten Bildschirmen",
+    "layout_spread_hint": "Nebeneinander wie ein aufgeschlagenes Buch, wenn Platz ist."
   }
 }

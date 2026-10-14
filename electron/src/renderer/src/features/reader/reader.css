@@ -840,6 +840,14 @@
     /* One finger is ours (swipes, taps); two still zoom. */
     touch-action: pinch-zoom;
   }
+  /* Two pages side by side (wide screens): the column widens to hold both
+     (SPREAD_MAX_PX in reader-pages.ts) and the pager lays out two per screen. */
+  .rd-root[data-layout='pages'][data-spread] .rd-column {
+    max-width: 84.5rem;
+  }
+  .rd-root[data-spread] .rd-pages {
+    --rd-page-columns: 2;
+  }
   .rd-pages > .rd-article {
     column-fill: auto;
     will-change: transform;

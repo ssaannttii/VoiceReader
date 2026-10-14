@@ -33,14 +33,16 @@ describe('parseAppearance', () => {
         font: 'dyslexic',
         background: 'paper',
         layout: 'pages',
+        spread: false,
       }),
     ).toEqual({
       highlight: 'blue',
       font: 'dyslexic',
       background: 'paper',
       layout: 'pages',
+      spread: false,
     });
-    expect(parseAppearance({ highlight: 'pink', font: 3, layout: 'book' })).toEqual(
+    expect(parseAppearance({ highlight: 'pink', font: 3, layout: 'book', spread: 'no' })).toEqual(
       DEFAULT_APPEARANCE,
     );
   });

@@ -3,7 +3,7 @@
 Basado en la auditoría de ElevenReader 1.7.26 y en el registro de diagnóstico real del móvil.
 Objetivo: que escuchar sea tan fluido y fiable como la app oficial, manteniendo todo local.
 
-Estado (14 oct 2026): todo implementado salvo las dos columnas de 5.4. Quedan por validar en el
+Estado (14 oct 2026): todo implementado. Quedan por validar en el
 móvil los criterios de aceptación con prueba real (1.1: 30 min con pantalla apagada; 1.3: auriculares
 Bluetooth y pantalla de bloqueo).
 
@@ -71,7 +71,7 @@ plano en Android) durante sesiones largas. Es el criterio principal de 1.1.
 |---|---|---|
 | 5.2 | **Modo solo audio** ✅ | Oculta el texto; orbe en canvas que sigue el ritmo de las palabras (tiempos del resaltado). Sin `AnalyserNode`: pasar el audio por Web Audio rompería la reproducción en segundo plano. |
 | 5.3 | **Contenido rico** ✅ | El importador emite listas, citas e imágenes además de párrafos. |
-| 5.4 | **Paginado / dos columnas** ✅ | Modo alternativo de la vista de texto con zonas de toque. Hecho: "Páginas" en Texto y apariencia (una página por pantalla; dos columnas en pantallas anchas queda pendiente). Ver SPEC "Paged layout". |
+| 5.4 | **Paginado / dos columnas** ✅ | Modo alternativo de la vista de texto con zonas de toque. Hecho: "Páginas" en Texto y apariencia (una página por pantalla y, en pantallas anchas, dos una junto a otra; se puede desactivar). Ver SPEC "Paged layout". |
 | 5.5 | **Primer arranque** ✅ | Documento de ejemplo, elegir voz por defecto, avisos de un solo uso. Hecho: "Probar con un ejemplo" en la biblioteca vacía, tarjeta "Elige una voz" una vez por idioma y consejos de uno en uno. Ver SPEC "First run". |
 
 ## Fuera de alcance

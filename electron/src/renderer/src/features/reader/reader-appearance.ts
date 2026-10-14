@@ -24,6 +24,8 @@ export interface ReaderAppearance {
   font: ReaderFont;
   background: ReaderBackground;
   layout: ReaderLayout;
+  /** Pages: two side by side when the screen is wide enough (reader-pages.ts `spreadFits`). */
+  spread: boolean;
 }
 
 export const DEFAULT_APPEARANCE: ReaderAppearance = {
@@ -31,6 +33,7 @@ export const DEFAULT_APPEARANCE: ReaderAppearance = {
   font: 'serif',
   background: 'system',
   layout: 'scroll',
+  spread: true,
 };
 
 const KEY = 'voicestudio.reader.appearance';
@@ -46,6 +49,7 @@ export function parseAppearance(raw: unknown): ReaderAppearance {
     font: pick(FONTS, value.font, DEFAULT_APPEARANCE.font),
     background: pick(BACKGROUNDS, value.background, DEFAULT_APPEARANCE.background),
     layout: pick(LAYOUTS, value.layout, DEFAULT_APPEARANCE.layout),
+    spread: typeof value.spread === 'boolean' ? value.spread : DEFAULT_APPEARANCE.spread,
   };
 }
 

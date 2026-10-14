@@ -4010,6 +4010,8 @@
     "tip_double_tap": "Toca dos veces cualquier frase para escuchar desde ahí.",
     "tip_press": "Mantén pulsada una palabra para cambiar cómo se pronuncia.",
     "tip_right_click": "Haz clic derecho en una palabra para cambiar cómo se pronuncia.",
-    "tip_menu": "Marcadores, descargas para escuchar sin conexión y más están en el menú ⋯."
+    "tip_menu": "Marcadores, descargas para escuchar sin conexión y más están en el menú ⋯.",
+    "layout_spread": "Dos páginas en pantallas anchas",
+    "layout_spread_hint": "Una junto a otra, como un libro abierto, cuando hay espacio."
   }
 }

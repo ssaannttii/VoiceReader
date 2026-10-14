@@ -33,6 +33,7 @@ import { PlayerDock, type DockSheet } from './player-dock';
 import { ChaptersSheet, FOLLOW_EVENT, SleepSheet, SpeedSheet, VoiceSheet } from './player-sheets';
 import type { ReaderDocument } from './reader-api';
 import { useAppearanceProps, useReaderAppearance } from './reader-appearance';
+import { spreadFits } from './reader-pages';
 import { titlebarChrome } from './reader-chrome';
 import { readerPlayer, useReaderClock, useReaderPlayer } from './reader-player';
 import { autoHideOn, useReaderPrefs } from './reader-prefs';
@@ -157,6 +158,24 @@ function useWide(): boolean {
   return wide;
 }
 
+/** Pages: two side by side when the option is on and the reader is wide enough. */
+function useSpread(root: RefObject<HTMLElement | null>, on: boolean, textSize: number): boolean {
+  const [fits, setFits] = useState(false);
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!on || !element) {
+      setFits(false);
+      return;
+    }
+    const check = () => setFits(spreadFits(element.clientWidth, textSize));
+    check();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(check) : null;
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [root, on, textSize]);
+  return fits;
+}
+
 /** Keep `--rd-top-h` / `--rd-dock-h` on the root equal to the floating chrome's heights. */
 function useChromeInsets(
   root: RefObject<HTMLElement | null>,
@@ -201,7 +220,7 @@ export function ReaderDocumentPage() {
   const player = useReaderPlayer();
   const prefs = useReaderPrefs();
   const appearance = useAppearanceProps();
-  const { layout, font } = useReaderAppearance();
+  const { layout, font, spread: spreadPref } = useReaderAppearance();
   const wide = useWide();
   const root = useRef<HTMLDivElement>(null);
   const topbar = useRef<HTMLElement>(null);
@@ -224,6 +243,7 @@ export function ReaderDocumentPage() {
   const listening = useListeningPrefs();
   /** Pages instead of scrolling (appearance option); audio-only has no text. */
   const paged = layout === 'pages' && !listening.audioOnly;
+  const spread = useSpread(root, paged && spreadPref, prefs.textSize);
   useReaderWarmup();
   const otherPlaying =
     Boolean(doc && player.doc && player.doc.id !== doc.id) &&
@@ -452,6 +472,7 @@ export function ReaderDocumentPage() {
       data-slot="reader-document"
       data-chrome={chrome.hidden ? 'hidden' : 'shown'}
       data-layout={paged ? 'pages' : undefined}
+      data-spread={spread || undefined}
       {...appearance}
     >
       <header ref={topbar} className={cn('rd-topbar rd-chrome', titlebarChrome())}>

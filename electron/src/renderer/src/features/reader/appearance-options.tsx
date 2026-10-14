@@ -1,6 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpenIcon, CheckIcon, ScrollTextIcon, type LucideIcon } from 'lucide-react';
+import {
+  BookOpenIcon,
+  CheckIcon,
+  Columns2Icon,
+  ScrollTextIcon,
+  type LucideIcon,
+} from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import {
   BACKGROUNDS,
@@ -18,6 +24,7 @@ import {
   type ReaderLayout,
   type ReaderSurface,
 } from './reader-appearance';
+import { SheetRow } from './reader-sheet';
 
 const LAYOUT_OPTIONS: Record<ReaderLayout, { label: string; icon: LucideIcon }> = {
   scroll: { label: 'reader.layout_scroll', icon: ScrollTextIcon },
@@ -177,9 +184,22 @@ export function AppearanceOptions() {
           })}
         </div>
         {appearance.layout === 'pages' && (
-          <p className="mt-2 px-1 text-xs leading-relaxed text-muted-foreground">
-            {t('reader.layout_pages_hint')}
-          </p>
+          <>
+            <p className="mt-2 px-1 text-xs leading-relaxed text-muted-foreground">
+              {t('reader.layout_pages_hint')}
+            </p>
+            <div className="-mx-1 mt-2">
+              <SheetRow
+                icon={Columns2Icon}
+                label={t('reader.layout_spread')}
+                detail={t('reader.layout_spread_hint')}
+                role="switch"
+                aria-checked={appearance.spread}
+                checked={appearance.spread}
+                onClick={() => setReaderAppearance({ spread: !appearance.spread })}
+              />
+            </div>
+          </>
         )}
       </SheetSection>
       <SheetSection id="reader-background" title={t('reader.background')}>

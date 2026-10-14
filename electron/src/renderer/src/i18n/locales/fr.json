@@ -4010,6 +4010,8 @@
     "tip_double_tap": "Touchez deux fois une phrase pour écouter à partir de là.",
     "tip_press": "Maintenez un mot appuyé pour changer sa prononciation.",
     "tip_right_click": "Faites un clic droit sur un mot pour changer sa prononciation.",
-    "tip_menu": "Signets, téléchargements pour l’écoute hors ligne et plus encore se trouvent dans le menu ⋯."
+    "tip_menu": "Signets, téléchargements pour l’écoute hors ligne et plus encore se trouvent dans le menu ⋯.",
+    "layout_spread": "Deux pages sur grand écran",
+    "layout_spread_hint": "Côte à côte, comme un livre ouvert, quand il y a la place."
   }
 }

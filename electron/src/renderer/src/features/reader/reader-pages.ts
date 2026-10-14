@@ -10,6 +10,14 @@ import { windowAround, type BlockWindow } from './reader-text';
 export const PAGE_GAP = 48;
 /** Share of the width, on each side, where a tap turns the page instead of reading. */
 export const EDGE_ZONE = 0.25;
+/** The same with two pages side by side, so most of the left page still reads on a tap. */
+export const SPREAD_EDGE_ZONE = 0.12;
+/** Two pages side by side need room for this many ems of text in each. */
+export const SPREAD_MIN_EM = 24;
+/** The reading column's side padding (1.25rem each side). */
+const COLUMN_PADDING = 40;
+/** Widest the reading column grows for two pages (`.rd-root[data-spread]`, 84.5rem). */
+export const SPREAD_MAX_PX = 1352;
 /** Pages from either end of the rendered window at which more text is rendered. */
 export const EDGE_PAGES = 2;
 /** Blocks rendered around the position: smaller than the scrolling window, as every
@@ -29,6 +37,25 @@ export const PAGE_RUBBER = 0.3;
 /** The window of blocks rendered around `index` in the paginated layout. */
 export function pagedWindow(index: number, total: number): BlockWindow {
   return windowAround(index, total, PAGED_BEFORE, PAGED_AFTER);
+}
+
+/** Whether two pages fit side by side on a screen `width` px wide at this text size. */
+export function spreadFits(width: number, textSize: number): boolean {
+  const room = Math.min(width, SPREAD_MAX_PX);
+  return room >= 2 * SPREAD_MIN_EM * textSize + PAGE_GAP + COLUMN_PADDING;
+}
+
+/**
+ * Column geometry for `columns` pages in a `width`-px viewport: whole-px columns, the run's
+ * width (at most the viewport's) and the pitch between screens (every page plus its gap).
+ */
+export function pageGeometry(
+  width: number,
+  columns: number,
+): { column: number; width: number; pitch: number } {
+  const n = columns >= 2 ? 2 : 1;
+  const column = Math.max(1, Math.floor((width - (n - 1) * PAGE_GAP) / n));
+  return { column, width: n * column + (n - 1) * PAGE_GAP, pitch: n * (column + PAGE_GAP) };
 }
 
 /** Page holding a horizontal offset (px from the start of the first column). */

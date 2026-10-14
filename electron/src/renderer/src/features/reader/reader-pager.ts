@@ -1,11 +1,12 @@
 /**
  * The paginated reading layout's DOM side: the article becomes a run of CSS
  * columns exactly one page wide (an integer number of px, so pages never drift)
- * inside a clipping viewport, and a page is shown by translating the run.
+ * inside a clipping viewport, and a screen (one page, or two side by side) is
+ * shown by translating the run.
  * Page geometry is read from line boxes relative to the article itself, so it
  * is the same mid-animation as at rest. Rules live in reader-pages.ts.
  */
-import { clampPage, dragOffset, PAGE_GAP, pageOfOffset } from './reader-pages';
+import { clampPage, dragOffset, PAGE_GAP, pageGeometry, pageOfOffset } from './reader-pages';
 
 /** Page-turn slide; reduced motion turns instantly. */
 const TURN = 'transform 300ms cubic-bezier(0.2, 0.75, 0.25, 1)';
@@ -14,6 +15,8 @@ export class Pager {
   page = 0;
   count = 1;
   pitch = PAGE_GAP + 1;
+  /** Pages side by side on a screen: `--rd-page-columns` on the viewport (1 or 2). */
+  columns = 1;
   private width = 0;
   private height = 0;
   private x: number | null = null;
@@ -28,14 +31,18 @@ export class Pager {
     const box = this.viewport.getBoundingClientRect();
     const width = Math.max(1, Math.floor(box.width));
     const height = Math.max(1, Math.floor(box.height));
-    if (width === this.width && height === this.height) return false;
+    const columns =
+      Number(getComputedStyle(this.viewport).getPropertyValue('--rd-page-columns')) >= 2 ? 2 : 1;
+    if (width === this.width && height === this.height && columns === this.columns) return false;
     this.width = width;
     this.height = height;
-    this.pitch = width + PAGE_GAP;
+    this.columns = columns;
+    const geometry = pageGeometry(width, columns);
+    this.pitch = geometry.pitch;
     const style = this.article.style;
-    style.width = `${width}px`;
+    style.width = `${geometry.width}px`;
     style.height = `${height}px`;
-    style.columnWidth = `${width}px`;
+    style.columnWidth = `${geometry.column}px`;
     style.columnGap = `${PAGE_GAP}px`;
     style.setProperty('--rd-page-h', `${height}px`);
     this.x = null;

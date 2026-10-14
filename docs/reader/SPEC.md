@@ -248,6 +248,14 @@ Client only. Text & appearance → **Layout**: *Scroll* (default, unchanged) or 
   so the controls never cover a line and fading them never reflows; on a phone held sideways the
   page keeps at least `min(60dvh, 20rem)` and runs under the dock. Headings avoid breaking after
   themselves, images never split and fit the page height. No `content-visibility`.
+- **Two pages (spread).** On by default ("Two pages on wide screens" under Layout, `spread` in the
+  same appearance key). When the reader is at least `2 × 24 em + 48 px + 40 px` wide at the
+  current text size (`spreadFits`, counting no more than the widened column), the root gets
+  `data-spread`: the column widens to 84.5rem and `--rd-page-columns: 2` makes the pager lay out
+  two whole-px columns per screen (`pageGeometry`; the gap between them is the page gap) and turn a
+  screen (two pages plus their gaps) at a time. The page number counts screens. The turn zones
+  shrink to the outer 12 % so most of the left page still reads on a tap. Rotating, resizing or
+  a new text size switch between one and two pages and reflow like any resize.
 - **Turning.** Taps on the outer quarters of the screen (previous/next), horizontal swipes (the page
   follows the finger, a 48 px drag or a quick flick turns), the wheel (one turn per gesture) and
   ←/→/↑/↓/Page Up/Page Down (in this layout ←/→ turn pages instead of moving by sentence). The middle

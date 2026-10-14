@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Double-tap any sentence to listen from there.",
     "tip_press": "Hold a word to change how it is pronounced.",
     "tip_right_click": "Right-click a word to change how it is pronounced.",
-    "tip_menu": "Bookmarks, downloads for offline listening and more are in the ⋯ menu."
+    "tip_menu": "Bookmarks, downloads for offline listening and more are in the ⋯ menu.",
+    "layout_spread": "Two pages on wide screens",
+    "layout_spread_hint": "Side by side, like an open book, when there is room."
   }
 }

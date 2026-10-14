@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Oradan dinlemek için bir cümleye iki kez dokunun.",
     "tip_press": "Telaffuzunu değiştirmek için bir kelimeye basılı tutun.",
     "tip_right_click": "Telaffuzunu değiştirmek için bir kelimeye sağ tıklayın.",
-    "tip_menu": "Yer imleri, çevrimdışı dinleme için indirmeler ve daha fazlası ⋯ menüsünde."
+    "tip_menu": "Yer imleri, çevrimdışı dinleme için indirmeler ve daha fazlası ⋯ menüsünde.",
+    "layout_spread": "Geniş ekranlarda iki sayfa",
+    "layout_spread_hint": "Yer olduğunda açık bir kitap gibi yan yana."
   }
 }

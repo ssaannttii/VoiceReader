@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Dubbeltryck på en mening för att lyssna därifrån.",
     "tip_press": "Håll ned ett ord för att ändra hur det uttalas.",
     "tip_right_click": "Högerklicka på ett ord för att ändra hur det uttalas.",
-    "tip_menu": "Bokmärken, nedladdningar för att lyssna offline och mer finns i menyn ⋯."
+    "tip_menu": "Bokmärken, nedladdningar för att lyssna offline och mer finns i menyn ⋯.",
+    "layout_spread": "Två sidor på breda skärmar",
+    "layout_spread_hint": "Sida vid sida, som en uppslagen bok, när det finns plats."
   }
 }

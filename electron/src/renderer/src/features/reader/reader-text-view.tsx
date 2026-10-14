@@ -39,6 +39,7 @@ import { Pager } from './reader-pager';
 import {
   charOffsets,
   clampPage,
+  EDGE_ZONE,
   estimatePagesBefore,
   growWindow,
   PAGED_MAX,
@@ -46,6 +47,7 @@ import {
   pageKeyDelta,
   percentRead,
   swipeTurn,
+  SPREAD_EDGE_ZONE,
   tapZone,
   windowEdge,
 } from './reader-pages';
@@ -922,7 +924,8 @@ export const ReaderTextView = memo(function ReaderTextView({
       if (swallowClick.current || window.getSelection()?.toString()) return;
       if ((event.target as Element | null)?.closest?.(INTERACTIVE)) return;
       const box = root.getBoundingClientRect();
-      const zone = tapZone(event.clientX - box.left, box.width);
+      const edge = pager.current?.columns === 2 ? SPREAD_EDGE_ZONE : EDGE_ZONE;
+      const zone = tapZone(event.clientX - box.left, box.width, edge);
       if (zone === 'centre') return;
       event.stopPropagation();
       userTurn(zone === 'next' ? 1 : -1);

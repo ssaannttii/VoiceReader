@@ -4010,6 +4010,8 @@
     "tip_double_tap": "Toque duas vezes em qualquer frase para ouvir a partir daí.",
     "tip_press": "Mantenha uma palavra premida para mudar a sua pronúncia.",
     "tip_right_click": "Clique com o botão direito numa palavra para mudar a sua pronúncia.",
-    "tip_menu": "Marcadores, transferências para ouvir offline e mais estão no menu ⋯."
+    "tip_menu": "Marcadores, transferências para ouvir offline e mais estão no menu ⋯.",
+    "layout_spread": "Duas páginas em ecrãs largos",
+    "layout_spread_hint": "Lado a lado, como um livro aberto, quando há espaço."
   }
 }

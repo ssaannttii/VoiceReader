@@ -4008,6 +4008,8 @@
     "tip_double_tap": "Dubbeltik op een zin om vanaf daar te luisteren.",
     "tip_press": "Houd een woord ingedrukt om de uitspraak te wijzigen.",
     "tip_right_click": "Klik met de rechtermuisknop op een woord om de uitspraak te wijzigen.",
-    "tip_menu": "Bladwijzers, downloads om offline te luisteren en meer vind je in het menu ⋯."
+    "tip_menu": "Bladwijzers, downloads om offline te luisteren en meer vind je in het menu ⋯.",
+    "layout_spread": "Twee pagina’s op brede schermen",
+    "layout_spread_hint": "Naast elkaar, als een opengeslagen boek, als er ruimte is."
   }
 }

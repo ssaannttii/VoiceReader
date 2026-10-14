@@ -6,7 +6,9 @@ import {
   EDGE_PAGES,
   estimatePagesBefore,
   growWindow,
+  PAGE_GAP,
   PAGE_RUBBER,
+  pageGeometry,
   PAGED_AFTER,
   PAGED_BEFORE,
   PAGED_EXTEND,
@@ -15,6 +17,9 @@ import {
   pageKeyDelta,
   pageOfOffset,
   percentRead,
+  SPREAD_EDGE_ZONE,
+  SPREAD_MAX_PX,
+  spreadFits,
   swipeTurn,
   SWIPE_TURN_PX,
   tapZone,
@@ -178,5 +183,42 @@ describe('page numbers', () => {
     expect(percentRead(374, 1000)).toBe(37);
     expect(percentRead(1000, 1000)).toBe(100);
     expect(percentRead(5, 0)).toBe(0);
+  });
+});
+
+describe('two pages side by side', () => {
+  it('fit when each page holds a comfortable line at this text size', () => {
+    // 2 × 24 em × 20 px + 48 px gap + 40 px padding = 1048 px.
+    expect(spreadFits(1048, 20)).toBe(true);
+    expect(spreadFits(1047, 20)).toBe(false);
+    // A phone on its side or a portrait tablet keeps one page.
+    expect(spreadFits(915, 20)).toBe(false);
+    // Larger text needs more room.
+    expect(spreadFits(1200, 26)).toBe(false);
+  });
+  it('never count on more room than the widened reading column', () => {
+    expect(spreadFits(3000, 27)).toBe(2 * 24 * 27 + PAGE_GAP + 40 <= SPREAD_MAX_PX);
+    expect(spreadFits(3000, 30)).toBe(false);
+  });
+  it('lay out whole-px pages and turn a whole screen at a time', () => {
+    expect(pageGeometry(600, 1)).toEqual({ column: 600, width: 600, pitch: 600 + PAGE_GAP });
+    // (1001 − 48) / 2 = 476.5 → 476 px pages; the run is 1000 px and a screen is two pages.
+    expect(pageGeometry(1001, 2)).toEqual({
+      column: 476,
+      width: 1000,
+      pitch: 2 * (476 + PAGE_GAP),
+    });
+  });
+  it('find the screen holding a page of the second column', () => {
+    const { column, pitch } = pageGeometry(1000, 2);
+    // Columns 0–1 are screen 0, columns 2–3 screen 1.
+    expect(pageOfOffset(column + PAGE_GAP, pitch)).toBe(0);
+    expect(pageOfOffset(2 * (column + PAGE_GAP), pitch)).toBe(1);
+    expect(pageOfOffset(3 * (column + PAGE_GAP), pitch)).toBe(1);
+  });
+  it('keep most of the left page for reading taps', () => {
+    expect(tapZone(1000 * 0.2, 1000, SPREAD_EDGE_ZONE)).toBe('centre');
+    expect(tapZone(1000 * 0.1, 1000, SPREAD_EDGE_ZONE)).toBe('previous');
+    expect(tapZone(1000 * 0.95, 1000, SPREAD_EDGE_ZONE)).toBe('next');
   });
 });
